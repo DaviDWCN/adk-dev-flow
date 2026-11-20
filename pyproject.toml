@@ -1,6 +1,12 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "adk-dev-flow"
-version = "0.1.0"
+version = "0.2.0"
+description = "Deterministic AI-assisted Python development workflow powered by Google ADK, FastMCP, Git Worktrees, and GitLab."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "google-adk>=2.0.0",
@@ -8,3 +14,27 @@ dependencies = [
     "python-gitlab>=4.9.0",
     "pydantic>=2.7.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+adk-dev-flow = "adk_dev_flow.mcp_server:main"
+adk-workflow-guard = "adk_dev_flow.guard:main"
+adk-dev-flow-init = "adk_dev_flow.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adk_dev_flow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100

@@ -1,0 +1,15 @@
+# ADK workflow runtime state & isolated worktrees
+.adk/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

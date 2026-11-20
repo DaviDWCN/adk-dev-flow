@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codebuddy/hooks/workflow_guard.py"
+            "command": "adk-workflow-guard"
           }
         ]
       }
