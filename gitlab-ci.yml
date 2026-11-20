@@ -1,0 +1,20 @@
+stages:
+  - lint
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+ruff_check:
+  stage: lint
+  image: python:3.11-slim
+  script:
+    - pip install ruff
+    - ruff check .
+
+pytest_gate:
+  stage: test
+  image: python:3.11-slim
+  script:
+    - pip install -e ".[dev]" pytest pytest-cov
+    - pytest --cov=src --cov-fail-under=80 -q

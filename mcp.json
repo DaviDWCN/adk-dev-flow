@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "adk-dev-flow": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "tools/adk_dev_flow",
+        "python",
+        "mcp_server.py"
+      ],
+      "env": {
+        "REPO_ROOT": ".",
+        "GITLAB_URL": "${GITLAB_URL}",
+        "GITLAB_TOKEN": "${GITLAB_TOKEN}",
+        "GITLAB_PROJECT_ID": "${GITLAB_PROJECT_ID}",
+        "GITLAB_SSL_VERIFY": "false"
+      }
+    }
+  }
+}
