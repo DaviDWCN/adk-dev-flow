@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import ast
-from pathlib import PurePosixPath
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+import re
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+import yaml
 
 from adk_dev_flow.guard import is_path_under, is_protected_path, strip_dot_slash
 from adk_dev_flow.state_store import RunStatus, StateStore
@@ -95,8 +99,183 @@ class SpecContract(BaseModel):
 
         return self
 
+    def to_okf_markdown(self) -> str:
+        """Serialize this SpecContract into an OKF-compliant Markdown document with YAML frontmatter."""
+        meta: dict[str, Any] = {
+            "type": "DevSpec",
+            "title": self.title,
+            "status": "active",
+            "issue_iid": self.issue_iid,
+            "target_branch": self.target_branch,
+            "require_tdd_red": self.require_tdd_red,
+            "extra_dependencies": self.extra_dependencies,
+            "allowed_paths": self.allowed_paths,
+            "acceptance_test_path": self.acceptance_test_path,
+            "tasks": [t.model_dump() for t in self.tasks],
+        }
+        yaml_header = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
+
+        tasks_md = "\n\n".join(
+            f"### Task {t.id}: {t.title}\n{t.description}\n- **Target Files**: {', '.join(t.target_files)}"
+            for t in self.tasks
+        )
+
+        content = (
+            f"---\n"
+            f"{yaml_header}\n"
+            f"---\n\n"
+            f"# {self.title}\n\n"
+            f"## Summary\n"
+            f"{self.summary}\n\n"
+            f"## Tasks Breakdown\n\n"
+            f"{tasks_md}\n\n"
+            f"## Locked Acceptance Test (`{self.acceptance_test_path}`)\n\n"
+            f"```python\n"
+            f"{self.acceptance_test_code.strip()}\n"
+            f"```\n"
+        )
+        return content
+
+    @classmethod
+    def from_okf_markdown(cls, text_or_path: str | Path) -> SpecContract:
+        """Parse an OKF-compliant Markdown document into a validated SpecContract."""
+        if isinstance(text_or_path, Path):
+            raw_text = text_or_path.read_text(encoding="utf-8")
+        elif "\n" not in str(text_or_path) and Path(str(text_or_path)).is_file():
+            raw_text = Path(str(text_or_path)).read_text(encoding="utf-8")
+        else:
+            raw_text = str(text_or_path)
+
+        match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)(.*)$", raw_text, re.DOTALL)
+        if not match:
+            raise ValueError("无效的 OKF 文档：缺少以 '---' 包裹的 YAML Frontmatter")
+
+        frontmatter_str, body_str = match.group(1), match.group(2)
+        try:
+            meta = yaml.safe_load(frontmatter_str) or {}
+        except Exception as exc:
+            raise ValueError(f"YAML Frontmatter 解析失败: {exc}") from exc
+
+        if not isinstance(meta, dict):
+            raise ValueError("YAML Frontmatter 必须为字典对象")
+
+        doc_type = meta.get("type")
+        if doc_type != "DevSpec":
+            raise ValueError(f"无效的 OKF 概念类型: expected 'DevSpec', got '{doc_type}'")
+
+        # Extract acceptance test code from code blocks in markdown body
+        code_match = re.search(r"```(?:python|py)?\s*\n(.*?)\n```", body_str, re.DOTALL)
+        if code_match:
+            acceptance_test_code = code_match.group(1).strip()
+        else:
+            acceptance_test_code = meta.get("acceptance_test_code", "")
+
+        if not acceptance_test_code:
+            raise ValueError("OKF 文档中未找到有效的 pytest 验收测试代码块 (```python ... ```)")
+
+        # Summary can come from meta or extracted from body
+        summary = meta.get("summary")
+        if not summary:
+            sum_match = re.search(r"## Summary\s*\n(.*?)(?=\n##|\Z)", body_str, re.DOTALL)
+            summary = sum_match.group(1).strip() if sum_match else meta.get("title", "")
+
+        tasks_raw = meta.get("tasks") or []
+        tasks = [AtomicTask.model_validate(t) for t in tasks_raw]
+        if not tasks:
+            raise ValueError("OKF 规约中缺少任务列表 (tasks)")
+
+        return cls(
+            issue_iid=meta.get("issue_iid"),
+            title=meta.get("title") or "Untitled OKF Spec",
+            summary=summary,
+            target_branch=meta.get("target_branch", "main"),
+            allowed_paths=meta.get("allowed_paths", []),
+            acceptance_test_path=meta.get("acceptance_test_path", ""),
+            acceptance_test_code=acceptance_test_code,
+            require_tdd_red=meta.get("require_tdd_red", True),
+            extra_dependencies=meta.get("extra_dependencies", []),
+            tasks=tasks,
+        )
+
 
 class ReviewVerdict(BaseModel):
     approved: bool
     blocking_issues: list[str] = Field(default_factory=list)
     summary: str
+
+    def to_okf_markdown(
+        self,
+        run_id: str,
+        provenance: dict[str, Any] | None = None,
+        raw_report: str | None = None,
+    ) -> str:
+        """Serialize ReviewVerdict into an OKF-compliant audit document."""
+        meta: dict[str, Any] = {
+            "type": "ReviewVerdict",
+            "run_id": run_id,
+            "approved": self.approved,
+            "verified": (
+                "process:acceptance_gate_passed"
+                if self.approved
+                else "process:acceptance_gate_failed"
+            ),
+            "status": "passed" if self.approved else "rejected",
+            "blocking_issues": self.blocking_issues,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provenance": provenance or {},
+        }
+        yaml_header = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
+
+        issues_md = (
+            "\n".join(f"- {iss}" for iss in self.blocking_issues)
+            if self.blocking_issues
+            else "- 无阻碍性问题 (All checks passed)"
+        )
+
+        content = (
+            f"---\n"
+            f"{yaml_header}\n"
+            f"---\n\n"
+            f"# Critic Review Verdict: {'APPROVED' if self.approved else 'REJECTED'}\n\n"
+            f"## Summary\n"
+            f"{self.summary}\n\n"
+            f"## Blocking Issues\n"
+            f"{issues_md}\n\n"
+        )
+        if raw_report:
+            content += f"## Detailed Critic Report\n\n{raw_report.strip()}\n"
+        return content
+
+    @classmethod
+    def from_okf_markdown(cls, text_or_path: str | Path) -> ReviewVerdict:
+        """Parse an OKF-compliant ReviewVerdict document."""
+        if isinstance(text_or_path, Path):
+            raw_text = text_or_path.read_text(encoding="utf-8")
+        elif "\n" not in str(text_or_path) and Path(str(text_or_path)).is_file():
+            raw_text = Path(str(text_or_path)).read_text(encoding="utf-8")
+        else:
+            raw_text = str(text_or_path)
+
+        match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)(.*)$", raw_text, re.DOTALL)
+        if not match:
+            raise ValueError("无效的 OKF 文档：缺少以 '---' 包裹的 YAML Frontmatter")
+
+        frontmatter_str, body_str = match.group(1), match.group(2)
+        try:
+            meta = yaml.safe_load(frontmatter_str) or {}
+        except Exception as exc:
+            raise ValueError(f"YAML Frontmatter 解析失败: {exc}") from exc
+
+        if not isinstance(meta, dict) or meta.get("type") != "ReviewVerdict":
+            raise ValueError(f"无效的 OKF 概念类型: expected 'ReviewVerdict'")
+
+        summary = meta.get("summary")
+        if not summary:
+            sum_match = re.search(r"## Summary\s*\n(.*?)(?=\n##|\Z)", body_str, re.DOTALL)
+            summary = sum_match.group(1).strip() if sum_match else ""
+
+        return cls(
+            approved=bool(meta.get("approved")),
+            blocking_issues=meta.get("blocking_issues") or [],
+            summary=summary or "Parsed from OKF",
+        )

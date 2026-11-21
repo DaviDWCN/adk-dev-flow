@@ -84,6 +84,18 @@ class FlowService:
             "next_step": "Spec 已冻结并通过静态校验，可调用 flow_dispatch 触发 ADK 后台隔离执行与验收。",
         }
 
+    def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
+        p = Path(spec_file_path)
+        if not p.is_absolute():
+            p = (self.repo_root / p).resolve()
+        if not p.is_file():
+            return {"error": f"规约文件未找到: {spec_file_path} (resolved: {p})"}
+        try:
+            spec = SpecContract.from_okf_markdown(p)
+        except Exception as exc:
+            return {"error": f"OKF 规约文件解析失败: {exc}"}
+        return self.flow_lock_spec(run_id=run_id, spec=spec)
+
     async def flow_dispatch(self, run_id: str) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if not run:
@@ -291,6 +303,11 @@ def create_mcp_server(
     def flow_lock_spec(run_id: str, spec: SpecContract) -> dict[str, Any]:
         """静态校验并冻结用户已确认的结构化 Spec 与验收测试用例。"""
         return service.flow_lock_spec(run_id=run_id, spec=spec)
+
+    @mcp.tool()
+    def flow_lock_spec_from_file(run_id: str, spec_file_path: str) -> dict[str, Any]:
+        """读取 OKF (Open Knowledge Format) Markdown 规约文件并冻结锁定该运行轮次。"""
+        return service.flow_lock_spec_from_file(run_id=run_id, spec_file_path=spec_file_path)
 
     @mcp.tool()
     async def flow_dispatch(run_id: str) -> dict[str, Any]:

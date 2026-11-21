@@ -68,6 +68,26 @@ def _format_critic_note(run_id: str, verdict: ReviewVerdict, attempt: int) -> st
     return "\n".join(lines)
 
 
+def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
+    rules_text: list[str] = []
+    seen: set[str] = set()
+    for base in (worktree, repo_root):
+        rules_dir = base / ".adk" / "knowledge" / "rules"
+        if rules_dir.is_dir():
+            for rule_file in sorted(rules_dir.glob("*.md")):
+                if rule_file.name not in seen:
+                    seen.add(rule_file.name)
+                    try:
+                        content = rule_file.read_text(encoding="utf-8").strip()
+                        if content:
+                            rules_text.append(f"### {rule_file.stem}\n{content}")
+                    except Exception:
+                        pass
+    if not rules_text:
+        return ""
+    return "\n\n项目工程规约 (OKF Rules):\n" + "\n\n".join(rules_text)
+
+
 def build_dev_workflow(
     repo_root: Path,
     store: StateStore,
@@ -237,6 +257,10 @@ def build_dev_workflow(
                 f"严禁修改或删除验收测试 `{spec.acceptance_test_path}`。\n\n"
                 f"失败日志:\n```\n{str(node_input.get('last_error_log', ''))[-3000:]}\n```"
             )
+
+        okf_rules = _load_okf_rules(worktree, repo_root)
+        if okf_rules:
+            prompt += okf_rules
 
         provider = get_worker_provider()
         result = await provider.run_worker(
@@ -452,6 +476,34 @@ def build_dev_workflow(
 
         mr_url = ""
         mr_iid = None
+
+        # Save and commit OKF review audit document into worktree
+        audit_file_rel = f".adk/audit/review_{run_id}.md"
+        try:
+            audit_file = worktree / ".adk" / "audit" / f"review_{run_id}.md"
+            audit_file.parent.mkdir(parents=True, exist_ok=True)
+            provenance = {
+                "base_sha": run.get("base_sha") or "",
+                "locked_test_commit_sha": run.get("locked_test_commit_sha") or "",
+                "attempt": attempt,
+                "generator": "adk-dev-flow:critic",
+            }
+            audit_content = verdict.to_okf_markdown(
+                run_id=run_id,
+                provenance=provenance,
+                raw_report=_format_critic_note(run_id, verdict, attempt),
+            )
+            audit_file.write_text(audit_content, encoding="utf-8")
+            add_res = await _git(["add", "-f", "--", audit_file_rel], worktree)
+            if add_res.returncode == 0:
+                await _git(
+                    ["commit", "-m", f"docs(audit): append OKF review verdict for {run_id}"],
+                    worktree,
+                )
+        except Exception:
+            # Audit file committing failure should not fail the overall pipeline
+            pass
+
         if gl.enabled:
             push_res = await _git(["push", "-u", "origin", branch], worktree)
             if push_res.returncode != 0:

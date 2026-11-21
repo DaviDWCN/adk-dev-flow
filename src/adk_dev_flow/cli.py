@@ -47,6 +47,9 @@ def init_target_repo(
         ("SKILL.md", root / ".codebuddy" / "skills" / "deterministic-dev" / "SKILL.md"),
         ("mcp.json", root / ".codebuddy" / "mcp.json"),
         ("settings.json", root / ".codebuddy" / "settings.json"),
+        ("spec_template.md", root / ".adk" / "specs" / "template.md"),
+        ("knowledge_index.md", root / ".adk" / "knowledge" / "index.md"),
+        ("engineering_rules.md", root / ".adk" / "knowledge" / "rules" / "engineering_rules.md"),
     ]
     if include_ci:
         mapping.append(("gitlab-ci.yml", root / ".gitlab-ci.yml"))
