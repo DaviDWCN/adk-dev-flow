@@ -28,6 +28,7 @@ dev = [
 adk-dev-flow = "adk_dev_flow.mcp_server:main"
 adk-workflow-guard = "adk_dev_flow.guard:main"
 adk-dev-flow-init = "adk_dev_flow.cli:main"
+adk-dev-flow-dashboard = "adk_dev_flow.dashboard:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/adk_dev_flow"]

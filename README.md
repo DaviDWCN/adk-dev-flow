@@ -8,6 +8,9 @@
 
 ## 核心特性
 
+- 🎨 **像素工坊卡通工位动态监控看板（Generative UI & MCP App）**：
+  - 结合 Factorio / Peon / Pixel Agent 理念，将流水线收敛为 6 大工位动画（架构师、施工工兵、TDD 质检员、独立 Critic、交付卡车、熔断警报）。
+  - 支持 Google Antigravity 原生 Aux Pane 侧边栏/对话内联渲染 (`flow_dashboard`)、自动化 SSE 流式推流与全屏独立 Web 仪表盘 (`adk-dev-flow-dashboard`)。
 - 🐙/🦊 **GitLab & GitHub 双托管平台自适应**：
   - 自动识别当前仓库 remote（`github.com` vs `gitlab`）或环境变量，无缝适配拉取 Issue、创建 Draft PR/MR、追加 Critic 审查评论及解除 Draft。
   - 完全抽象的 `BaseGitForge` 架构，支持离线纯本地模式（零平台依赖）。
@@ -40,8 +43,9 @@ uv tool install git+https://github.com/DaviDWCN/adk-dev-flow.git
 uv pip install -e ".[dev]"
 ```
 
-安装后提供 3 个 CLI 命令：
+安装后提供 4 个 CLI 命令：
 - `adk-dev-flow`：FastMCP Server 入口
+- `adk-dev-flow-dashboard`：像素工坊实时动画 Web 监控看板与 SSE 推流服务
 - `adk-workflow-guard`：CodeBuddy `PreToolUse` 安全拦截钩子
 - `adk-dev-flow-init`：向目标业务仓库一键脚手架薄配置、OKF 规约模版与知识库结构
 
@@ -79,6 +83,7 @@ adk-dev-flow-init . --with-ci
 | `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
 | `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
 | `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab MR 链接 |
+| `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
 | `flow_resume` | 异步 | 对处于 `ESCALATED` 熔断的流水线注入人工指令，在原隔离 Worktree 中恢复运行 |
 | `flow_active_runs` | 同步 | 查询当前并发进行的所有活跃流水线状态 |
 | `flow_list` | 同步 | 查询历史流水线运行记录（跨会话找回 `run_id`） |

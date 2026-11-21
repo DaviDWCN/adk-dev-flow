@@ -204,6 +204,7 @@ def build_dev_workflow(
             locked_test_commit_sha=locked_test_commit_sha,
             attempt=0,
             last_error_sig="",
+            last_error_log=f"[Architect] 📐 规约与测试用例已锁定，Worktree: {worktree.name}",
         )
         return {
             "run_id": run_id,
@@ -231,7 +232,12 @@ def build_dev_workflow(
         )
 
         if attempt == 0 and hint:
-            store.update_run(run_id, status="REPAIRING", attempt=0)
+            store.update_run(
+                run_id,
+                status="REPAIRING",
+                attempt=0,
+                last_error_log=f"[Worker] 🔨 结合人工指令进入定向修复: {hint[:60]}",
+            )
             prev_err = str(node_input.get("last_error_log") or "")[-2000:]
             prompt = (
                 f"用户已介入补充修复指令，请严格在白名单 `{spec.allowed_paths}` 内修复代码，"
@@ -243,6 +249,12 @@ def build_dev_workflow(
             # Consume human_hint once so subsequent automatic retries focus on fresh errors.
             node_input["human_hint"] = ""
         elif attempt == 0:
+            store.update_run(
+                run_id,
+                status="RUNNING",
+                attempt=0,
+                last_error_log=f"[Worker] 🔨 工兵在隔离沙箱中施工: {spec.title}",
+            )
             prompt = (
                 f"请严格依据以下冻结 Spec 实现功能，严禁修改锁定的验收测试文件 "
                 f"`{spec.acceptance_test_path}`，且仅允许修改白名单路径 {spec.allowed_paths}。\n\n"
@@ -250,7 +262,12 @@ def build_dev_workflow(
                 f"完成后请确保代码检查与验收测试 `{spec.acceptance_test_path}` 全部通过。"
             )
         else:
-            store.update_run(run_id, status="REPAIRING", attempt=attempt)
+            store.update_run(
+                run_id,
+                status="REPAIRING",
+                attempt=attempt,
+                last_error_log=f"[Worker] 🔨 正在执行第 {attempt}/{MAX_REPAIR_ATTEMPTS} 轮修复",
+            )
             prompt = (
                 f"第 {attempt}/{MAX_REPAIR_ATTEMPTS} 轮定向修复。上次验收校验失败，"
                 f"请仅修复白名单 `{spec.allowed_paths}` 内的业务代码使校验通过，"
@@ -277,6 +294,13 @@ def build_dev_workflow(
         spec = SpecContract.model_validate(node_input["spec"])
         worktree = Path(node_input["worktree"])
         attempt = int(node_input["attempt"])
+
+        store.update_run(
+            run_id,
+            status="VERIFYING",
+            attempt=attempt,
+            last_error_log=f"[Tester] 🧪 正在对工作区执行审计与 Pytest 验收门禁 (轮次: {attempt})",
+        )
 
         # Step 1: Unbypassable physical Git & SHA-256 audit BEFORE running any tests.
         audit = await audit_worktree_changes(
@@ -390,6 +414,13 @@ def build_dev_workflow(
         worktree = Path(node_input["worktree"])
         spec = SpecContract.model_validate(node_input["spec"])
         base_sha = str(node_input.get("base_sha") or "HEAD~1")
+
+        store.update_run(
+            run_id,
+            status="REVIEWING",
+            attempt=int(node_input.get("attempt") or 0),
+            last_error_log="[Critic] 🧐 独立盲审中：正在对 Diff 变更进行架构与安全审查",
+        )
 
         status_res = await _git(["status", "--porcelain"], worktree)
         if status_res.returncode != 0:
@@ -538,6 +569,7 @@ def build_dev_workflow(
             mr_iid=mr_iid,
             mr_url=mr_url,
             review_json=verdict.model_dump_json(),
+            last_error_log=f"[MR] 🚀 验收与审查全部通过！已交付 {gl.platform_name.upper()} PR/MR: {mr_url or branch}",
         )
         return {
             "run_id": run_id,
@@ -549,7 +581,12 @@ def build_dev_workflow(
 
     async def escalate_node(node_input: dict[str, Any]) -> dict[str, Any]:
         reason = node_input.get("escalation_reason", "验证失败")
-        store.update_run(run_id, status="ESCALATED")
+        err_log = str(node_input.get("last_error_log", ""))[-1000:]
+        store.update_run(
+            run_id,
+            status="ESCALATED",
+            last_error_log=f"[Alert] 🚨 流水线熔断: {reason}\n{err_log}",
+        )
         return {
             "run_id": run_id,
             "status": "ESCALATED",

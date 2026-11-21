@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADK 像素工坊 · 研发流水线实时监控</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes hammer {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(-45deg); }
+    }
+    @keyframes bounce-subtle {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.3; transform: scale(0.96); }
+      50% { opacity: 0.9; transform: scale(1.08); }
+    }
+    @keyframes scan {
+      0% { transform: translateY(-10px); opacity: 0; }
+      50% { opacity: 0.85; }
+      100% { transform: translateY(22px); opacity: 0; }
+    }
+    @keyframes conveyor {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: -20; }
+    }
+    @keyframes alarm-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .animate-hammer {
+      animation: hammer 0.4s ease-in-out infinite;
+      transform-origin: 80% 80%;
+    }
+    .animate-bounce-subtle {
+      animation: bounce-subtle 1.2s ease-in-out infinite;
+    }
+    .animate-scan {
+      animation: scan 1.5s ease-in-out infinite;
+    }
+    .animate-alarm-spin {
+      animation: alarm-spin 2s linear infinite;
+      transform-origin: 50% 50%;
+    }
+    .conveyor-belt {
+      stroke-dasharray: 4, 4;
+      animation: conveyor 0.8s linear infinite;
+    }
+    .station-active {
+      transform: scale(1.06) translateY(-2px);
+      filter: drop-shadow(0 4px 12px rgba(56, 189, 248, 0.25));
+    }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground,#0f172a)] antialiased p-0 m-0 select-none font-sans">
+  <div class="p-3 max-w-4xl mx-auto space-y-3">
+    <!-- Header Controls & Status -->
+    <div class="flex items-center justify-between pb-2 border-b border-[var(--card-border,rgba(0,0,0,0.1))] text-xs">
+      <div class="flex items-center gap-2">
+        <span id="live-indicator" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+        <span class="font-bold text-sm tracking-tight">ADK 像素工坊 · 研发流水线工位</span>
+        <span id="state-badge" class="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30">
+          RUNNING (工兵搬砖中)
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <select id="run-selector" onchange="switchRun(this.value)" class="hidden text-xs bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] rounded px-2 py-1 text-[var(--foreground,#0f172a)] font-mono">
+          <option value="">加载运行轮次...</option>
+        </select>
+        <button onclick="toggleAutoPlay()" id="btn-autoplay" class="px-2.5 py-1 rounded bg-[var(--primary,#2563eb)] text-[var(--primary-foreground,#ffffff)] text-xs font-medium hover:opacity-90 transition">
+          ▶ 自动演示流水线
+        </button>
+      </div>
+    </div>
+
+    <!-- The Cartoon Construction Workshop Canvas -->
+    <div class="relative w-full h-56 bg-gradient-to-b from-[var(--card,#f8fafc)] to-[var(--background,#f1f5f9)] rounded-xl border border-[var(--card-border,rgba(0,0,0,0.1))] overflow-hidden shadow-inner flex flex-col justify-between p-3.5">
+      
+      <!-- Ceiling Lights & Overhead Suspension Wires -->
+      <div class="absolute top-0 left-0 right-0 h-4 border-b border-dashed border-[var(--border,rgba(0,0,0,0.1))] flex justify-around px-8 opacity-40 pointer-events-none">
+        <div class="w-1 h-3 bg-yellow-400 shadow-[0_0_6px_yellow]"></div>
+        <div class="w-1 h-2 bg-yellow-400"></div>
+        <div class="w-1 h-3.5 bg-yellow-400 shadow-[0_0_6px_yellow]"></div>
+        <div class="w-1 h-2 bg-yellow-400"></div>
+        <div class="w-1 h-3 bg-yellow-400 shadow-[0_0_6px_yellow]"></div>
+      </div>
+
+      <!-- Workshop Stages / Animated Workers -->
+      <div class="grid grid-cols-6 gap-2 h-full items-end pb-3 relative z-10 pt-2">
+        
+        <!-- Station 1: 架构师 (Architect) -->
+        <div id="st-spec" class="station flex flex-col items-center justify-end transition-all duration-300 opacity-50 scale-95 cursor-pointer" onclick="setStage('SPEC')">
+          <div class="text-[10px] font-medium text-[var(--muted-foreground,#64748b)] mb-1">1. 蓝图规约</div>
+          <div class="relative w-12 h-16 flex items-center justify-center">
+            <!-- Architect Avatar -->
+            <svg viewBox="0 0 40 45" class="w-10 h-12">
+              <ellipse cx="20" cy="11" rx="9" ry="5" fill="#3b82f6"/>
+              <path d="M12 11 Q20 4 28 11" fill="#2563eb"/>
+              <circle cx="20" cy="17" r="7" fill="#fde047"/>
+              <circle cx="18" cy="16" r="1.2" fill="#1e293b"/>
+              <circle cx="22" cy="16" r="1.2" fill="#1e293b"/>
+              <rect x="13" y="24" width="14" height="15" rx="3" fill="#1e40af"/>
+              <rect x="23" y="24" width="4" height="12" rx="1" fill="#e0f2fe" transform="rotate(25 23 24)"/>
+            </svg>
+            <div id="bubble-spec" class="hidden absolute -top-5 px-1.5 py-0.5 rounded text-[9px] bg-blue-500 text-white font-mono shadow whitespace-nowrap">
+              OKF 契约
+            </div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1">架构师</span>
+        </div>
+
+        <!-- Station 2: 工兵敲代码 (Worker / Builder) -->
+        <div id="st-work" class="station station-active flex flex-col items-center justify-end transition-all duration-300 opacity-100 cursor-pointer" onclick="setStage('WORK')">
+          <div class="text-[10px] font-medium text-amber-500 mb-1">2. 工兵编码</div>
+          <div class="relative w-14 h-16 flex items-center justify-center">
+            <!-- Builder Avatar with Hammer -->
+            <svg viewBox="0 0 50 45" class="w-12 h-12">
+              <ellipse cx="22" cy="10" rx="9" ry="4" fill="#fbbf24"/>
+              <path d="M14 10 Q22 4 30 10" fill="#f59e0b"/>
+              <circle cx="22" cy="16" r="6.5" fill="#fed7aa"/>
+              <circle cx="20" cy="15" r="1" fill="#334155"/>
+              <circle cx="24" cy="15" r="1" fill="#334155"/>
+              <rect x="15" y="22" width="14" height="14" rx="2" fill="#ea580c"/>
+              <rect x="17" y="24" width="2" height="12" fill="#fef08a"/>
+              <rect x="25" y="24" width="2" height="12" fill="#fef08a"/>
+              <!-- Hammer Arm -->
+              <g id="hammer-arm" class="animate-hammer">
+                <line x1="28" y1="23" x2="36" y2="18" stroke="#fed7aa" stroke-width="3" stroke-linecap="round"/>
+                <line x1="34" y1="14" x2="42" y2="24" stroke="#78350f" stroke-width="2.5"/>
+                <rect x="36" y="11" width="8" height="5" rx="1" fill="#94a3b8"/>
+              </g>
+              <rect x="32" y="27" width="10" height="9" rx="1.5" fill="#38bdf8" opacity="0.9"/>
+            </svg>
+            <div id="sparks" class="absolute top-1 right-1 text-xs animate-ping">✨</div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1 text-amber-500">施工工兵</span>
+        </div>
+
+        <!-- Station 3: TDD 门禁测试员 (Tester) -->
+        <div id="st-test" class="station flex flex-col items-center justify-end transition-all duration-300 opacity-50 scale-95 cursor-pointer" onclick="setStage('TEST')">
+          <div class="text-[10px] font-medium text-[var(--muted-foreground,#64748b)] mb-1">3. 验收门禁</div>
+          <div class="relative w-12 h-16 flex items-center justify-center">
+            <!-- Tester Avatar -->
+            <svg viewBox="0 0 40 45" class="w-10 h-12">
+              <ellipse cx="20" cy="10" rx="8" ry="4" fill="#10b981"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fed7aa"/>
+              <rect x="15" y="13" width="10" height="4" rx="2" fill="#0284c7" opacity="0.8"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#f8fafc"/>
+              <rect id="test-tube" x="26" y="18" width="3.5" height="11" rx="1.5" fill="#ef4444"/>
+            </svg>
+            <div id="test-signal" class="absolute -top-4 w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-[8px] font-bold text-emerald-400">
+              ✔
+            </div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1">TDD 质检</span>
+        </div>
+
+        <!-- Station 4: 独立 Critic 审查官 (Critic) -->
+        <div id="st-critic" class="station flex flex-col items-center justify-end transition-all duration-300 opacity-50 scale-95 cursor-pointer" onclick="setStage('CRITIC')">
+          <div class="text-[10px] font-medium text-[var(--muted-foreground,#64748b)] mb-1">4. Critic 审查</div>
+          <div class="relative w-12 h-16 flex items-center justify-center">
+            <!-- Inspector Avatar -->
+            <svg viewBox="0 0 40 45" class="w-10 h-12">
+              <ellipse cx="20" cy="9" rx="10" ry="3" fill="#475569"/>
+              <rect x="14" y="5" width="12" height="5" fill="#334155"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fde047"/>
+              <circle cx="18" cy="16" r="1.5" fill="#1e293b"/>
+              <circle cx="22" cy="16" r="1.5" fill="#1e293b"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#1e293b"/>
+              <circle cx="27" cy="20" r="4.5" stroke="#f59e0b" stroke-width="2" fill="none"/>
+              <line x1="30" y1="23" x2="35" y2="28" stroke="#78350f" stroke-width="2"/>
+            </svg>
+            <div id="critic-scan" class="hidden absolute top-4 right-0 w-8 h-0.5 bg-cyan-400 animate-scan shadow-[0_0_8px_cyan]"></div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1">独立 Critic</span>
+        </div>
+
+        <!-- Station 5: 出库卡车 / MR 发布 (MR Truck) -->
+        <div id="st-mr" class="station flex flex-col items-center justify-end transition-all duration-300 opacity-50 scale-95 cursor-pointer" onclick="setStage('MR')">
+          <div class="text-[10px] font-medium text-[var(--muted-foreground,#64748b)] mb-1">5. MR 交付</div>
+          <div class="relative w-14 h-16 flex items-center justify-center">
+            <!-- Delivery Truck -->
+            <svg viewBox="0 0 50 40" class="w-12 h-11">
+              <rect x="6" y="14" width="16" height="16" rx="2" fill="#6366f1"/>
+              <rect x="8" y="16" width="6" height="6" rx="1" fill="#c7d2fe"/>
+              <rect x="22" y="19" width="20" height="11" rx="1" fill="#4338ca"/>
+              <rect x="25" y="10" width="14" height="10" rx="1.5" fill="#fbbf24" stroke="#d97706" stroke-width="1"/>
+              <circle cx="12" cy="30" r="4" fill="#1e293b"/>
+              <circle cx="36" cy="30" r="4" fill="#1e293b"/>
+            </svg>
+            <div id="mr-flag" class="hidden absolute -top-4 px-1 rounded bg-indigo-500 text-white text-[9px] font-bold">READY</div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1">GitLab/GitHub</span>
+        </div>
+
+        <!-- Station 6: 熔断警报 (Siren & Escalation) -->
+        <div id="st-escalate" class="station flex flex-col items-center justify-end transition-all duration-300 opacity-50 scale-95 cursor-pointer" onclick="setStage('ESCALATE')">
+          <div class="text-[10px] font-medium text-[var(--muted-foreground,#64748b)] mb-1">6. 熔断警报</div>
+          <div class="relative w-12 h-16 flex items-center justify-center">
+            <!-- Siren Beacon -->
+            <svg viewBox="0 0 40 45" class="w-10 h-12">
+              <rect x="12" y="26" width="16" height="10" rx="2" fill="#475569"/>
+              <path d="M14 26 C14 16, 26 16, 26 26 Z" fill="#ef4444" id="siren-dome"/>
+              <!-- Light rays -->
+              <g id="siren-rays" class="hidden animate-alarm-spin">
+                <line x1="20" y1="12" x2="20" y2="4" stroke="#ef4444" stroke-width="2"/>
+                <line x1="12" y1="18" x2="5" y2="15" stroke="#ef4444" stroke-width="2"/>
+                <line x1="28" y1="18" x2="35" y2="15" stroke="#ef4444" stroke-width="2"/>
+              </g>
+            </svg>
+            <div id="siren-badge" class="hidden absolute -top-4 px-1 rounded bg-rose-600 text-white text-[9px] font-bold animate-pulse">STOP</div>
+          </div>
+          <span class="text-[11px] font-semibold mt-1">熔断停机</span>
+        </div>
+
+      </div>
+
+      <!-- Factory Floor Conveyor Line -->
+      <div class="w-full flex items-center pt-1 border-t border-[var(--border,rgba(0,0,0,0.1))]">
+        <svg class="w-full h-2">
+          <line x1="0" y1="1" x2="100%" y2="1" stroke="currentColor" stroke-width="2" class="conveyor-belt text-[var(--muted-foreground,#64748b)] opacity-30"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Live Terminal Status Output -->
+    <div class="p-3 rounded-lg bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] text-xs space-y-1.5 font-mono shadow-sm">
+      <div class="flex items-center justify-between text-[11px] text-[var(--muted-foreground,#64748b)]">
+        <span id="log-stage">STAGE: Worker Coding (Worktree: .adk/worktrees/active)</span>
+        <span id="log-time" class="tabular-nums">耗时: 0.0s · 修复轮次: 0/3</span>
+      </div>
+      <div id="log-text" class="text-xs text-amber-500 font-semibold truncate">
+        [Worker] 🔨 正在编辑代码实施需求...
+      </div>
+      <div id="log-details" class="text-[11px] text-[var(--muted-foreground,#64748b)] truncate">
+        隔离环境: 准备就绪
+      </div>
+    </div>
+
+    <!-- Manual State Simulation Buttons -->
+    <div class="grid grid-cols-6 gap-1.5 pt-1 text-[11px]">
+      <button onclick="setStage('SPEC')" class="px-1.5 py-1.5 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">1. 契约锁定</button>
+      <button onclick="setStage('WORK')" class="px-1.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">2. 工兵编码 🔨</button>
+      <button onclick="setStage('TEST')" class="px-1.5 py-1.5 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">3. 验收门禁 🧪</button>
+      <button onclick="setStage('CRITIC')" class="px-1.5 py-1.5 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">4. 审查质检 🧐</button>
+      <button onclick="setStage('MR')" class="px-1.5 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 transition text-center truncate font-medium">5. MR 交付 🚀</button>
+      <button onclick="setStage('ESCALATE')" class="px-1.5 py-1.5 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">6. 熔断警报 🚨</button>
+    </div>
+  </div>
+
+  <script>
+    const STAGE_CONFIG = {
+      SPEC: {
+        id: 'st-spec',
+        badge: 'SPEC_LOCKED (蓝图契约已锁定)',
+        badgeClass: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
+        stage: 'STAGE: Specification Locked (OKF Contract Verified)',
+        log: '[Commander] 📐 SpecContract 已通过 OKF 规约校验，验收用例已冻结',
+        details: '受保护路径规则已生成，白名单外的写操作将被 Guard Hook 实时阻断'
+      },
+      WORK: {
+        id: 'st-work',
+        badge: 'RUNNING (工兵施工中...)',
+        badgeClass: 'bg-amber-500/20 text-amber-500 border-amber-500/30',
+        stage: 'STAGE: Worker Coding (Worktree: .adk/worktrees/isolated)',
+        log: '[Worker] 🔨 正在安全沙箱中编写业务逻辑代码与测试',
+        details: '执行原子隔离 Worktree 变更，确保主工作区干净无污染'
+      },
+      TEST: {
+        id: 'st-test',
+        badge: 'VERIFYING (Pytest 门禁检验)',
+        badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
+        stage: 'STAGE: TDD Acceptance Verification',
+        log: '[Tester] 🧪 正在执行 pytest -v 运行验收用例集',
+        details: '严格校验测试执行结果，确保 TDD Red 阶段及最终功能全绿'
+      },
+      CRITIC: {
+        id: 'st-critic',
+        badge: 'REVIEWING (独立 Critic 审查)',
+        badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
+        stage: 'STAGE: Independent Critic Review',
+        log: '[Critic] 🧐 独立盲审中：扫描越界变更、测试有效性与架构规范',
+        details: '审查模型与工兵完全隔离，杜绝自我评判导致的逻辑盲区'
+      },
+      MR: {
+        id: 'st-mr',
+        badge: 'MR_READY (已交付 Forge 发布)',
+        badgeClass: 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30',
+        stage: 'STAGE: Forge Delivery (GitLab / GitHub Ready)',
+        log: '[MR] 🚀 代码通过全链条门禁，已成功创建/更新 Pull/Merge Request',
+        details: 'Draft 标记已自动移除，通知人类团队合入代码'
+      },
+      ESCALATE: {
+        id: 'st-escalate',
+        badge: 'ESCALATED (熔断停机等待介入)',
+        badgeClass: 'bg-rose-500/20 text-rose-500 border-rose-500/30',
+        stage: 'STAGE: Escalation Halt (Circuit Breaker Tripped)',
+        log: '[Alert] 🚨 触发最大修复轮次或高危异常，流水线已熔断',
+        details: '主工作区分支未受任何篡改，请人类工程师排查后调用 flow_resume'
+      }
+    };
+
+    let currentStage = 'WORK';
+    let autoPlayTimer = null;
+    let sseSource = null;
+    let currentRunId = null;
+    let startTime = Date.now();
+
+    function setStage(stageKey, customLog = null, customDetails = null) {
+      currentStage = stageKey;
+      const conf = STAGE_CONFIG[stageKey] || STAGE_CONFIG.WORK;
+
+      // Reset all stations
+      ['st-spec', 'st-work', 'st-test', 'st-critic', 'st-mr', 'st-escalate'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.className = 'station flex flex-col items-center justify-end transition-all duration-300 opacity-40 scale-95 cursor-pointer';
+        }
+      });
+
+      // Highlight active station
+      const activeEl = document.getElementById(conf.id);
+      if (activeEl) {
+        activeEl.className = 'station station-active flex flex-col items-center justify-end transition-all duration-300 opacity-100 cursor-pointer';
+      }
+
+      // Update badge
+      const badge = document.getElementById('state-badge');
+      if (badge) {
+        badge.textContent = conf.badge;
+        badge.className = 'px-2 py-0.5 rounded text-[11px] font-mono ' + conf.badgeClass;
+      }
+
+      // Update live indicator
+      const liveInd = document.getElementById('live-indicator');
+      if (liveInd) {
+        liveInd.className = stageKey === 'ESCALATE' 
+          ? 'inline-block w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping'
+          : (stageKey === 'MR' ? 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500' : 'inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping');
+      }
+
+      // Stage decorations
+      const bubbleSpec = document.getElementById('bubble-spec');
+      if (bubbleSpec) bubbleSpec.className = stageKey === 'SPEC' ? 'absolute -top-5 px-1.5 py-0.5 rounded text-[9px] bg-blue-500 text-white font-mono shadow whitespace-nowrap' : 'hidden';
+
+      const sparks = document.getElementById('sparks');
+      if (sparks) sparks.style.display = stageKey === 'WORK' ? 'block' : 'none';
+
+      const testSignal = document.getElementById('test-signal');
+      if (testSignal) testSignal.style.display = stageKey === 'TEST' ? 'flex' : 'none';
+
+      const criticScan = document.getElementById('critic-scan');
+      if (criticScan) criticScan.className = stageKey === 'CRITIC' ? 'absolute top-4 right-0 w-8 h-0.5 bg-cyan-400 animate-scan shadow-[0_0_8px_cyan]' : 'hidden';
+
+      const mrFlag = document.getElementById('mr-flag');
+      if (mrFlag) mrFlag.className = stageKey === 'MR' ? 'absolute -top-4 px-1 rounded bg-indigo-500 text-white text-[9px] font-bold' : 'hidden';
+
+      const sirenRays = document.getElementById('siren-rays');
+      const sirenBadge = document.getElementById('siren-badge');
+      if (sirenRays) sirenRays.className = stageKey === 'ESCALATE' ? 'animate-alarm-spin' : 'hidden';
+      if (sirenBadge) sirenBadge.className = stageKey === 'ESCALATE' ? 'absolute -top-4 px-1 rounded bg-rose-600 text-white text-[9px] font-bold animate-pulse' : 'hidden';
+
+      // Logs
+      const logStage = document.getElementById('log-stage');
+      const logText = document.getElementById('log-text');
+      const logDetails = document.getElementById('log-details');
+      if (logStage) logStage.textContent = conf.stage;
+      if (logText) logText.textContent = customLog || conf.log;
+      if (logDetails) logDetails.textContent = customDetails || conf.details;
+    }
+
+    function toggleAutoPlay() {
+      const btn = document.getElementById('btn-autoplay');
+      if (autoPlayTimer) {
+        clearInterval(autoPlayTimer);
+        autoPlayTimer = null;
+        if (btn) btn.textContent = '▶ 自动演示流水线';
+        return;
+      }
+      if (btn) btn.textContent = '⏸ 暂停演示';
+      const sequence = ['SPEC', 'WORK', 'TEST', 'CRITIC', 'MR'];
+      let idx = 0;
+      setStage(sequence[0]);
+      autoPlayTimer = setInterval(() => {
+        idx = (idx + 1) % sequence.length;
+        setStage(sequence[idx]);
+      }, 2500);
+    }
+
+    // Map ADK backend status string to stage key
+    function mapStatusToStage(status) {
+      switch ((status || '').toUpperCase()) {
+        case 'SPEC_DRAFTING':
+        case 'SPEC_LOCKED':
+          return 'SPEC';
+        case 'RUNNING':
+        case 'WORKER_CODING':
+          return 'WORK';
+        case 'VERIFYING':
+        case 'TDD_RED':
+          return 'TEST';
+        case 'REVIEWING':
+          return 'CRITIC';
+        case 'MR_READY':
+        case 'FINALIZED':
+          return 'MR';
+        case 'ESCALATED':
+        case 'ABORTED':
+          return 'ESCALATE';
+        default:
+          return 'WORK';
+      }
+    }
+
+    // Connect to local SSE streaming if served over HTTP
+    function initLiveConnection() {
+      const urlParams = new URLSearchParams(window.location.search);
+      currentRunId = urlParams.get('run_id');
+
+      if (window.location.protocol.startsWith('http')) {
+        fetchRuns();
+        connectSSE(currentRunId);
+      }
+    }
+
+    function fetchRuns() {
+      fetch('/api/runs')
+        .then(res => res.json())
+        .then(data => {
+          const sel = document.getElementById('run-selector');
+          if (!sel || !data.runs || !data.runs.length) return;
+          sel.classList.remove('hidden');
+          sel.innerHTML = data.runs.map(r => 
+            `<option value="${r.run_id}" ${r.run_id === currentRunId ? 'selected' : ''}>${r.run_id} (${r.status})</option>`
+          ).join('');
+        })
+        .catch(() => {});
+    }
+
+    function switchRun(runId) {
+      if (!runId) return;
+      currentRunId = runId;
+      connectSSE(runId);
+    }
+
+    function connectSSE(runId) {
+      if (sseSource) {
+        sseSource.close();
+        sseSource = null;
+      }
+      const sseUrl = runId ? `/api/events?run_id=${encodeURIComponent(runId)}` : '/api/events';
+      try {
+        sseSource = new EventSource(sseUrl);
+        sseSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleLiveUpdate(data);
+          } catch (e) {}
+        };
+      } catch (e) {}
+    }
+
+    function handleLiveUpdate(run) {
+      if (!run || !run.status) return;
+      const stage = mapStatusToStage(run.status);
+      const log = run.last_log || run.last_error_log || null;
+      const details = run.worktree_path ? `Worktree: ${run.worktree_path} · 分支: ${run.branch || 'main'}` : null;
+      setStage(stage, log, details);
+
+      const timeEl = document.getElementById('log-time');
+      if (timeEl && run.updated_at) {
+        timeEl.textContent = `更新: ${run.updated_at} · 轮次: ${run.attempt || 0}/3`;
+      }
+    }
+
+    // Listen for MCP App postMessage communications
+    window.addEventListener('message', (event) => {
+      if (!event.data) return;
+      const data = event.data;
+      if (data.structuredContent) {
+        handleLiveUpdate(data.structuredContent);
+      } else if (data.status) {
+        handleLiveUpdate(data);
+      }
+    });
+
+    // Start in WORK stage by default
+    setStage('WORK');
+    initLiveConnection();
+  </script>
+</body>
+</html>

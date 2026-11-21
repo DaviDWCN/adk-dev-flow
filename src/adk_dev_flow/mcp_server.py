@@ -9,6 +9,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import SpecContract
 from adk_dev_flow.state_store import StateStore
@@ -282,6 +283,31 @@ class FlowService:
         ]
         return {"active_runs": items, "count": len(items)}
 
+    def flow_dashboard(self, run_id: str | None = None) -> dict[str, Any]:
+        """获取或生成用于像素工坊动画看板的运行态数据。"""
+        status_info: dict[str, Any]
+        if run_id:
+            status_info = self.flow_status(run_id)
+        else:
+            active = self.store.get_active_runs()
+            if active:
+                status_info = self.flow_status(active[0]["run_id"])
+            else:
+                recent = self.store.list_runs(limit=1)
+                status_info = (
+                    self.flow_status(recent[0]["run_id"])
+                    if recent
+                    else {"status": "IDLE", "message": "暂无活跃任务"}
+                )
+
+        return {
+            "content": (
+                f"ADK 像素工坊看板已就绪。当前状态: {status_info.get('status', 'IDLE')}，"
+                f"轮次: {status_info.get('attempt', 0)}"
+            ),
+            "structuredContent": status_info,
+        }
+
     async def flow_abort_all(self, remove_worktrees: bool = False) -> dict[str, Any]:
         active_runs = self.store.get_active_runs()
         aborted = []
@@ -358,6 +384,37 @@ def create_mcp_server(
     async def flow_abort_all(remove_worktrees: bool = False) -> dict[str, Any]:
         """一键终止当前所有进行中的受控开发流并释放所有锁与资源。"""
         return await service.flow_abort_all(remove_worktrees=remove_worktrees)
+
+    APP_URI = "ui://adk-dev-flow/dashboard.html"
+
+    @mcp.resource(
+        APP_URI,
+        name="ADK Flow Cartoon Dashboard",
+        mime_type="text/html;profile=mcp-app",
+        meta={"ui": {"prefersBorder": False}},
+    )
+    def get_dashboard_resource() -> str:
+        """提供用于 Antigravity 侧边栏/内联渲染的像素工坊看板 HTML 资源。"""
+        return get_dashboard_html()
+
+    PANE_META = {
+        "ui": {"resourceUri": APP_URI},
+        "com.google.antigravity/ui": {
+            "entrypoints": [
+                {"type": "aux_pane", "title": "ADK 像素工坊看板"},
+                {"type": "global", "title": "ADK 像素工坊看板"},
+            ]
+        },
+    }
+
+    @mcp.tool(
+        name="flow_dashboard",
+        title="打开 ADK 像素工坊动画看板",
+        meta=PANE_META,
+    )
+    def flow_dashboard(run_id: str | None = None) -> dict[str, Any]:
+        """打开或刷新 ADK 确定性开发流像素卡通工人工位动画看板。"""
+        return service.flow_dashboard(run_id=run_id)
 
     return mcp, service
 
