@@ -36,10 +36,29 @@ class TestSubproc(unittest.IsolatedAsyncioTestCase):
 
             if pid_file.exists():
                 child_pid = int(pid_file.read_text().strip())
-                # Give kernel a brief moment to reap SIGKILLed process group
-                await asyncio.sleep(0.1)
-                with self.assertRaises(ProcessLookupError):
-                    os.kill(child_pid, 0)
+                if sys.platform == "win32":
+                    import ctypes
+                    from ctypes import wintypes
+                    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                    STILL_ACTIVE = 259
+                    terminated = False
+                    for _ in range(20):
+                        await asyncio.sleep(0.1)
+                        h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, child_pid)
+                        if not h:
+                            terminated = True
+                            break
+                        code = wintypes.DWORD()
+                        ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+                        ctypes.windll.kernel32.CloseHandle(h)
+                        if code.value != STILL_ACTIVE:
+                            terminated = True
+                            break
+                    self.assertTrue(terminated, "Child process should be terminated")
+                else:
+                    await asyncio.sleep(0.1)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(child_pid, 0)
 
     async def test_cancel_kills_subprocess_and_reraises(self) -> None:
         task = asyncio.create_task(

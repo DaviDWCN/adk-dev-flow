@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -97,7 +98,12 @@ class TestGuard(unittest.TestCase):
 
     def test_cli_hook_exit_codes_and_fail_closed_json(self) -> None:
         src_dir = str(Path(__file__).resolve().parents[1] / "src")
-        env = {"PYTHONPATH": src_dir}
+        env = {
+            **os.environ,
+            "PYTHONPATH": src_dir,
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
 
         # Malformed JSON -> Fail-Closed exit code 2
         bad = subprocess.run(
@@ -107,6 +113,8 @@ class TestGuard(unittest.TestCase):
             capture_output=True,
             cwd=str(self.cwd),
             env=env,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(bad.returncode, 2)
         self.assertIn("Fail-Closed", bad.stderr)
@@ -119,6 +127,8 @@ class TestGuard(unittest.TestCase):
             capture_output=True,
             cwd=str(self.cwd),
             env=env,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(blocked.returncode, 2)
 
@@ -130,6 +140,8 @@ class TestGuard(unittest.TestCase):
             capture_output=True,
             cwd=str(self.cwd),
             env=env,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(allowed.returncode, 0)
 

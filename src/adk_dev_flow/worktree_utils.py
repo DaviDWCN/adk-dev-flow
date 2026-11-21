@@ -19,6 +19,7 @@ _TIMING_PAREN_RE = re.compile(r"\(\d+:\d+:\d+\)")
 _HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{6,16}")
 _ISO_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL | re.IGNORECASE)
+_LINE_NUM_RE = re.compile(r"(?::\d+)+")
 
 
 def compute_sha256_bytes(data: bytes) -> str:
@@ -30,7 +31,7 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def normalize_error_for_signature(err_text: str, worktree: Path | None = None) -> str:
-    """Normalize volatile tokens (timings, ANSI, hex addresses, worktree path) before hashing."""
+    """Normalize volatile tokens (timings, ANSI, hex addresses, worktree path, line numbers) before hashing."""
     text = _ANSI_RE.sub("", err_text)
     if worktree is not None:
         wt_str = str(worktree.resolve())
@@ -39,6 +40,7 @@ def normalize_error_for_signature(err_text: str, worktree: Path | None = None) -
     text = _DURATION_RE.sub("in <DURATION>", text)
     text = _TIMING_PAREN_RE.sub("(<TIME>)", text)
     text = _HEX_ADDR_RE.sub("0x<ADDR>", text)
+    text = _LINE_NUM_RE.sub(":<LINE>", text)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines)
 
@@ -224,6 +226,30 @@ def _parse_porcelain_paths(stdout: str) -> list[str]:
     return paths
 
 
+async def sanitize_worktree_state(worktree: Path) -> None:
+    """Clean up stale git index locks and unsanitized artifacts from interrupted runs."""
+    if not worktree.exists():
+        return
+    index_lock = worktree / ".git" / "index.lock"
+    if index_lock.is_file():
+        try:
+            index_lock.unlink()
+        except OSError:
+            pass
+
+    git_file = worktree / ".git"
+    if git_file.is_file():
+        try:
+            content = git_file.read_text(encoding="utf-8").strip()
+            if content.startswith("gitdir:"):
+                actual_dir = Path(content.split("gitdir:", 1)[1].strip())
+                wt_lock = actual_dir / "index.lock"
+                if wt_lock.is_file():
+                    wt_lock.unlink()
+        except Exception:
+            pass
+
+
 async def audit_worktree_changes(
     worktree: Path,
     *,
@@ -265,8 +291,47 @@ async def audit_worktree_changes(
             timeout_sec=30.0,
         )
 
+    # Check for .git/info/exclude tampering
+    git_dir = worktree / ".git"
+    exclude_file = None
+    if git_dir.is_dir():
+        exclude_file = git_dir / "info" / "exclude"
+    elif git_dir.is_file():
+        try:
+            content = git_dir.read_text(encoding="utf-8").strip()
+            if content.startswith("gitdir:"):
+                actual_dir = Path(content.split("gitdir:", 1)[1].strip())
+                exclude_file = actual_dir / "info" / "exclude"
+        except Exception:
+            pass
+
+    if exclude_file and exclude_file.is_file():
+        try:
+            lines = [l.strip() for l in exclude_file.read_text(encoding="utf-8", errors="replace").splitlines()]
+            non_comments = [l for l in lines if l and not l.startswith("#")]
+            if non_comments:
+                violations.append("检测到受保护配置篡改: 禁止修改或利用 .git/info/exclude 掩盖文件变更")
+        except Exception:
+            pass
+
+    # Check for git index evasion flags (assume-unchanged, skip-worktree)
+    ls_files_res = await run_subprocess_safe(
+        ["git", "ls-files", "-v"],
+        cwd=worktree,
+        timeout_sec=30.0,
+    )
+    if ls_files_res.returncode == 0:
+        for line in ls_files_res.stdout.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            flag = line_str[0]
+            if flag in ("h", "s", "m"):
+                f_name = line_str[2:].strip()
+                violations.append(f"检测到非法 Git 索引伪装标记 ({flag}): `{f_name}`")
+
     status_res = await run_subprocess_safe(
-        ["git", "status", "--porcelain", "-uall"],
+        ["git", "status", "--porcelain", "-uall", "--ignored=matching"],
         cwd=worktree,
         timeout_sec=30.0,
     )
@@ -278,7 +343,21 @@ async def audit_worktree_changes(
             locked_test_tampered=locked_test_tampered,
         )
 
-    touched_set: set[str] = set(_parse_porcelain_paths(status_res.stdout))
+    touched_set: set[str] = set()
+    for line in status_res.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        raw = line[3:].strip()
+        if " -> " in raw:
+            old_p, new_p = raw.split(" -> ", 1)
+            raw_candidates = [old_p.strip('"'), new_p.strip('"')]
+        else:
+            raw_candidates = [raw.strip('"')]
+        for rc in raw_candidates:
+            norm_rc = strip_dot_slash(rc)
+            if norm_rc.startswith((".venv/", "venv/", "__pycache__/", ".pytest_cache/", ".adk/")):
+                continue
+            touched_set.add(norm_rc)
 
     if locked_test_commit_sha:
         diff_commits_res = await run_subprocess_safe(

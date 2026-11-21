@@ -12,6 +12,16 @@ PROTECTED_PATHS: tuple[str, ...] = (
     ".adk",
     "mcp.json",
     "tools/adk_dev_flow",
+    ".git",
+    ".gitignore",
+    ".gitattributes",
+    "sitecustomize.py",
+    "usercustomize.py",
+    "conftest.py",
+    "pytest.ini",
+    "pyproject.toml",
+    "setup.cfg",
+    "setup.py",
 )
 
 

@@ -22,6 +22,7 @@ from adk_dev_flow.worktree_utils import (
     compute_file_sha256,
     parse_review_verdict_dict,
     resolve_tool_command,
+    sanitize_worktree_state,
 )
 
 MAX_REPAIR_ATTEMPTS = int(os.environ.get("ADK_MAX_RETRIES", "3"))
@@ -133,6 +134,7 @@ def build_dev_workflow(
                 raise RuntimeError(f"读取锁定测试 commit SHA 失败: {lock_sha_res.stderr.strip()}")
             locked_test_commit_sha = lock_sha_res.stdout.strip()
         else:
+            await sanitize_worktree_state(worktree)
             # Resume path: ensure metadata is intact.
             if not base_sha:
                 base_res = await _git(["rev-parse", "HEAD"], worktree)
@@ -343,15 +345,35 @@ def build_dev_workflow(
             if commit_res.returncode != 0:
                 raise RuntimeError(f"git commit 失败: {commit_res.stderr.strip()}")
 
-        diff_res = await _git(["diff", f"{base_sha}..HEAD"], worktree)
-        if diff_res.returncode != 0:
-            raise RuntimeError(f"git diff {base_sha}..HEAD 失败: {diff_res.stderr.strip()}")
+        # 1. 提取完整的变更文件统计作为骨架
+        stat_res = await _git(["diff", "--stat", f"{base_sha}..HEAD"], worktree)
+        diff_stat = stat_res.stdout.strip() if stat_res.returncode == 0 else ""
 
-        full_diff = diff_res.stdout
-        diff_truncated = len(full_diff) > MAX_DIFF_CHARS
-        diff_text = full_diff[:MAX_DIFF_CHARS]
+        # 2. 提取变更的文件名清单，按文件边界组装 Diff
+        names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
+        changed_files = [line.strip() for line in names_res.stdout.splitlines() if line.strip()]
+
+        assembled_diff_blocks: list[str] = []
+        current_len = 0
+        truncated_files: list[str] = []
+
+        for f in changed_files:
+            file_diff_res = await _git(["diff", f"{base_sha}..HEAD", "--", f], worktree)
+            file_diff = file_diff_res.stdout
+            if current_len + len(file_diff) <= MAX_DIFF_CHARS:
+                assembled_diff_blocks.append(file_diff)
+                current_len += len(file_diff)
+            else:
+                truncated_files.append(f)
+
+        diff_truncated = len(truncated_files) > 0
+        diff_text = "\n".join(assembled_diff_blocks)
         if diff_truncated:
-            diff_text += f"\n\n... [DIFF TRUNCATED: showing first {MAX_DIFF_CHARS} of {len(full_diff)} chars]"
+            diff_text += (
+                f"\n\n... [DIFF TRUNCATED BY FILE BOUNDARY]\n"
+                f"以下文件因超出长度预算未展示完整 Diff: {', '.join(truncated_files)}\n"
+                f"请重点参考 diff_stat 评估影响面。"
+            )
 
         # Return an explicit JSON string so ADK 2.x reliably delivers text content to Critic Agent.
         critic_payload = {
@@ -362,6 +384,7 @@ def build_dev_workflow(
                 "acceptance_test_path": spec.acceptance_test_path,
                 "tasks": [t.model_dump() for t in spec.tasks],
             },
+            "diff_stat": diff_stat,
             "worker_summary": node_input.get("worker_summary", ""),
             "diff_truncated": diff_truncated,
             "git_diff": diff_text,

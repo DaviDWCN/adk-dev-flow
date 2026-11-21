@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Iterator, Literal, Sequence
 
 RunStatus = Literal[
     "SPEC_DRAFTING",
@@ -65,12 +66,17 @@ class StateStore:
         self.active_marker = self.adk_dir / "active_run.json"
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout=5000;")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=5000;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -228,11 +234,16 @@ class StateStore:
             "status": latest["status"],
             "active_runs": [{"run_id": r["run_id"], "status": r["status"]} for r in rows],
         }
-        self.active_marker.write_text(
+        tmp_marker = self.active_marker.with_suffix(".tmp")
+        tmp_marker.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        tmp_marker.replace(self.active_marker)
 
     def clear_active_run(self) -> None:
         if self.active_marker.exists():
-            self.active_marker.unlink()
+            try:
+                self.active_marker.unlink()
+            except OSError:
+                pass
