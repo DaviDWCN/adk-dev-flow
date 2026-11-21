@@ -9,15 +9,22 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
 
 1. **初始化或找回上下文**：
    - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`。
-   - 若跨会话忘记 `run_id`：先调用 `flow_list()` 找回当前活跃任务。
-2. **起草 Spec 与锁定测试（强制人工门禁）**：
-   - 只读浏览相关 Python 模块，起草符合 `SpecContract` 结构的方案，包含：改动范围白名单 `allowed_paths`、原子任务拆解 `tasks`（所有 `target_files` 必须位于 `allowed_paths` 内）、以及一份**完整可运行且语法正确的 `pytest` 验收测试代码**。
-   - 清晰展示给用户，等待用户明确回复“确认/锁定/开始跑”。**未获确认前，严禁调用 `flow_lock_spec`。**
-3. **冻结并派发**：
-   - 用户确认后，依次调用 `flow_lock_spec` 与 `flow_dispatch`，告知用户后台隔离 Worktree 已启动。
+   - 若跨会话找回任务或存在多任务并发：调用 `flow_active_runs()` 查看所有活跃流水线，或调用 `flow_list()` 检索历史记录。
+2. **起草 Spec 契约与锁定验收测试（强制人工门禁）**：
+   - 只读浏览相关 Python 模块与 `.adk/knowledge/rules/` 下的工程规约。
+   - 起草符合 `SpecContract` 结构或写入 `.adk/specs/issue-{iid}.md`（OKF Markdown 格式）。
+   - 包含：改动范围白名单 `allowed_paths`、原子任务拆解 `tasks`（目标文件必须在白名单内）、增量依赖 `extra_dependencies`、以及一份**完整可运行且语法正确的 `pytest` 验收测试代码**。
+   - **TDD Red 校验**：验收测试必须包含有效断言，确保在编写业务代码前在基线分支上执行失败（`require_tdd_red: true`）。
+   - 向用户清晰展示方案，等待用户明确确认。**未获确认前，严禁调用锁定工具。**
+3. **冻结规约并派发流水线**：
+   - 用户确认后，可通过以下两种方式之一完成冻结：
+     - **OKF 文件驱动**：调用 `flow_lock_spec_from_file(run_id=..., spec_file_path=".adk/specs/...")`。
+     - **结构化参数驱动**：调用 `flow_lock_spec(run_id=..., spec=...)`。
+   - 锁定成功后调用 `flow_dispatch(run_id=...)`，系统将拉起后台隔离 Worktree 开始工兵编码、自动自愈与 Critic 审查。
 4. **追踪、人工介入恢复与收尾**：
-   - 根据用户询问调用 `flow_status` 汇报阶段、修复轮次、Worktree 审计状态与 Critic 审查结论：
-   - 若为 `ESCALATED`：展示精简后的失败根因与 Worktree 路径，请用户选择：
-     - **补充指令继续跑**：调用 `flow_resume(run_id=..., instruction=...)` 在原 Worktree 恢复流水线；
-     - **终止退出**：调用 `flow_abort(run_id=..., remove_worktree=...)` 解锁主工作区。
-   - 若为 `MR_READY`：给出内网 GitLab MR 链接与 Critic 意见，询问是否调用 `flow_finalize(run_id=..., remove_worktree=True)` 去掉 Draft 标记并清理隔离 Worktree。
+   - 根据用户询问调用 `flow_status(run_id=...)` 汇报当前阶段、重试轮次、Worktree 状态与错误摘要。
+   - 若进入 `ESCALATED`（熔断）：向用户反馈失败根因，请用户选择：
+     - **补充指令继续自愈**：调用 `flow_resume(run_id=..., instruction=...)` 在原 Worktree 中恢复运行；
+     - **终止退出**：调用 `flow_abort(run_id=..., remove_worktree=...)` 解锁并清理；
+     - **全局紧急中止**：若多任务出现异常，可调用 `flow_abort_all()` 一键强杀所有活跃流水线。
+   - 若进入 `MR_READY`：系统已自动将 OKF 审查报告提交至分支 `.adk/audit/review_{run_id}.md`，并生成内网 GitLab MR。向用户展示 MR 链接与审查建议，询问是否调用 `flow_finalize(run_id=..., remove_worktree=True)` 移除 Draft 标记并清理隔离工作区。

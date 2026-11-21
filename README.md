@@ -1,14 +1,33 @@
 # adk-dev-flow
 
-面向 Python 业务仓库的**确定性 AI 研发工作流工具包**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab）。
+面向 Python 业务仓库的**确定性 AI 研发工作流系统**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab + OKF 规约体系）。
 
-采用 **“指挥台（Commander）+ 隔离工兵（Worker）+ 不可绕过物理审计 + 独立 Critic 审查”** 架构，将 AI 编程收敛为可控状态机。
+采用 **“指挥台（Commander）+ 隔离工兵（Worker）+ 不可绕过物理审计 + 独立 Critic 审查 + OKF 永久归档”** 架构，将 AI 编程收敛为强一致性受控状态机。
 
 ---
 
-## 1. 作为独立工具安装（推荐）
+## 核心特性
 
-无需把框架源码复制到每个业务仓库，一次安装全局复用：
+- 🛡️ **物理级沙箱与对抗防御**：
+  - 采用 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 与 POSIX 进程会话，彻底终结子进程树孤儿与僵尸进程。
+  - 上下文管理器显式释放 SQLite 句柄，杜绝 Windows WAL `WinError 32` 锁定。
+  - 审计 Worktree 的 Git 内部标记（`--assume-unchanged`、`--skip-worktree`、`.git/info/exclude`、`sitecustomize.py` 越权），防止工兵伪造门禁通过。
+- 🧪 **TDD Red 契约门禁**：
+  - 强制验收测试在基线代码上执行失败（红灯校验），杜绝无断言空测试（Mock Passes）或假通过。
+  - 支持 `extra_dependencies` 动态虚拟环境依赖同步。
+- 📑 **OKF（Open Knowledge Format）Git 原生规约与合规审计**：
+  - 规约以标准 Markdown + YAML Frontmatter 格式存储在 `.adk/specs/`，天然支持 Git Diff 与 Code Review。
+  - 评审报告自动生成并提交到分支 `.adk/audit/review_{run_id}.md`，随 MR 形成不可篡改的证据链。
+  - 项目工程规约（`.adk/knowledge/rules/`）自动注入工兵上下文，免除外部复杂向量库。
+- 🌐 **Google ADK Web UI 原生可视化**：
+  - 暴露标准 `root_agent`，可一键启动官方 ADK Web 控制台，实时查看 Trace 时间线、会话快照与工具状态。
+- 🔄 **高可用多任务并发与抽象 Provider**：
+  - CAS 原子状态转移保证零竞争分叉；支持 `flow_active_runs` 多任务监控与 `flow_abort_all` 一键清理。
+  - 支持可插拔 Worker Runtime Provider（`CodeBuddyWorkerProvider`、`MockWorkerProvider`、自定义 Provider）。
+
+---
+
+## 1. 安装方式
 
 ```bash
 # 方式 A：通过 uv tool 全局安装（推荐）
@@ -18,10 +37,10 @@ uv tool install git+https://github.com/DaviDWCN/adk-dev-flow.git
 uv pip install -e ".[dev]"
 ```
 
-安装后提供 3 个命令：
+安装后提供 3 个 CLI 命令：
 - `adk-dev-flow`：FastMCP Server 入口
 - `adk-workflow-guard`：CodeBuddy `PreToolUse` 安全拦截钩子
-- `adk-dev-flow-init`：向目标业务仓库一键写入薄 `.codebuddy/` 配置和 `.gitignore`
+- `adk-dev-flow-init`：向目标业务仓库一键脚手架薄配置、OKF 规约模版与知识库结构
 
 ---
 
@@ -35,59 +54,117 @@ adk-dev-flow-init .
 adk-dev-flow-init . --with-ci
 ```
 
-生成的薄配置：
-- `.codebuddy/skills/deterministic-dev/SKILL.md`
-- `.codebuddy/mcp.json`
-- `.codebuddy/settings.json`
-- `.gitignore` 追加 `.adk/`
-
-> 若未全局安装，也可在 `.codebuddy/mcp.json` 中改用 `uvx --from git+https://github.com/DaviDWCN/adk-dev-flow.git adk-dev-flow`。
+生成的工程结构：
+- `.codebuddy/skills/deterministic-dev/SKILL.md`：指挥台标准作业流程
+- `.codebuddy/mcp.json`：MCP 服务配置
+- `.codebuddy/settings.json`：安全钩子绑定
+- `.adk/specs/template.md`：OKF 规约模版
+- `.adk/knowledge/index.md`：工程知识目录
+- `.adk/knowledge/rules/engineering_rules.md`：工程规约基线
+- `.gitignore`：追加 `.adk/`（忽略运行态，保留规约与知识）
 
 ---
 
-## 3. 环境变量配置
+## 3. 完整的 MCP 工具一览
+
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 11 个原子工具：
+
+| 工具名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `flow_init` | 异步 | 初始化研发流，自动联动 GitLab Issue 获取标题与描述 |
+| `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试 |
+| `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
+| `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
+| `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab MR 链接 |
+| `flow_resume` | 异步 | 对处于 `ESCALATED` 熔断的流水线注入人工指令，在原隔离 Worktree 中恢复运行 |
+| `flow_active_runs` | 同步 | 查询当前并发进行的所有活跃流水线状态 |
+| `flow_list` | 同步 | 查询历史流水线运行记录（跨会话找回 `run_id`） |
+| `flow_finalize` | 异步 | 验收完成后解除 GitLab MR 的 Draft 标记并清理隔离 Worktree |
+| `flow_abort` | 异步 | 中止指定流水线，强杀子进程树并解除工作区防呆锁 |
+| `flow_abort_all` | 异步 | 一键强杀所有正在执行的流水线并释放所有资源 |
+
+---
+
+## 4. OKF（Open Knowledge Format）规约驱动
+
+无需通过 API 组装复杂的 JSON，直接在 `.adk/specs/` 下编写标准 Markdown：
+
+```markdown
+---
+type: DevSpec
+title: "feat: add distributed lock"
+status: active
+issue_iid: 42
+target_branch: main
+require_tdd_red: true
+extra_dependencies:
+  - "redis>=5.0.0"
+allowed_paths:
+  - "src/lock"
+acceptance_test_path: "tests/test_lock.py"
+tasks:
+  - id: "T1"
+    title: "Implement Redis Lock core"
+    description: "Write RedisLock in src/lock/core.py"
+    target_files:
+      - "src/lock/core.py"
+---
+
+# feat: add distributed lock
+
+## Summary
+实现基于 Redis 的分布式锁与看门狗自动续期。
+
+## Locked Acceptance Test (`tests/test_lock.py`)
+```python
+def test_lock_acquire_and_release():
+    # 完整的 pytest 测试代码
+    assert True
+```
+```
+
+然后通过 `flow_lock_spec_from_file(run_id, ".adk/specs/issue-42.md")` 一键锁定并派发。
+
+---
+
+## 5. 启动 Google ADK Web UI 可视化控制台
+
+在当前项目目录执行：
+
+```bash
+uv run adk web src --port 8000
+```
+
+打开浏览器访问 **http://127.0.0.1:8000** 即可体验：
+- **Agent 图拓扑与对话**：直接在 Web 界面与 `adk_dev_flow` 协调器对话。
+- **Session & Traces 链路**：可视化审查每一次步骤转移、时间开销与调用结果。
+- **Artifacts 制品浏览器**：查看每次运行生成的 Diff 补丁与 OKF 评审报告。
+
+---
+
+## 6. 环境变量与高级配置
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `REPO_ROOT` | 当前目录 | 目标业务仓库根目录 |
-| `GITLAB_URL` / `GITLAB_TOKEN` / `GITLAB_PROJECT_ID` | 空 | 内网 GitLab 配置（均配置后自动开启 Issue / MR 联动） |
-| `GITLAB_CA_BUNDLE` | 空 | 企业自签根证书 PEM 路径（优先于 `GITLAB_SSL_VERIFY`） |
-| `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关（内网 PoC 可临时设 `false`，生产推荐配置 `GITLAB_CA_BUNDLE`） |
-| `ADK_MAX_RETRIES` | `3` | 自动定向修复轮次上限（不含首次实现，即首次 + 最多 3 轮修复） |
-| `ADK_LINT_CMD` | 自动探测目标仓库 `.venv` 的 `ruff check .` | 自定义 Lint 命令；设为 `skip` 可跳过 |
-| `ADK_TEST_CMD` | 自动探测目标仓库 `.venv` 的 `pytest -q {test_path}` | 自定义验收测试命令（支持 `{test_path}` 占位符） |
-| `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁（如 `pytest --cov=src --cov-fail-under=80 -q`） |
-| `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | 覆盖 Critic Agent 使用的模型（如 `gemini-2.5-pro`） |
-| `CODEBUDDY_BIN` | `codebuddy` | 本机 CodeBuddy CLI 可执行文件名或路径 |
-| `CODEBUDDY_DISABLE_TOOLS_ARGS` | `["--allowedTools", ""]` | Critic 只读模式禁用工具的 CLI 参数（JSON 数组） |
-| `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | 传给 Headless 工兵的额外 CLI 参数（JSON 数组） |
-| `CODEBUDDY_USE_STDIN` | `false` | 设为 `true` 时改为通过 stdin 传递长 Prompt |
+| `REPO_ROOT` | 当前工作目录 | 目标业务仓库根目录 |
+| `GITLAB_URL` / `GITLAB_TOKEN` / `GITLAB_PROJECT_ID` | 空 | 内网 GitLab 联动机关（均配置后自动同步 Issue 与推送 MR） |
+| `GITLAB_CA_BUNDLE` | 空 | 企业自签根证书 PEM 文件路径 |
+| `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关 |
+| `ADK_MAX_RETRIES` | `3` | 工兵自愈重试上限轮次 |
+| `ADK_WORKER_PROVIDER` | `codebuddy` | 工兵后端类型（`codebuddy` / `mock`） |
+| `ADK_SKIP_TDD_RED` | `0` | 设为 `1` 可临时跳过 TDD Red 阶段门禁 |
+| `ADK_LINT_CMD` | 自动探测 `.venv` 的 `ruff check .` | 静态检查命令；设为 `skip` 可跳过 |
+| `ADK_TEST_CMD` | 自动探测 `.venv` 的 `pytest -q {test_path}` | 验收测试命令模板（支持 `{test_path}` 占位符） |
+| `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁 |
+| `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | 覆盖 Critic 审查所用的模型 |
 
 ---
 
-## 4. 首次运行前：30 秒 `codebuddy` CLI 兼容性自检
+## 7. 运行自动化测试
 
-不同版本的 CodeBuddy CLI 对禁用工具参数（`--allowedTools ""` vs `--tools ""`）及 `--json-schema` 的支持略有差异，建议首单前在终端实测一条最小命令：
-
-```bash
-codebuddy -p '返回 {"approved": true, "blocking_issues": [], "summary": "ok"}' \
-  --output-format json \
-  --no-session-persistence \
-  --max-turns 1 \
-  --allowedTools "" \
-  --json-schema '{"type":"object","properties":{"approved":{"type":"boolean"},"blocking_issues":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","summary"]}'
-```
-
-如果本机版本不认 `--allowedTools ""`，只需在 `.codebuddy/mcp.json` 的 `env` 中配置对应的 `CODEBUDDY_DISABLE_TOOLS_ARGS`（例如 `'["--tools", ""]'`）即可，无需改代码。
-
----
-
-## 5. 运行单元测试
+项目内建 40 个全量单元测试与物理对抗用例（涵盖 Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
-# 使用 pytest（推荐）
-pytest -q
-
-# 或零依赖直接使用标准库 unittest 验证核心安全与状态机模块
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+# 执行全量单元与对抗测试
+uv run --no-sync python -m unittest discover -s tests -v
 ```
