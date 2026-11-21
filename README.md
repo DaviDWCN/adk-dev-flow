@@ -74,20 +74,20 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 11 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 12 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `flow_init` | 异步 | 初始化研发流，自动联动 GitLab Issue 获取标题与描述 |
+| `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
 | `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试 |
 | `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
 | `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
-| `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab MR 链接 |
+| `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab / GitHub PR/MR 链接 |
 | `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
 | `flow_resume` | 异步 | 对处于 `ESCALATED` 熔断的流水线注入人工指令，在原隔离 Worktree 中恢复运行 |
 | `flow_active_runs` | 同步 | 查询当前并发进行的所有活跃流水线状态 |
 | `flow_list` | 同步 | 查询历史流水线运行记录（跨会话找回 `run_id`） |
-| `flow_finalize` | 异步 | 验收完成后解除 GitLab MR 的 Draft 标记并清理隔离 Worktree |
+| `flow_finalize` | 异步 | 验收完成后解除 GitLab / GitHub PR/MR 的 Draft 标记并清理隔离 Worktree |
 | `flow_abort` | 异步 | 中止指定流水线，强杀子进程树并解除工作区防呆锁 |
 | `flow_abort_all` | 异步 | 一键强杀所有正在执行的流水线并释放所有资源 |
 
@@ -135,7 +135,33 @@ def test_lock_acquire_and_release():
 
 ---
 
-## 5. 启动 Google ADK Web UI 可视化控制台
+## 5. 🎨 像素工坊卡通工位动态监控看板（Generative UI & MCP App）
+
+借鉴 Factorio 流水线、魔兽争霸 Peon 与 Pixel Agent 理念，系统将复杂的 Multi-Agent 研发状态机映射为 6 大生动的**卡通工人工位**：
+
+1. **蓝图架构师（Architect）**：校验 OKF 规约与验收用例完整性，冻结契约。
+2. **施工工兵（Worker Builder）**：黄色安全帽、手持铁锤快速敲击、火花四溅，安全沙箱中编写代码。
+3. **TDD 质检员（Tester）**：身穿白大褂、手持变色试管，严格执行红灯预检与 Pytest 验收门禁。
+4. **独立 Critic 审查官（Critic）**：侦探风衣，手持放大镜沿流水线射出激光扫描光束，审计越界修改与代码安全。
+5. **MR 交付卡车（Delivery Truck）**：叉车装载打包好的代码货箱，自动创建/更新 GitLab MR 或 GitHub PR。
+6. **熔断停机警报（Siren）**：全厂旋转红灯大作，触发熔断保护，呼叫人类工程师。
+
+### 监控启动方式
+
+- **命令行独立启动 Web 看板（支持毫秒级 SSE 实时推流）**：
+  ```bash
+  # 启动本地看板并在默认浏览器中打开 (默认 http://127.0.0.1:8080)
+  adk-dev-flow-dashboard --open
+
+  # 指定端口与特定运行轮次
+  adk-dev-flow-dashboard --port 8888 --run-id <run_id>
+  ```
+- **IDE 内嵌与侧边栏（Antigravity / CodeBuddy）**：
+  在对话中调用 `flow_dashboard(run_id=...)`，系统自动利用 `ui://adk-dev-flow/dashboard.html` 将动态看板渲染在 Aux Pane 侧边栏或对话内嵌流中。
+
+---
+
+## 6. 启动 Google ADK Web UI 可视化控制台
 
 在当前项目目录执行：
 
@@ -150,7 +176,7 @@ uv run adk web src --port 8000
 
 ---
 
-## 6. 环境变量与高级配置
+## 7. 环境变量与高级配置
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -172,9 +198,9 @@ uv run adk web src --port 8000
 
 ---
 
-## 7. 运行自动化测试
+## 8. 运行自动化测试
 
-项目内建 49 个全量单元测试与物理对抗用例（涵盖 GitHub/GitLab 自适应客户端、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+项目内建 52 个全量单元测试与物理对抗用例（涵盖 GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
 # 执行全量单元与对抗测试
