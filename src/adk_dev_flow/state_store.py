@@ -232,6 +232,7 @@ class StateStore:
         payload = {
             "run_id": latest["run_id"],
             "status": latest["status"],
+            "active_run_ids": [r["run_id"] for r in rows],
             "active_runs": [{"run_id": r["run_id"], "status": r["status"]} for r in rows],
         }
         tmp_marker = self.active_marker.with_suffix(".tmp")
@@ -240,6 +241,19 @@ class StateStore:
             encoding="utf-8",
         )
         tmp_marker.replace(self.active_marker)
+
+    def get_active_runs(self) -> list[dict[str, Any]]:
+        in_clause = ", ".join("?" for _ in ACTIVE_STATUSES)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM runs WHERE status IN ({in_clause}) ORDER BY updated_at DESC",
+                list(ACTIVE_STATUSES),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def is_run_active(self, run_id: str) -> bool:
+        run = self.get_run(run_id)
+        return bool(run and run.get("status") in ACTIVE_STATUSES)
 
     def clear_active_run(self) -> None:
         if self.active_marker.exists():

@@ -14,6 +14,7 @@ from google.genai import types
 from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
 from adk_dev_flow.gitlab_client import GitLabClient
 from adk_dev_flow.models import ReviewVerdict, SpecContract
+from adk_dev_flow.providers import get_worker_provider
 from adk_dev_flow.state_store import StateStore
 from adk_dev_flow.subproc import CommandResult, run_subprocess_safe
 from adk_dev_flow.worktree_utils import (
@@ -23,6 +24,7 @@ from adk_dev_flow.worktree_utils import (
     parse_review_verdict_dict,
     resolve_tool_command,
     sanitize_worktree_state,
+    sync_worktree_dependencies,
 )
 
 MAX_REPAIR_ATTEMPTS = int(os.environ.get("ADK_MAX_RETRIES", "3"))
@@ -133,6 +135,34 @@ def build_dev_workflow(
             if lock_sha_res.returncode != 0:
                 raise RuntimeError(f"读取锁定测试 commit SHA 失败: {lock_sha_res.stderr.strip()}")
             locked_test_commit_sha = lock_sha_res.stdout.strip()
+
+            if spec.extra_dependencies:
+                dep_ok, dep_msg = await sync_worktree_dependencies(
+                    worktree, repo_root, spec.extra_dependencies
+                )
+                if not dep_ok:
+                    raise RuntimeError(f"安装增量依赖失败: {dep_msg}")
+
+            # Pre-flight TDD Red verification on the clean baseline worktree
+            if spec.require_tdd_red and os.environ.get("ADK_SKIP_TDD_RED", "0") != "1":
+                red_cmd = resolve_tool_command(
+                    "pytest",
+                    ["-q", spec.acceptance_test_path],
+                    worktree=worktree,
+                    repo_root=repo_root,
+                    env_override=os.environ.get("ADK_TEST_CMD"),
+                    placeholder_vars={"test_path": spec.acceptance_test_path},
+                )
+                if red_cmd is not None:
+                    red_res = await run_subprocess_safe(
+                        red_cmd, cwd=worktree, timeout_sec=VERIFY_TIMEOUT_SEC
+                    )
+                    if red_res.returncode == 0:
+                        raise RuntimeError(
+                            f"TDD 预检失败：锁定的验收测试 `{spec.acceptance_test_path}` 在未编写业务代码前直接通过 (exit=0)！\n"
+                            f"这表明该测试属于无断言空测试（Mock Passes），或该特性在基线代码中已存在。\n"
+                            f"请为验收测试增加针对新功能的有效断言，或在 Spec 中设置 require_tdd_red=False。"
+                        )
         else:
             await sanitize_worktree_state(worktree)
             # Resume path: ensure metadata is intact.
@@ -208,7 +238,8 @@ def build_dev_workflow(
                 f"失败日志:\n```\n{str(node_input.get('last_error_log', ''))[-3000:]}\n```"
             )
 
-        result = await run_codebuddy_worker(
+        provider = get_worker_provider()
+        result = await provider.run_worker(
             worktree=worktree,
             prompt=prompt,
             run_id=run_id,
@@ -238,6 +269,9 @@ def build_dev_workflow(
                 "[worktree_audit FAILED]\n" + "\n".join(f"- {v}" for v in audit.violations)
             )
         else:
+            if spec.extra_dependencies:
+                await sync_worktree_dependencies(worktree, repo_root, spec.extra_dependencies)
+
             # Step 2: Resolve commands inside target repository venv (or env overrides).
             lint_cmd = resolve_tool_command(
                 "ruff",

@@ -51,6 +51,14 @@ class SpecContract(BaseModel):
         description="锁定的验收测试文件相对路径，如 tests/test_issue_42.py"
     )
     acceptance_test_code: str = Field(min_length=1, description="完整可运行的 pytest 验收测试源码")
+    require_tdd_red: bool = Field(
+        default=True,
+        description="是否强制要求验收测试在基线代码上执行失败（TDD Red 校验，防范空断言或假通过测试）",
+    )
+    extra_dependencies: list[str] = Field(
+        default_factory=list,
+        description="任务执行所需增量安装的第三方 Python 依赖（如 ['httpx>=0.27', 'pydantic-settings']）",
+    )
     tasks: list[AtomicTask] = Field(min_length=1)
 
     @model_validator(mode="after")

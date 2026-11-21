@@ -245,6 +245,30 @@ class FlowService:
             result["worktree_warning"] = wt_warning
         return result
 
+    def flow_active_runs(self) -> dict[str, Any]:
+        runs = self.store.get_active_runs()
+        items = [
+            {
+                "run_id": r["run_id"],
+                "status": r["status"],
+                "issue_iid": r["issue_iid"],
+                "branch": r["branch"],
+                "worktree_path": r["worktree_path"],
+                "attempt": r["attempt"],
+                "updated_at": r["updated_at"],
+            }
+            for r in runs
+        ]
+        return {"active_runs": items, "count": len(items)}
+
+    async def flow_abort_all(self, remove_worktrees: bool = False) -> dict[str, Any]:
+        active_runs = self.store.get_active_runs()
+        aborted = []
+        for r in active_runs:
+            res = await self.flow_abort(r["run_id"], remove_worktree=remove_worktrees)
+            aborted.append(res)
+        return {"aborted_runs": aborted, "count": len(aborted)}
+
 
 def create_mcp_server(
     repo_root: Path | None = None,
@@ -297,6 +321,16 @@ def create_mcp_server(
     async def flow_abort(run_id: str, remove_worktree: bool = False) -> dict[str, Any]:
         """中止当前受控开发流、终止后台子进程并解除主工作区防呆锁。"""
         return await service.flow_abort(run_id=run_id, remove_worktree=remove_worktree)
+
+    @mcp.tool()
+    def flow_active_runs() -> dict[str, Any]:
+        """查询当前正在并发进行的所有活跃开发流（支持多任务状态监控）。"""
+        return service.flow_active_runs()
+
+    @mcp.tool()
+    async def flow_abort_all(remove_worktrees: bool = False) -> dict[str, Any]:
+        """一键终止当前所有进行中的受控开发流并释放所有锁与资源。"""
+        return await service.flow_abort_all(remove_worktrees=remove_worktrees)
 
     return mcp, service
 

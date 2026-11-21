@@ -203,6 +203,37 @@ def resolve_tool_command(
     return [tool_name, *default_args]
 
 
+async def sync_worktree_dependencies(
+    worktree: Path,
+    repo_root: Path,
+    extra_deps: Sequence[str] = (),
+) -> tuple[bool, str]:
+    """Sync dependencies for the worktree environment when extra_dependencies are specified."""
+    if not extra_deps:
+        return True, ""
+
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        cmd = [uv_bin, "pip", "install", *extra_deps]
+        venv_dir = worktree / ".venv" if (worktree / ".venv").is_dir() else repo_root / ".venv"
+        if venv_dir.is_dir():
+            cmd.extend(["--python", str(venv_dir)])
+        res = await run_subprocess_safe(cmd, cwd=worktree, timeout_sec=120.0)
+        if res.returncode == 0:
+            return True, f"uv pip install 成功安装增量依赖: {list(extra_deps)}"
+        return False, f"uv pip install 失败 (exit={res.returncode}): {res.stderr}"
+
+    python_bin = _find_venv_bin(worktree, "python") or _find_venv_bin(repo_root, "python")
+    if python_bin:
+        cmd = [str(python_bin), "-m", "pip", "install", *extra_deps]
+        res = await run_subprocess_safe(cmd, cwd=worktree, timeout_sec=120.0)
+        if res.returncode == 0:
+            return True, f"pip install 成功安装增量依赖: {list(extra_deps)}"
+        return False, f"pip install 失败 (exit={res.returncode}): {res.stderr}"
+
+    return True, "未检测到虚拟环境或 uv，跳过依赖同步"
+
+
 @dataclass
 class WorktreeAuditResult:
     ok: bool

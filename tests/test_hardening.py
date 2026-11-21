@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 
 from adk_dev_flow.guard import evaluate_file_edit
+from adk_dev_flow.models import AtomicTask, SpecContract
+from adk_dev_flow.providers import MockWorkerProvider, get_worker_provider
 from adk_dev_flow.state_store import StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.worktree_utils import (
@@ -16,6 +18,7 @@ from adk_dev_flow.worktree_utils import (
     compute_error_signature,
     compute_file_sha256,
     sanitize_worktree_state,
+    sync_worktree_dependencies,
 )
 
 
@@ -116,6 +119,62 @@ class TestHardeningSuite(unittest.IsolatedAsyncioTestCase):
             allowed, reason = evaluate_file_edit(p, cwd=self.wt)
             self.assertFalse(allowed, f"Expected {p} to be protected")
             self.assertIn("受保护", reason)
+
+    async def test_tdd_red_preflight_logic(self) -> None:
+        spec_red = SpecContract(
+            title="Add feature Y",
+            summary="Feature Y",
+            allowed_paths=["src/"],
+            acceptance_test_path="tests/test_y.py",
+            acceptance_test_code="def test_y(): assert False\n",
+            require_tdd_red=True,
+            tasks=[AtomicTask(id="T1", title="Task 1", description="desc", target_files=["src/y.py"])],
+        )
+        self.assertTrue(spec_red.require_tdd_red)
+
+        spec_no_red = SpecContract(
+            title="Refactor Z",
+            summary="Refactor Z",
+            allowed_paths=["src/"],
+            acceptance_test_path="tests/test_z.py",
+            acceptance_test_code="def test_z(): assert True\n",
+            require_tdd_red=False,
+            tasks=[AtomicTask(id="T1", title="Task 1", description="desc", target_files=["src/z.py"])],
+        )
+        self.assertFalse(spec_no_red.require_tdd_red)
+
+    async def test_sync_worktree_dependencies_empty_is_noop(self) -> None:
+        ok, msg = await sync_worktree_dependencies(self.wt, self.wt, [])
+        self.assertTrue(ok)
+
+    def test_multi_run_tracking_and_active_runs(self) -> None:
+        store = StateStore(self.wt)
+        store.create_run("run-p2-1")
+        store.create_run("run-p2-2")
+        store.update_run("run-p2-1", status="RUNNING")
+        store.update_run("run-p2-2", status="REPAIRING")
+
+        active = store.get_active_runs()
+        self.assertEqual(len(active), 2)
+        self.assertTrue(store.is_run_active("run-p2-1"))
+        self.assertTrue(store.is_run_active("run-p2-2"))
+        self.assertFalse(store.is_run_active("run-non-existent"))
+
+        store.update_run("run-p2-1", status="MR_READY")
+        self.assertFalse(store.is_run_active("run-p2-1"))
+        self.assertEqual(len(store.get_active_runs()), 1)
+
+    async def test_worker_provider_abstraction(self) -> None:
+        mock_p = get_worker_provider("mock")
+        self.assertIsInstance(mock_p, MockWorkerProvider)
+        res = await mock_p.run_worker(
+            worktree=self.wt,
+            prompt="do something",
+            run_id="run-1",
+            allowed_paths=["src/"],
+            locked_tests=["tests/test_t.py"],
+        )
+        self.assertEqual(res["summary"], "Mock completed")
 
 
 if __name__ == "__main__":
