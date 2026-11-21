@@ -12,7 +12,7 @@ from google.adk.workflow import START
 from google.genai import types
 
 from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
-from adk_dev_flow.gitlab_client import GitLabClient
+from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.providers import get_worker_provider
 from adk_dev_flow.state_store import StateStore
@@ -91,7 +91,7 @@ def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
 def build_dev_workflow(
     repo_root: Path,
     store: StateStore,
-    gl: GitLabClient,
+    gl: BaseGitForge,
     run_id: str,
     human_hint: str | None = None,
 ) -> Workflow:
@@ -578,7 +578,7 @@ def build_dev_workflow(
 async def execute_workflow_run(
     repo_root: Path,
     store: StateStore,
-    gl: GitLabClient,
+    gl: BaseGitForge,
     run_id: str,
     human_hint: str | None = None,
 ) -> None:

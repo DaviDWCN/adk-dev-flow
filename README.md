@@ -1,6 +1,6 @@
 # adk-dev-flow
 
-面向 Python 业务仓库的**确定性 AI 研发工作流系统**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab + OKF 规约体系）。
+面向 Python 业务仓库的**确定性 AI 研发工作流系统**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab / GitHub 双平台自适应 + OKF 规约体系）。
 
 采用 **“指挥台（Commander）+ 隔离工兵（Worker）+ 不可绕过物理审计 + 独立 Critic 审查 + OKF 永久归档”** 架构，将 AI 编程收敛为强一致性受控状态机。
 
@@ -8,6 +8,9 @@
 
 ## 核心特性
 
+- 🐙/🦊 **GitLab & GitHub 双托管平台自适应**：
+  - 自动识别当前仓库 remote（`github.com` vs `gitlab`）或环境变量，无缝适配拉取 Issue、创建 Draft PR/MR、追加 Critic 审查评论及解除 Draft。
+  - 完全抽象的 `BaseGitForge` 架构，支持离线纯本地模式（零平台依赖）。
 - 🛡️ **物理级沙箱与对抗防御**：
   - 采用 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 与 POSIX 进程会话，彻底终结子进程树孤儿与僵尸进程。
   - 上下文管理器显式释放 SQLite 句柄，杜绝 Windows WAL `WinError 32` 锁定。
@@ -147,6 +150,10 @@ uv run adk web src --port 8000
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `REPO_ROOT` | 当前工作目录 | 目标业务仓库根目录 |
+| `GIT_FORGE_PROVIDER` | `auto` | 托管平台覆盖开关（`github` / `gitlab` / `none` / `auto`） |
+| `GITHUB_TOKEN` / `GH_TOKEN` | 空 | GitHub 个人访问令牌（PAT），配置后支持 Issue 联动与创建 PR |
+| `GITHUB_REPOSITORY` | 自动从 git remote 解析 | GitHub 仓库路径（如 `owner/repo`，未配置时自动从 `origin` 提取） |
+| `GITHUB_API_URL` | `https://api.github.com` | GitHub API 根路径（支持 GitHub Enterprise） |
 | `GITLAB_URL` / `GITLAB_TOKEN` / `GITLAB_PROJECT_ID` | 空 | 内网 GitLab 联动机关（均配置后自动同步 Issue 与推送 MR） |
 | `GITLAB_CA_BUNDLE` | 空 | 企业自签根证书 PEM 文件路径 |
 | `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关 |
@@ -162,7 +169,7 @@ uv run adk web src --port 8000
 
 ## 7. 运行自动化测试
 
-项目内建 40 个全量单元测试与物理对抗用例（涵盖 Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+项目内建 49 个全量单元测试与物理对抗用例（涵盖 GitHub/GitLab 自适应客户端、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
 # 执行全量单元与对抗测试

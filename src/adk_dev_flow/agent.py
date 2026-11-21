@@ -8,14 +8,14 @@ import os
 from pathlib import Path
 from typing import Any
 from google.adk import Agent
-from adk_dev_flow.gitlab_client import GitLabClient
+from adk_dev_flow.forge_client import get_git_forge
 from adk_dev_flow.mcp_server import FlowService
 from adk_dev_flow.state_store import StateStore
 
 
 def _get_service() -> FlowService:
     root = Path(os.environ.get("REPO_ROOT", os.getcwd())).resolve()
-    return FlowService(root, StateStore(root), GitLabClient())
+    return FlowService(root, StateStore(root), get_git_forge(root))
 
 
 def check_status(run_id: str) -> dict[str, Any]:

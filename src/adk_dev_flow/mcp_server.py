@@ -9,7 +9,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from adk_dev_flow.gitlab_client import GitLabClient
+from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import SpecContract
 from adk_dev_flow.state_store import StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
@@ -19,10 +19,17 @@ from adk_dev_flow.workflow import execute_workflow_run
 class FlowService:
     """Encapsulates MCP tool business logic so it can be cleanly instantiated and unit-tested."""
 
-    def __init__(self, repo_root: Path, store: StateStore, gl: GitLabClient) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        store: StateStore,
+        gl: BaseGitForge | None = None,
+        forge: BaseGitForge | None = None,
+    ) -> None:
         self.repo_root = repo_root.resolve()
         self.store = store
-        self.gl = gl
+        self.gl: BaseGitForge = forge or gl or get_git_forge(self.repo_root)
+        self.forge: BaseGitForge = self.gl
         self.bg_tasks: dict[str, asyncio.Task[None]] = {}
         # Mark any in-flight runs left over from a prior server restart as ESCALATED.
         self.recovered_runs = self.store.recover_orphaned_runs()
@@ -39,26 +46,28 @@ class FlowService:
     async def flow_init(self, requirement: str, issue_iid: int | None = None) -> dict[str, Any]:
         run_id = uuid.uuid4().hex[:12]
         issue_info: dict[str, Any] | None = None
-        gitlab_warning: str | None = None
+        forge_warning: str | None = None
         if issue_iid is not None and self.gl.enabled:
             try:
                 issue_info = await asyncio.to_thread(self.gl.get_issue, issue_iid)
             except Exception as exc:
-                gitlab_warning = f"拉取 GitLab Issue #{issue_iid} 失败，已继续初始化: {exc}"
+                forge_warning = f"拉取 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续初始化: {exc}"
 
         self.store.create_run(run_id=run_id, issue_iid=issue_iid)
         result: dict[str, Any] = {
             "run_id": run_id,
             "status": "SPEC_DRAFTING",
             "requirement": requirement,
+            "issue": issue_info,
             "gitlab_issue": issue_info,
             "next_step": (
                 "请结合仓库结构起草 SpecContract（含完整可运行的 pytest 验收测试源码），"
-                "向用户展示并获得明确确认后再调用 flow_lock_spec。"
+                "向用户展示并获得明确确认后再调用 flow_lock_spec 或 flow_lock_spec_from_file。"
             ),
         }
-        if gitlab_warning:
-            result["gitlab_warning"] = gitlab_warning
+        if forge_warning:
+            result["forge_warning"] = forge_warning
+            result["gitlab_warning"] = forge_warning
         return result
 
     def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
@@ -223,7 +232,7 @@ class FlowService:
             try:
                 result["mr"] = await asyncio.to_thread(self.gl.mark_mr_ready, run["mr_iid"])
             except Exception as exc:
-                return {"error": f"移除 GitLab MR Draft 标记失败: {exc}"}
+                return {"error": f"移除 {self.gl.platform_name.upper()} PR/MR Draft 标记失败: {exc}"}
 
         if remove_worktree and run.get("worktree_path"):
             wt_err = await self._remove_worktree(run["worktree_path"])
@@ -285,18 +294,19 @@ class FlowService:
 def create_mcp_server(
     repo_root: Path | None = None,
     store: StateStore | None = None,
-    gl: GitLabClient | None = None,
+    gl: BaseGitForge | None = None,
+    forge: BaseGitForge | None = None,
 ) -> tuple[FastMCP, FlowService]:
     resolved_root = (repo_root or Path(os.environ.get("REPO_ROOT", os.getcwd()))).resolve()
     resolved_store = store or StateStore(resolved_root)
-    resolved_gl = gl or GitLabClient()
-    service = FlowService(resolved_root, resolved_store, resolved_gl)
+    resolved_forge = forge or gl or get_git_forge(resolved_root)
+    service = FlowService(resolved_root, resolved_store, resolved_forge)
 
     mcp = FastMCP("adk-dev-flow")
 
     @mcp.tool()
     async def flow_init(requirement: str, issue_iid: int | None = None) -> dict[str, Any]:
-        """初始化确定性开发流。若提供内网 GitLab Issue 编号，将自动拉取详情。"""
+        """初始化确定性开发流。若提供 GitLab/GitHub Issue 编号，将自动拉取详情。"""
         return await service.flow_init(requirement=requirement, issue_iid=issue_iid)
 
     @mcp.tool()
