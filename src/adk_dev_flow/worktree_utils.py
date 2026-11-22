@@ -281,6 +281,22 @@ async def sanitize_worktree_state(worktree: Path) -> None:
             pass
 
 
+def _is_ephemeral_runtime_artifact(norm_path: str) -> bool:
+    """Filter out non-source runtime artifacts produced during tests/lints."""
+    parts = norm_path.split("/")
+    if any(
+        p in ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".hypothesis", ".venv", "venv", ".adk")
+        for p in parts
+    ):
+        return True
+    if norm_path.endswith((".pyc", ".pyo", ".pyd")):
+        return True
+    filename = parts[-1]
+    if filename.startswith(".coverage") or filename in ("coverage.xml", ".coverage", "nosetests.xml"):
+        return True
+    return False
+
+
 async def audit_worktree_changes(
     worktree: Path,
     *,
@@ -386,7 +402,7 @@ async def audit_worktree_changes(
             raw_candidates = [raw.strip('"')]
         for rc in raw_candidates:
             norm_rc = strip_dot_slash(rc)
-            if norm_rc.startswith((".venv/", "venv/", "__pycache__/", ".pytest_cache/", ".adk/")):
+            if _is_ephemeral_runtime_artifact(norm_rc):
                 continue
             touched_set.add(norm_rc)
 
@@ -400,7 +416,10 @@ async def audit_worktree_changes(
             for line in diff_commits_res.stdout.splitlines():
                 p = line.strip()
                 if p:
-                    touched_set.add(p)
+                    norm_p = strip_dot_slash(p)
+                    if _is_ephemeral_runtime_artifact(norm_p):
+                        continue
+                    touched_set.add(norm_p)
 
     touched_files = sorted(touched_set)
     for rel in touched_files:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -77,6 +78,36 @@ def schema_to_json_schema(schema_obj: Any) -> dict[str, Any] | None:
     return None
 
 
+def _extract_json_substring(text: str) -> str:
+    cleaned = strip_markdown_code_fence(text.strip())
+    try:
+        json.loads(cleaned)
+        return cleaned
+    except json.JSONDecodeError:
+        pass
+
+    m = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", cleaned, re.IGNORECASE)
+    if m:
+        try:
+            candidate = m.group(1).strip()
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end > start:
+        candidate = cleaned[start : end + 1].strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    return cleaned
+
+
 def extract_cli_text(raw_stdout: str) -> str:
     """Extract structured_output or result text from CodeBuddy CLI JSON output."""
     raw = raw_stdout.strip()
@@ -85,18 +116,29 @@ def extract_cli_text(raw_stdout: str) -> str:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return strip_markdown_code_fence(raw)
+        return _extract_json_substring(raw)
+
+    if isinstance(data, list) and data:
+        for item in reversed(data):
+            if isinstance(item, dict) and item.get("type") == "result":
+                if item.get("result") is not None:
+                    val = item["result"]
+                    return _extract_json_substring(val) if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+            elif isinstance(item, dict) and item.get("type") == "message" and item.get("role") == "assistant":
+                for part in item.get("content", []):
+                    if isinstance(part, dict) and part.get("type") == "output_text":
+                        return _extract_json_substring(part.get("text", ""))
 
     if isinstance(data, dict):
         if data.get("structured_output") is not None:
             val = data["structured_output"]
-            return val if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
+            return _extract_json_substring(val) if isinstance(val, str) else json.dumps(val, ensure_ascii=False)
         if data.get("result") is not None:
             val = data["result"]
             if isinstance(val, str):
-                return strip_markdown_code_fence(val)
+                return _extract_json_substring(val)
             return json.dumps(val, ensure_ascii=False)
-    return raw
+    return _extract_json_substring(raw)
 
 
 def _parse_json_list_env(var_name: str, default: list[str]) -> list[str]:
@@ -130,35 +172,56 @@ class CodeBuddyLlm(BaseLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
-        sections: list[str] = []
+        system_instruction_text = ""
         if llm_request.config and llm_request.config.system_instruction:
             sys_inst = llm_request.config.system_instruction
             if isinstance(sys_inst, str):
-                sections.append(f"[SYSTEM]\n{sys_inst}")
+                system_instruction_text = sys_inst
             elif hasattr(sys_inst, "parts"):
-                txt = "\n".join(p.text for p in sys_inst.parts if getattr(p, "text", None))
-                if txt:
-                    sections.append(f"[SYSTEM]\n{txt}")
+                system_instruction_text = "\n".join(
+                    p.text for p in sys_inst.parts if getattr(p, "text", None)
+                )
 
+        user_content_parts: list[str] = []
         for content in llm_request.contents or []:
-            role = (content.role or "user").upper()
             parts_txt = "\n".join(
                 p.text for p in (content.parts or []) if getattr(p, "text", None)
             )
             if parts_txt:
-                sections.append(f"[{role}]\n{parts_txt}")
+                user_content_parts.append(parts_txt)
 
-        prompt = "\n\n".join(sections)
+        prompt_body = "\n\n".join(user_content_parts) or "Review the code changes."
+
+        has_schema = bool(
+            llm_request.config and getattr(llm_request.config, "response_schema", None)
+        )
+        schema_prompt = ""
+        if has_schema:
+            json_schema = schema_to_json_schema(llm_request.config.response_schema)
+            if json_schema is not None:
+                schema_prompt = (
+                    "\n\n【输出格式要求】请严格只输出一个符合以下 JSON 结构的纯 JSON 对象，不得包含任何 Markdown 标记或额外解释：\n"
+                    f"{json.dumps(json_schema, ensure_ascii=False)}"
+                )
+
+        full_prompt = (
+            f"【审查规约】\n{system_instruction_text}\n\n" if system_instruction_text else ""
+        ) + f"【输入上下文】\n{prompt_body}{schema_prompt}"
+
         binary_name = self.cli_bin or os.environ.get("CODEBUDDY_BIN", "codebuddy")
         resolved_bin = shutil.which(binary_name) or binary_name
 
-        # Configurable tool-disabling args to tolerate CodeBuddy CLI flag differences across versions.
-        disable_tools_args = _parse_json_list_env(
-            "CODEBUDDY_DISABLE_TOOLS_ARGS", ["--tools", ""]
-        )
-        use_stdin = _use_stdin_prompt()
-
-        cmd = [resolved_bin]
+        cmd = [
+            resolved_bin,
+            "-y",
+            "--permission-mode",
+            "bypassPermissions",
+            "--tools",
+            "",
+            "-p",
+            "--max-turns",
+            "1",
+        ]
         model_name = (
             self.model
             if (self.model and self.model not in ("codebuddy-cli", "codebuddy"))
@@ -167,31 +230,10 @@ class CodeBuddyLlm(BaseLlm):
         if model_name and model_name not in ("codebuddy-cli", "codebuddy"):
             cmd.extend(["--model", model_name])
 
-        if use_stdin:
-            cmd.append("-p")
-        else:
-            cmd.extend(["-p", prompt])
-
-        cmd.extend(
-            [
-                "--output-format",
-                "json",
-                "--no-session-persistence",
-                "--max-turns",
-                "1",
-                *disable_tools_args,
-            ]
-        )
-
-        if llm_request.config and getattr(llm_request.config, "response_schema", None):
-            json_schema = schema_to_json_schema(llm_request.config.response_schema)
-            if json_schema is not None:
-                cmd.extend(["--json-schema", json.dumps(json_schema, ensure_ascii=False)])
-
         res = await run_subprocess_safe(
             cmd,
             timeout_sec=float(self.timeout_sec),
-            stdin_text=prompt if use_stdin else None,
+            stdin_text=full_prompt,
         )
         if res.timed_out:
             raise RuntimeError(f"CodeBuddyLlm 调用超时 ({self.timeout_sec}s): {res.stderr}")
@@ -200,7 +242,22 @@ class CodeBuddyLlm(BaseLlm):
                 f"CodeBuddyLlm 调用失败 (exit={res.returncode}): {res.stderr[:1000]}"
             )
 
-        text = extract_cli_text(res.stdout)
+        text = _extract_json_substring(res.stdout) if has_schema else res.stdout
+        if has_schema:
+            try:
+                json.loads(text)
+            except Exception:
+                text = json.dumps(
+                    {
+                        "approved": False,
+                        "blocking_issues": [
+                            f"模型未按 JSON Schema 格式输出有效 JSON 结论: {text[:200]}"
+                        ],
+                        "summary": text[:400] or "Critic 输出无法解析为 JSON",
+                    },
+                    ensure_ascii=False,
+                )
+
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]))
 
 
@@ -229,6 +286,7 @@ async def run_codebuddy_worker(
     env["ADK_WORKER_TOKEN"] = run_id
     env["ADK_ALLOWED_PATHS"] = json.dumps(allowed_paths, ensure_ascii=False)
     env["ADK_LOCKED_TESTS"] = json.dumps(locked_tests, ensure_ascii=False)
+    env["CODEBUDDY_IS_SANDBOX"] = "1"
 
     binary_name = os.environ.get("CODEBUDDY_BIN", "codebuddy")
     resolved_bin = shutil.which(binary_name) or binary_name
@@ -241,27 +299,30 @@ async def run_codebuddy_worker(
         or os.environ.get("CODEBUDDY_WORKER_MODEL")
         or os.environ.get("CODEBUDDY_MODEL")
     )
-    cmd = [resolved_bin]
+    cmd = [
+        resolved_bin,
+        "-y",
+        "--permission-mode",
+        "bypassPermissions",
+    ]
     if worker_model and worker_model not in ("codebuddy-cli", "codebuddy"):
         cmd.extend(["--model", worker_model])
-
-    if use_stdin:
-        cmd.append("-p")
-    else:
-        cmd.extend(["-p", prompt])
 
     cmd.extend(
         [
             "--output-format",
             "json",
-            "--json-schema",
-            schema,
             "--no-session-persistence",
             "--max-turns",
             str(max_turns),
             *extra_args,
         ]
     )
+
+    if use_stdin:
+        cmd.append("-p")
+    else:
+        cmd.extend(["-p", prompt])
 
     res = await run_subprocess_safe(
         cmd,
