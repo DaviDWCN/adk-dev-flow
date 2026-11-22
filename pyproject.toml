@@ -30,6 +30,7 @@ adk-workflow-guard = "adk_dev_flow.guard:main"
 adk-dev-flow-init = "adk_dev_flow.cli:main"
 adk-dev-flow-dashboard = "adk_dev_flow.dashboard:main"
 adk-dev-flow-impact = "adk_dev_flow.ast_graph:cli_main"
+adk-dev-flow-sync-plugin = "adk_dev_flow.plugin_builder:cli_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/adk_dev_flow"]

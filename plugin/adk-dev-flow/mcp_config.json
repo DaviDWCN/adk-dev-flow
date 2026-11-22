@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "adk-dev-flow": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "D:/workspace/adk-dev-flow",
+        "adk-dev-flow"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

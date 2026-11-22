@@ -244,9 +244,37 @@ uv run python scripts/benchmark_models.py
 
 ---
 
-## 9. 运行自动化测试
+## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-项目内建 61 个全量单元测试与物理对抗用例（涵盖 AST 代码图谱与语义 Diff、GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 13 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+
+### 插件结构
+- `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标。
+- `mcp_config.json`：配置便携式 FastMCP 服务运行命令，支持跨环境自适应启动。
+- `skills/deterministic-dev/SKILL.md`：打包确定性流水线研发技能，赋能 Agent 拥有全套流水线编排调度认知。
+- `rules/AGENTS.md`：剥离 Frontmatter 并下发为不可妥协的工程底线（TDD 红灯契约、沙箱隔离、AST 语义不变性）。
+- `assets/logo.svg`：工程流水线与 AST 节点发光徽标。
+
+### 一键同步机制
+无论是在本地开发、更新依赖、修改规则还是发布新版本，只需运行同步命令，即可**自动更新**仓库内置插件目录与当前用户全局插件目录（`~/.gemini/config/plugins/adk-dev-flow`）：
+
+```bash
+# 自动编译并双轨同步插件（仓库目录 + 全局用户目录）
+uv run --no-sync python -m adk_dev_flow.plugin_builder
+# 或在环境重载后直接使用注册命令：
+uv run adk-dev-flow-sync-plugin
+
+# 仅同步仓库内置 plugin/ 目录
+uv run --no-sync python -m adk_dev_flow.plugin_builder --no-global
+```
+
+全局同步后，在 Antigravity 的插件管理面板（Customizations UI）中即可看到 `ADK Deterministic Dev Flow`，开启后所有会话中的 Agent 均可原生感知并调用。
+
+---
+
+## 10. 运行自动化测试
+
+项目内建 67 个全量单元测试与物理对抗用例（涵盖 AST 代码图谱与语义 Diff、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
 # 执行全量单元与对抗测试

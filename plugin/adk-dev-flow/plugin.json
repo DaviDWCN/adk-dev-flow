@@ -1,0 +1,30 @@
+{
+  "name": "adk-dev-flow",
+  "displayName": "ADK Deterministic Dev Flow",
+  "version": "0.2.0",
+  "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 13 工具、AST 代码图谱影响面分析、TDD 红灯契约门禁、Git Worktree 隔离施工、独立 Critic 盲审与像素工坊实时看板。",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "按照确定性研发流程处理当前的开发需求",
+    "使用 AST 代码图谱分析目标代码的影响面与爆炸半径",
+    "打开当前任务的 ADK 像素工坊工位动画看板"
+  ],
+  "author": {
+    "name": "David",
+    "email": "david@example.com"
+  },
+  "homepage": "https://github.com/DaviDWCN/adk-dev-flow",
+  "repository": "https://github.com/DaviDWCN/adk-dev-flow.git",
+  "license": "MIT",
+  "keywords": [
+    "adk",
+    "mcp",
+    "workflow",
+    "tdd",
+    "ast",
+    "code-graph",
+    "sandbox",
+    "codebuddy",
+    "antigravity"
+  ]
+}
