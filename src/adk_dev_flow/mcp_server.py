@@ -86,13 +86,39 @@ class FlowService:
             return {
                 "error": f"当前状态不可锁定 Spec（需 SPEC_DRAFTING，实际为 {run['status']}）"
             }
-        return {
+
+        ast_impact: dict[str, Any] | None = None
+        try:
+            from adk_dev_flow.ast_graph import CodeGraph
+
+            cg = CodeGraph(self.repo_root)
+            report = cg.analyze_impact(spec.allowed_paths)
+            ast_impact = {
+                "impacted_production_files": report.impacted_production_files,
+                "impacted_test_files": report.impacted_test_files,
+                "suggested_allowed_paths": report.suggested_allowed_paths,
+                "summary": report.summary,
+            }
+        except Exception:
+            ast_impact = None
+
+        res: dict[str, Any] = {
             "run_id": run_id,
             "status": "SPEC_LOCKED",
             "locked_test": spec.acceptance_test_path,
             "allowed_paths": spec.allowed_paths,
             "next_step": "Spec 已冻结并通过静态校验，可调用 flow_dispatch 触发 ADK 后台隔离执行与验收。",
         }
+        if ast_impact:
+            res["ast_impact"] = ast_impact
+        return res
+
+    def flow_analyze_impact(self, target_paths: list[str]) -> dict[str, Any]:
+        from adk_dev_flow.ast_graph import CodeGraph
+
+        cg = CodeGraph(self.repo_root)
+        report = cg.analyze_impact(target_paths)
+        return report.to_dict()
 
     def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
         p = Path(spec_file_path)
@@ -344,6 +370,11 @@ def create_mcp_server(
     def flow_lock_spec_from_file(run_id: str, spec_file_path: str) -> dict[str, Any]:
         """读取 OKF (Open Knowledge Format) Markdown 规约文件并冻结锁定该运行轮次。"""
         return service.flow_lock_spec_from_file(run_id=run_id, spec_file_path=spec_file_path)
+
+    @mcp.tool()
+    def flow_analyze_impact(target_paths: list[str]) -> dict[str, Any]:
+        """使用 AST 代码图谱静态分析目标代码的影响面（爆炸半径），推导关联生产代码、调用方与受影响测试用例。"""
+        return service.flow_analyze_impact(target_paths=target_paths)
 
     @mcp.tool()
     async def flow_dispatch(run_id: str) -> dict[str, Any]:

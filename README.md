@@ -30,6 +30,11 @@
 - 🔄 **高可用多任务并发与抽象 Provider**：
   - CAS 原子状态转移保证零竞争分叉；支持 `flow_active_runs` 多任务监控与 `flow_abort_all` 一键清理。
   - 支持可插拔 Worker Runtime Provider（`CodeBuddyWorkerProvider`、`MockWorkerProvider`、自定义 Provider）。
+- 🌲 **AST 代码图谱与语义影响面分析（Code Graph & Semantic Diff）**：
+  - 基于 Python 标准库 `ast` 构建毫秒级符号依赖图谱，零网络与重型后台进程依赖。
+  - **影响面（爆炸半径）自动推导**：根据目标改动文件或函数符号，精准推导多跳关联生产代码、受波及调用方与待测用例集，智能推荐 `allowed_paths`。
+  - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，保留类继承、完整类型注解与 Docstring，为工兵节省 70%+ 上下文 Token 并杜绝接口幻觉。
+  - **静态 AST Diff 安全与契约门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误以及高危调用（`os.system`、`eval`、硬编码凭据），提供物理级确定性硬约束。
 
 ---
 
@@ -43,9 +48,10 @@ uv tool install git+https://github.com/DaviDWCN/adk-dev-flow.git
 uv pip install -e ".[dev]"
 ```
 
-安装后提供 4 个 CLI 命令：
+安装后提供 5 个 CLI 命令：
 - `adk-dev-flow`：FastMCP Server 入口
 - `adk-dev-flow-dashboard`：像素工坊实时动画 Web 监控看板与 SSE 推流服务
+- `adk-dev-flow-impact`：AST 影响面与爆炸半径分析工具（命令行直接查询调用拓扑）
 - `adk-workflow-guard`：CodeBuddy `PreToolUse` 安全拦截钩子
 - `adk-dev-flow-init`：向目标业务仓库一键脚手架薄配置、OKF 规约模版与知识库结构
 
@@ -74,13 +80,14 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 12 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 13 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
-| `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试 |
+| `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈） |
 | `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
+| `flow_analyze_impact` | 同步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试 |
 | `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
 | `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab / GitHub PR/MR 链接 |
 | `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
@@ -238,7 +245,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 运行自动化测试
 
-项目内建 52 个全量单元测试与物理对抗用例（涵盖 GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+项目内建 59 个全量单元测试与物理对抗用例（涵盖 AST 代码图谱与语义 Diff、GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
 # 执行全量单元与对抗测试

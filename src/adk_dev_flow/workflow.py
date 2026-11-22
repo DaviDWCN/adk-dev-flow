@@ -464,6 +464,32 @@ def build_dev_workflow(
                 f"请重点参考 diff_stat 评估影响面。"
             )
 
+        # 3. 执行 AST 静态语义审计（语法树解析、破坏性接口变更、高危调用）
+        ast_findings: list[dict[str, Any]] = []
+        for f in changed_files:
+            if not f.endswith(".py"):
+                continue
+            base_code = ""
+            base_res = await _git(["show", f"{base_sha}:{f}"], worktree)
+            if base_res.returncode == 0:
+                base_code = base_res.stdout
+            new_code = ""
+            new_p = worktree / f
+            if new_p.exists():
+                try:
+                    new_code = new_p.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    new_code = ""
+
+            try:
+                from adk_dev_flow.ast_graph import audit_ast_diff
+
+                report = audit_ast_diff(base_code, new_code, file_path=f)
+                if report.has_issues:
+                    ast_findings.append(report.to_dict())
+            except Exception:
+                pass
+
         # Return an explicit JSON string so ADK 2.x reliably delivers text content to Critic Agent.
         critic_payload = {
             "spec": {
@@ -477,6 +503,7 @@ def build_dev_workflow(
             "worker_summary": node_input.get("worker_summary", ""),
             "diff_truncated": diff_truncated,
             "git_diff": diff_text,
+            "ast_static_audit": ast_findings,
         }
         return json.dumps(critic_payload, ensure_ascii=False, indent=2)
 
@@ -493,9 +520,10 @@ def build_dev_workflow(
         model=critic_model,
         output_schema=ReviewVerdict,
         instruction=(
-            "你是独立的只读代码审查专家（Critic）。你收到的是 JSON 上下文，包含 spec、worker_summary 和 git_diff。"
-            "严格检查：1) 是否违背 Spec 约束或越界修改；2) 是否有明显边界空值、异常处理或安全漏洞；"
-            "3) 是否存在硬编码密钥或绕过测试的作弊行为；4) 若 diff_truncated 为 true 且无法确认完整性，请审慎评估并在 blocking_issues 说明。"
+            "你是独立的只读代码审查专家（Critic）。你收到的是 JSON 上下文，包含 spec、worker_summary、git_diff 及可选的 ast_static_audit 静态语义审计结论。"
+            "严格检查：1) 是否违背 Spec 约束或越界修改；2) 若 ast_static_audit 中存在 syntax_error、dangerous_nodes 或 breaking_issues，必须在 blocking_issues 中列出并直接一票否决 (approved=false)；"
+            "3) 是否有明显边界空值、异常处理或安全漏洞；4) 是否存在硬编码密钥或绕过测试的作弊行为；"
+            "5) 若 diff_truncated 为 true 且无法确认完整性，请审慎评估并在 blocking_issues 说明。"
             "只输出符合 ReviewVerdict 结构的 JSON。"
         ),
     )
