@@ -12,6 +12,7 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
    - 若跨会话找回任务或存在多任务并发：调用 `flow_active_runs()` 查看所有活跃流水线，或调用 `flow_list()` 检索历史记录。
 2. **起草 Spec 契约与锁定验收测试（强制人工门禁）**：
    - 只读浏览相关 Python 模块与 `.adk/knowledge/rules/` 下的工程规约。
+   - **AST 影响面推导**：建议先调用 `flow_analyze_impact(target_paths=[...])` 自动推导目标文件的爆炸半径、关联生产文件与受影响测试集，智能推荐最小安全白名单。
    - 起草符合 `SpecContract` 结构或写入 `.adk/specs/issue-{iid}.md`（OKF Markdown 格式）。
    - 包含：改动范围白名单 `allowed_paths`、原子任务拆解 `tasks`（目标文件必须在白名单内）、增量依赖 `extra_dependencies`、以及一份**完整可运行且语法正确的 `pytest` 验收测试代码**。
    - **TDD Red 校验**：验收测试必须包含有效断言，确保在编写业务代码前在基线分支上执行失败（`require_tdd_red: true`）。
