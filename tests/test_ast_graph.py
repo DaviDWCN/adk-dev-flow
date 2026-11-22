@@ -206,6 +206,41 @@ def exploit():
         self.assertTrue(any("pty" in d for d in diff.dangerous_nodes))
         self.assertTrue(any("疑似硬编码凭据" in d for d in diff.dangerous_nodes))
 
+    def test_audit_ast_diff_detects_obfuscated_and_reflection_attacks(self) -> None:
+        code = """
+import os
+import base64
+
+def advanced_exploit():
+    # Reflection attack
+    fn = getattr(os, "sys" + "tem")
+    fn("id")
+    # Namespace elevation
+    g = globals().get('__builtins__')
+    # Obfuscated secret decode
+    SECRET_TOKEN = base64.b64decode("c2stMTIzNDU2Nzg5MDEyMzQ1Ng==").decode()
+"""
+        diff = audit_ast_diff("", code)
+        self.assertTrue(any("getattr" in d for d in diff.dangerous_nodes))
+        self.assertTrue(any("globals" in d or "__builtins__" in d for d in diff.dangerous_nodes))
+        self.assertTrue(any("混淆还原敏感凭据" in d for d in diff.dangerous_nodes))
+
+    def test_generate_skeleton_preserves_nested_functions(self) -> None:
+        code = """
+def factory(base_val: int):
+    \"\"\"Factory function.\"\"\"
+    x = 100
+    def tool_handler(name: str) -> bool:
+        \"\"\"Nested handler.\"\"\"
+        return len(name) > 0
+    return tool_handler
+"""
+        skel = generate_skeleton(code)
+        self.assertIn("def factory(base_val: int):", skel)
+        self.assertIn("def tool_handler(name: str) -> bool:", skel)
+        self.assertIn('"""Nested handler."""', skel)
+        self.assertNotIn("x = 100", skel)
+
     def test_flow_service_analyze_impact_and_lock_spec_advisory(self) -> None:
         db_path = self.repo / "test.db"
         store = StateStore(db_path)

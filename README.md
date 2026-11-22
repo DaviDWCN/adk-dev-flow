@@ -33,8 +33,9 @@
 - 🌲 **AST 代码图谱与语义影响面分析（Code Graph & Semantic Diff）**：
   - 基于 Python 标准库 `ast` 构建毫秒级符号依赖图谱，零网络与重型后台进程依赖。
   - **影响面（爆炸半径）自动推导**：根据目标改动文件或函数符号，精准推导多跳关联生产代码、受波及调用方与待测用例集，智能推荐 `allowed_paths`。
-  - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，保留类继承、完整类型注解与 Docstring，为工兵节省 70%+ 上下文 Token 并杜绝接口幻觉。
-  - **静态 AST Diff 安全与契约门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误以及高危调用（`os.system`、`eval`、硬编码凭据），提供物理级确定性硬约束。
+  - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，递归保留类继承、嵌套闭包工具签名、完整类型注解与 Docstring，为工兵节省 65%+ 上下文 Token 并杜绝接口幻觉。
+  - **静态 AST Diff 安全与契约门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及高危调用（`os.system`、`eval`、混淆还原凭据），提供物理级确定性硬约束。
+  - 内建 `scripts/deep_ast_audit.py` 深度程序分析检验套件（涵盖 `sys.settrace` 动态差分比对、形式化幂等性证明与 10 组工业级对抗样本靶场）。
 
 ---
 
@@ -245,7 +246,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 运行自动化测试
 
-项目内建 59 个全量单元测试与物理对抗用例（涵盖 AST 代码图谱与语义 Diff、GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+项目内建 61 个全量单元测试与物理对抗用例（涵盖 AST 代码图谱与语义 Diff、GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 
 ```bash
 # 执行全量单元与对抗测试

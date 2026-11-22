@@ -92,6 +92,10 @@ def _get_call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Attribute):
         parent = _get_call_name(node.value)
         return f"{parent}.{node.attr}" if parent else node.attr
+    if isinstance(node, ast.Subscript):
+        parent = _get_call_name(node.value)
+        if isinstance(node.slice, ast.Constant):
+            return f"{parent}[{node.slice.value!r}]" if parent else f"[{node.slice.value!r}]"
     return None
 
 
@@ -486,25 +490,27 @@ def generate_skeleton(code: str, file_path: str = "") -> str:
         return code
 
     class SkeletonTransformer(ast.NodeTransformer):
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-            self.generic_visit(node)
+        def _transform_func(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
             doc = ast.get_docstring(node)
+            # Recursively preserve nested FunctionDef, AsyncFunctionDef, or ClassDef
+            nested_defs: list[ast.stmt] = []
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    nested_defs.append(self.visit(stmt))
+
             new_body: list[ast.stmt] = []
             if doc:
                 new_body.append(ast.Expr(value=ast.Constant(value=doc)))
+            new_body.extend(nested_defs)
             new_body.append(ast.Expr(value=ast.Constant(value=Ellipsis)))
             node.body = new_body
             return node
 
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+            return self._transform_func(node)
+
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-            self.generic_visit(node)
-            doc = ast.get_docstring(node)
-            new_body: list[ast.stmt] = []
-            if doc:
-                new_body.append(ast.Expr(value=ast.Constant(value=doc)))
-            new_body.append(ast.Expr(value=ast.Constant(value=Ellipsis)))
-            node.body = new_body
-            return node
+            return self._transform_func(node)
 
     new_tree = SkeletonTransformer().visit(tree)
     ast.fix_missing_locations(new_tree)
@@ -549,15 +555,38 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
 
     for node in ast.walk(new_tree):
         if isinstance(node, ast.Call):
-            call_name = _get_call_name(node.func)
-            if call_name in dangerous_calls:
+            call_name = _get_call_name(node.func) or ""
+            if call_name in dangerous_calls or any(
+                f"[{d!r}]" in call_name for d in ("eval", "exec", "system", "popen")
+            ):
                 report.dangerous_nodes.append(f"发现危险函数调用 `{call_name}` (line {node.lineno})")
+            elif call_name == "getattr" and len(node.args) >= 2:
+                target_mod = _get_call_name(node.args[0]) or ""
+                attr_arg = node.args[1]
+                if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
+                    if attr_arg.value in ("system", "popen", "eval", "exec", "spawn", "__builtins__"):
+                        report.dangerous_nodes.append(
+                            f"发现反射危险函数调用 `getattr({target_mod}, '{attr_arg.value}')` (line {node.lineno})"
+                        )
+                elif isinstance(attr_arg, (ast.BinOp, ast.JoinedStr, ast.Call)):
+                    if target_mod in ("os", "subprocess", "builtins", "__builtins__", "sys"):
+                        report.dangerous_nodes.append(
+                            f"发现敏感模块上的动态反射调用 `getattr({target_mod}, <dynamic>)` (line {node.lineno})"
+                        )
+            elif call_name in ("globals", "locals", "vars", "__import__"):
+                report.dangerous_nodes.append(
+                    f"发现全局作用域反射或内建提权访问 `{call_name}()` (line {node.lineno})"
+                )
+        elif isinstance(node, ast.Name) and node.id == "__builtins__":
+            report.dangerous_nodes.append(f"发现内建提权命名空间访问 `__builtins__` (line {node.lineno})")
+        elif isinstance(node, ast.Constant) and node.value == "__builtins__":
+            report.dangerous_nodes.append(f"发现敏感内建属性索引 `'__builtins__'` (line {node.lineno})")
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in ("pty", "shelve"):
                     report.dangerous_nodes.append(f"发现敏感模块导入 `{alias.name}` (line {node.lineno})")
         elif isinstance(node, ast.Assign):
-            # Check for suspicious hardcoded secret token patterns
+            # Check for suspicious hardcoded secret token patterns or decoded credentials
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     target_lower = target.id.lower()
@@ -567,6 +596,15 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
                             if len(val) >= 16 and not val.startswith("env:") and not val.startswith("$"):
                                 report.dangerous_nodes.append(
                                     f"疑似硬编码凭据 `{target.id} = '***'` (line {node.lineno})"
+                                )
+                        elif isinstance(node.value, ast.Call):
+                            val_fn = _get_call_name(node.value.func) or ""
+                            if any(
+                                kw in val_fn.lower()
+                                for kw in ("b64decode", "decode", "fromhex", "decrypt")
+                            ):
+                                report.dangerous_nodes.append(
+                                    f"疑似混淆还原敏感凭据 `{target.id} = {val_fn}(...)` (line {node.lineno})"
                                 )
 
     # 4. Breaking change detection against base code
