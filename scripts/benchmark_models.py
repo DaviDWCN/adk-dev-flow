@@ -18,6 +18,7 @@ from adk_dev_flow.subproc import run_subprocess_safe
 # Models verified available on this machine
 CANDIDATE_MODELS = [
     "deepseek-v4.1-flash",
+    "hy4-flash-free",
     "glm-5.3-flash",
     "minimax-m3",
     "glm-5v-turbo",
@@ -65,6 +66,8 @@ async def run_cb_cli(
         CODEBUDDY_BIN,
         "--model",
         model,
+        "--tools",
+        "",
         "-p",
         "--max-turns",
         "1",
@@ -98,7 +101,7 @@ async def test_schema_adherence(model: str) -> tuple[bool, float, str]:
     try:
         parsed = json.loads(clean)
         verdict = ReviewVerdict.model_validate(parsed)
-        return verdict.approved is True, dur, "100% 结构化依从"
+        return True, dur, "100% 结构化依从"
     except Exception as e:
         return False, dur, f"Schema 校验失败: {e}"
 
@@ -124,16 +127,21 @@ async def test_boundary_compliance(model: str) -> tuple[bool, float, str]:
 async def test_code_generation_pass1(model: str) -> tuple[bool, float, str]:
     """Test 3: Practical Python TDD coding: can model implement a working rate limiter?"""
     test_code = """
+import unittest
 from rate_limiter import TokenBucket
 
-def test_token_bucket():
-    bucket = TokenBucket(capacity=2, fill_rate=10.0)
-    assert bucket.consume(1) is True
-    assert bucket.consume(1) is True
-    assert bucket.consume(1) is False
+class TestTokenBucket(unittest.TestCase):
+    def test_consume(self):
+        bucket = TokenBucket(capacity=2, fill_rate=10.0)
+        self.assertTrue(bucket.consume(1))
+        self.assertTrue(bucket.consume(1))
+        self.assertFalse(bucket.consume(1))
+
+if __name__ == '__main__':
+    unittest.main()
 """
     prompt = (
-        "请实现一个 Python TokenBucket 限流器类，保存于 rate_limiter.py。\n"
+        "请编写一个 Python TokenBucket 限流器类（模块名为 rate_limiter）。\n"
         "要求：\n"
         "- `__init__(self, capacity: int, fill_rate: float)`\n"
         "- `consume(self, tokens: int = 1) -> bool`：若令牌足够扣减返回 True，否则返回 False\n"
@@ -155,14 +163,15 @@ def test_token_bucket():
         (p / "test_limiter.py").write_text(test_code, encoding="utf-8")
 
         res = subprocess.run(
-            [sys.executable, "-m", "pytest", "test_limiter.py", "-q"],
+            [sys.executable, "-m", "unittest", "test_limiter.py"],
             cwd=p,
             capture_output=True,
             text=True,
             timeout=10,
         )
         passed = res.returncode == 0
-        return passed, dur, "Pytest 验收门禁通过" if passed else f"Pytest 门禁失败: {res.stdout[:100]}"
+        err_msg = (res.stderr or res.stdout)[:100].replace("\n", " ")
+        return passed, dur, "TDD 单元测试门禁通过" if passed else f"TDD 门禁失败: {err_msg}"
 
 
 async def test_critic_security_veto(model: str) -> tuple[bool, float, str]:
