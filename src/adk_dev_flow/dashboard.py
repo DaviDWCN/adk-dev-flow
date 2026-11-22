@@ -30,6 +30,44 @@ def get_dashboard_html(initial_run_id: str | None = None) -> str:
     return html
 
 
+def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[str, Any]:
+    if not run_data:
+        return {"status": "IDLE", "message": "暂无活跃任务", "repo_name": repo_name}
+
+    spec: dict[str, Any] = {}
+    if run_data.get("spec_json"):
+        try:
+            spec = json.loads(run_data["spec_json"])
+        except Exception:
+            spec = {}
+
+    review: dict[str, Any] | None = None
+    if run_data.get("review_json"):
+        try:
+            review = json.loads(run_data["review_json"])
+        except Exception:
+            review = None
+
+    return {
+        "run_id": run_data["run_id"],
+        "status": run_data["status"],
+        "issue_iid": run_data.get("issue_iid"),
+        "branch": run_data.get("branch") or (f"adk/issue-{run_data.get('issue_iid')}" if run_data.get("issue_iid") else "main"),
+        "worktree_path": run_data.get("worktree_path") or "",
+        "attempt": run_data.get("attempt", 0),
+        "mr_url": run_data.get("mr_url"),
+        "last_log": (run_data.get("last_error_log") or "")[-800:],
+        "updated_at": run_data.get("updated_at"),
+        "repo_name": repo_name,
+        "allowed_paths": spec.get("allowed_paths", []),
+        "locked_test": spec.get("acceptance_test_path", ""),
+        "target_branch": spec.get("target_branch", "main"),
+        "spec_title": spec.get("title", ""),
+        "require_tdd_red": spec.get("require_tdd_red", True),
+        "review": review,
+    }
+
+
 def create_dashboard_app(
     repo_root: Path | None = None,
     store: StateStore | None = None,
@@ -55,22 +93,8 @@ def create_dashboard_app(
                 recent = resolved_store.list_runs(limit=1)
                 run_data = recent[0] if recent else None
 
-        if not run_data:
-            return JSONResponse({"status": "IDLE", "message": "暂无活跃运行轮次"}, status_code=200)
-
-        return JSONResponse(
-            {
-                "run_id": run_data["run_id"],
-                "status": run_data["status"],
-                "issue_iid": run_data.get("issue_iid"),
-                "branch": run_data.get("branch"),
-                "worktree_path": run_data.get("worktree_path"),
-                "attempt": run_data.get("attempt", 0),
-                "mr_url": run_data.get("mr_url"),
-                "last_log": (run_data.get("last_error_log") or "")[-500:],
-                "updated_at": run_data.get("updated_at"),
-            }
-        )
+        payload = _build_run_payload(run_data, resolved_root.name)
+        return JSONResponse(payload, status_code=200)
 
     async def handle_runs(request: Request) -> JSONResponse:
         runs = resolved_store.list_runs(limit=25)
@@ -104,22 +128,7 @@ def create_dashboard_app(
                         recent = resolved_store.list_runs(limit=1)
                         run_data = recent[0] if recent else None
 
-                payload: dict[str, Any]
-                if run_data:
-                    payload = {
-                        "run_id": run_data["run_id"],
-                        "status": run_data["status"],
-                        "issue_iid": run_data.get("issue_iid"),
-                        "branch": run_data.get("branch"),
-                        "worktree_path": run_data.get("worktree_path"),
-                        "attempt": run_data.get("attempt", 0),
-                        "mr_url": run_data.get("mr_url"),
-                        "last_log": (run_data.get("last_error_log") or "")[-500:],
-                        "updated_at": run_data.get("updated_at"),
-                    }
-                else:
-                    payload = {"status": "IDLE", "message": "暂无活跃任务"}
-
+                payload = _build_run_payload(run_data, resolved_root.name)
                 sig = json.dumps(payload, sort_keys=True)
                 if sig != last_sig:
                     last_sig = sig

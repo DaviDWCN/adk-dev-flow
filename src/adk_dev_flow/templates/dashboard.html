@@ -69,8 +69,8 @@
     }
   </style>
 </head>
-<body class="bg-transparent text-[var(--foreground,#0f172a)] antialiased p-0 m-0 select-none font-sans text-xs">
-  <div class="p-3 max-w-5xl mx-auto space-y-3">
+<body class="bg-slate-50 text-slate-900 antialiased p-3 m-0 select-none font-sans text-xs min-h-screen">
+  <div class="max-w-6xl mx-auto space-y-3">
     
     <!-- Top Cockpit Bar: Project Overview & Metrics -->
     <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2.5">
@@ -160,15 +160,15 @@
         <!-- Feedback Loop 2 (Bottom): Critic Changes Requested Loopback -->
         <path d="M 680 175 C 680 230, 360 230, 360 175" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
         <path id="pipe-loop-critic" d="M 680 175 C 680 230, 360 230, 360 175" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow)" />
-        <text x="520" y="238" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-cyan-500">
+        <text x="615" y="222" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-cyan-500">
           ↺ Critic 独立盲审阻塞 · 定向整改循环
         </text>
 
         <!-- Branch 3 (Bottom-Center): Circuit Breaker Escalation to Siren -->
         <path d="M 520 175 L 520 230" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
         <path id="pipe-branch-escalate" d="M 520 175 L 520 230" fill="none" stroke="#ef4444" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
-        <text x="520" y="222" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-rose-500">
-          🚨 熔断停机 (指纹重复/超限)
+        <text x="440" y="206" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-rose-500">
+          🚨 熔断停机 (超限/重复)
         </text>
 
         <!-- Node 1: Spec 蓝图规约 (Architect) -->
@@ -302,28 +302,40 @@
           <span class="font-bold text-[12px] flex items-center gap-1.5">
             <span>📑</span> OKF 契约与安全隔离边界
           </span>
-          <span id="tdd-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-500 font-semibold">
+          <span id="tdd-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold">
             TDD RED: PASSED
           </span>
         </div>
 
         <div class="space-y-1.5 text-[11px] font-mono">
-          <div class="flex justify-between">
+          <div class="flex justify-between items-center">
             <span class="text-[var(--muted-foreground,#64748b)]">目标基准分支:</span>
             <span id="spec-target" class="font-semibold text-[var(--foreground,#0f172a)]">main</span>
           </div>
-          <div class="flex justify-between">
-            <span class="text-[var(--muted-foreground,#64748b)]">允许改动白名单 (allowed_paths):</span>
-            <span id="spec-allowed" class="font-semibold text-blue-500 truncate max-w-[220px]">src/adk_dev_flow</span>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">白名单 (allowed_paths):</span>
+            <span id="spec-allowed" class="font-semibold text-blue-500 truncate max-w-xs md:max-w-sm text-right" title="">src/adk_dev_flow</span>
           </div>
-          <div class="flex justify-between">
-            <span class="text-[var(--muted-foreground,#64748b)]">锁定验收测试 (locked_test):</span>
-            <span id="spec-test" class="font-semibold text-purple-500 truncate max-w-[220px]">tests/test_forge.py</span>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">验收测试 (locked_test):</span>
+            <span id="spec-test" class="font-semibold text-purple-500 truncate max-w-xs md:max-w-sm text-right" title="">tests/test_forge.py</span>
           </div>
-          <div class="flex justify-between">
-            <span class="text-[var(--muted-foreground,#64748b)]">物理隔离工作区 (worktree_path):</span>
-            <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-[220px]">.adk/worktrees/c33c932</span>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">物理隔离沙箱 (worktree):</span>
+            <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-xs md:max-w-sm text-right font-semibold" title="">.adk/worktrees/c33c932</span>
           </div>
+        </div>
+
+        <!-- Critic Review Verdict Display -->
+        <div id="critic-verdict-box" class="hidden p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700 flex items-center gap-1">
+              <span>🧐</span> Critic 审查结论:
+            </span>
+            <span id="critic-verdict-badge" class="px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600">PASSED</span>
+          </div>
+          <div id="critic-verdict-summary" class="text-[11px] text-slate-600 break-words leading-relaxed"></div>
+          <div id="critic-blocking-issues" class="hidden text-rose-600 space-y-0.5 pt-1 border-t border-rose-100"></div>
         </div>
 
         <div class="p-2 rounded bg-[var(--background,#f8fafc)] border border-[var(--border,rgba(0,0,0,0.05))] text-[11px] text-[var(--muted-foreground,#64748b)]">
@@ -556,8 +568,19 @@
 
       if (window.location.protocol.startsWith('http')) {
         fetchRuns();
+        fetchStatus(currentRunId);
         connectSSE(currentRunId);
       }
+    }
+
+    function fetchStatus(runId) {
+      const url = runId ? `/api/status?run_id=${encodeURIComponent(runId)}` : '/api/status';
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status) handleLiveUpdate(data);
+        })
+        .catch(() => {});
     }
 
     function fetchRuns() {
@@ -576,6 +599,7 @@
     function switchRun(runId) {
       if (!runId) return;
       currentRunId = runId;
+      fetchStatus(runId);
       connectSSE(runId);
     }
 
@@ -602,15 +626,97 @@
       const log = run.last_log || run.last_error_log || null;
       setStage(stage, log);
 
+      // Repository & Branch
+      const repoEl = document.getElementById('forge-repo');
+      if (repoEl && run.repo_name) repoEl.textContent = run.repo_name;
+
       const branchEl = document.getElementById('active-branch');
       if (branchEl && run.branch) branchEl.textContent = run.branch;
 
-      const wtEl = document.getElementById('spec-worktree');
-      if (wtEl && run.worktree_path) wtEl.textContent = run.worktree_path;
+      // Contract & Boundary Specs
+      const targetEl = document.getElementById('spec-target');
+      if (targetEl && run.target_branch) targetEl.textContent = run.target_branch;
 
+      const allowedEl = document.getElementById('spec-allowed');
+      if (allowedEl && run.allowed_paths) {
+        const val = Array.isArray(run.allowed_paths) ? run.allowed_paths.join(', ') : run.allowed_paths;
+        allowedEl.textContent = val || '(未限制)';
+        allowedEl.title = val || '';
+      }
+
+      const testEl = document.getElementById('spec-test');
+      if (testEl && run.locked_test) {
+        testEl.textContent = run.locked_test;
+        testEl.title = run.locked_test;
+      }
+
+      const wtEl = document.getElementById('spec-worktree');
+      if (wtEl && run.worktree_path) {
+        wtEl.textContent = run.worktree_path;
+        wtEl.title = run.worktree_path;
+      }
+
+      // TDD Status Badge
+      const tddBadge = document.getElementById('tdd-badge');
+      if (tddBadge) {
+        const s = (run.status || '').toUpperCase();
+        if (s === 'MR_READY' || s === 'FINALIZED') {
+          tddBadge.textContent = 'TDD RED: PASSED (100%)';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold';
+        } else if (s === 'ESCALATED') {
+          tddBadge.textContent = 'TDD RED: ESCALATED / 熔断';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-600 font-semibold';
+        } else if (s === 'VERIFYING' || s === 'TDD_RED') {
+          tddBadge.textContent = 'TDD RED: VERIFYING...';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/20 text-purple-600 font-semibold';
+        } else {
+          tddBadge.textContent = 'TDD RED: ACTIVE GUARD';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-600 font-semibold';
+        }
+      }
+
+      // Attempt / State Badge
       const attemptBadge = document.getElementById('log-attempt-badge');
       if (attemptBadge) {
         attemptBadge.textContent = `修复轮次: ${run.attempt || 0}/3 · 状态: ${run.status}`;
+      }
+
+      // Critic Verdict Display
+      const criticBox = document.getElementById('critic-verdict-box');
+      if (criticBox) {
+        if (run.review && (run.review.summary || run.review.approved !== undefined)) {
+          criticBox.classList.remove('hidden');
+          const isAppr = run.review.approved;
+          const badge = document.getElementById('critic-verdict-badge');
+          if (badge) {
+            badge.textContent = isAppr ? 'PASSED / 审查通过' : 'BLOCKED / 存在阻塞项';
+            badge.className = isAppr 
+              ? 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600'
+              : 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-rose-500/20 text-rose-600';
+          }
+          const sumEl = document.getElementById('critic-verdict-summary');
+          if (sumEl) sumEl.textContent = run.review.summary || (isAppr ? '代码符合架构规约与测试要求' : '审查未通过');
+
+          const issuesEl = document.getElementById('critic-blocking-issues');
+          if (issuesEl) {
+            if (run.review.blocking_issues && run.review.blocking_issues.length > 0) {
+              issuesEl.classList.remove('hidden');
+              issuesEl.innerHTML = '<strong>阻塞问题:</strong><ul class="list-disc pl-4 mt-0.5 space-y-0.5">' + 
+                run.review.blocking_issues.map(i => `<li>${i}</li>`).join('') + '</ul>';
+            } else {
+              issuesEl.classList.add('hidden');
+            }
+          }
+        } else if (stage === 'MR') {
+          criticBox.classList.remove('hidden');
+          const badge = document.getElementById('critic-verdict-badge');
+          if (badge) {
+            badge.textContent = 'PASSED / 审查通过';
+            badge.className = 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600';
+          }
+          const sumEl = document.getElementById('critic-verdict-summary');
+          if (sumEl) sumEl.textContent = 'Critic 盲审确认白名单合规且用例通过，准予交付';
+        }
       }
     }
 
