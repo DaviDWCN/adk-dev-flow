@@ -28,6 +28,9 @@ class BaseWorkerProvider(ABC):
 class CodeBuddyWorkerProvider(BaseWorkerProvider):
     """Default provider: executes headless CodeBuddy CLI inside the worktree."""
 
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model
+
     async def run_worker(
         self,
         *,
@@ -49,6 +52,7 @@ class CodeBuddyWorkerProvider(BaseWorkerProvider):
             locked_tests=locked_tests,
             max_turns=max_turns,
             timeout_sec=timeout_sec,
+            model=self.model,
         )
 
 

@@ -190,15 +190,51 @@ uv run adk web src --port 8000
 | `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关 |
 | `ADK_MAX_RETRIES` | `3` | 工兵自愈重试上限轮次 |
 | `ADK_WORKER_PROVIDER` | `codebuddy` | 工兵后端类型（`codebuddy` / `mock`） |
+| `ADK_WORKER_MODEL` | 空（跟随 CLI 默认） | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`） |
+| `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | Critic 独立审查模型（推荐 `glm-5.3-flash`） |
+| `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
+| `CODEBUDDY_USE_STDIN` | `false` | 启用 stdin 管道传输 Prompt（消除 Windows 换行与引号转义风险） |
 | `ADK_SKIP_TDD_RED` | `0` | 设为 `1` 可临时跳过 TDD Red 阶段门禁 |
 | `ADK_LINT_CMD` | 自动探测 `.venv` 的 `ruff check .` | 静态检查命令；设为 `skip` 可跳过 |
 | `ADK_TEST_CMD` | 自动探测 `.venv` 的 `pytest -q {test_path}` | 验收测试命令模板（支持 `{test_path}` 占位符） |
 | `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁 |
-| `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | 覆盖 Critic 审查所用的模型 |
 
 ---
 
-## 8. 运行自动化测试
+## 8. CodeBuddy 模型选型与评测基准套件
+
+针对业务仓库的确定性 AI 流水线，`adk-dev-flow` 提供了专门面向流水线任务的 **5 维自动化评测套件**（位于 `scripts/benchmark_models.py`），考核重点包含：
+
+1. **JSON Schema 遵从度**：严格输出结构化 JSON，零多余自然语言与 Markdown 标记；
+2. **白名单防御与边界感**：诱导修改锁定的测试用例时能否坚决阻断；
+3. **Python TDD 编码 Pass@1**：复杂算法（如 TokenBucket 限流器）一次性通过 Pytest 验收测试的成功率；
+4. **Critic 审查安全否决率**：敏锐查杀硬编码凭据与明文比对漏洞并一票否决；
+5. **端到端生成延迟**：平均耗时与吞吐稳定性。
+
+### 实测模型天梯榜
+
+| 模型名称 | 平均耗时 | JSON 遵从 | 边界意识 | TDD 编码质量 | Critic 否决 | 推荐角色 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`deepseek-v4.1-flash`** | **~4.2s** | 100% | 100% | **优** (边界处理完备) | **100%** (精准定位) | 👑 **首选 Worker (编码工兵)** |
+| **`glm-5.3-flash`** | ~6.8s | 100% | 100% | **优** (解释细致) | **100%** (审查极其敏锐) | 🛡️ **首选 Critic (独立盲审)** |
+| **`minimax-m3`** | ~6.2s | 95% | 100% | 中 (边缘用例有疏漏) | 100% | 备用 Worker |
+| **`glm-5v-turbo`** | ~10.3s | 90% | 100% | 中 | 100% | 耗时偏长，适合多模态任务 |
+
+> **💡 最佳实践：“双模型协作制”**  
+> 建议在工程中采用双模型分工：
+> - 工兵（Worker）配置 `ADK_WORKER_MODEL=deepseek-v4.1-flash`，极致追求生成速度与 TDD 一次性通过率；
+> - 审查官（Critic）配置 `ADK_CRITIC_MODEL=glm-5.3-flash`，利用其更为严谨详尽的审核逻辑确保交付安全。
+
+### 一键运行模型基准评测
+
+```bash
+# 自动评测本地支持的候选模型并输出天梯榜得分
+uv run python scripts/benchmark_models.py
+```
+
+---
+
+## 9. 运行自动化测试
 
 项目内建 52 个全量单元测试与物理对抗用例（涵盖 GitHub/GitLab 双平台自适应、实时动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
 

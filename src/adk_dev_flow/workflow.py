@@ -480,7 +480,14 @@ def build_dev_workflow(
         }
         return json.dumps(critic_payload, ensure_ascii=False, indent=2)
 
-    critic_model: Any = os.environ.get("ADK_CRITIC_MODEL") or CodeBuddyLlm()
+    critic_env = os.environ.get("ADK_CRITIC_MODEL") or os.environ.get("CODEBUDDY_CRITIC_MODEL")
+    critic_model: Any
+    if not critic_env:
+        critic_model = CodeBuddyLlm()
+    elif hasattr(critic_env, "generate_content_async"):
+        critic_model = critic_env
+    else:
+        critic_model = CodeBuddyLlm(model=str(critic_env))
     critic_review_agent = Agent(
         name="critic_review_agent",
         model=critic_model,

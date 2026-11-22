@@ -154,11 +154,19 @@ class CodeBuddyLlm(BaseLlm):
 
         # Configurable tool-disabling args to tolerate CodeBuddy CLI flag differences across versions.
         disable_tools_args = _parse_json_list_env(
-            "CODEBUDDY_DISABLE_TOOLS_ARGS", ["--allowedTools", ""]
+            "CODEBUDDY_DISABLE_TOOLS_ARGS", ["--tools", ""]
         )
         use_stdin = _use_stdin_prompt()
 
         cmd = [resolved_bin]
+        model_name = (
+            self.model
+            if (self.model and self.model not in ("codebuddy-cli", "codebuddy"))
+            else (os.environ.get("ADK_CRITIC_MODEL") or os.environ.get("CODEBUDDY_MODEL"))
+        )
+        if model_name and model_name not in ("codebuddy-cli", "codebuddy"):
+            cmd.extend(["--model", model_name])
+
         if use_stdin:
             cmd.append("-p")
         else:
@@ -204,6 +212,7 @@ async def run_codebuddy_worker(
     locked_tests: list[str],
     max_turns: int = 15,
     timeout_sec: int = 300,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Spawn an isolated, stateless Headless CodeBuddy worker inside a Git Worktree."""
     schema = json.dumps(
@@ -226,7 +235,16 @@ async def run_codebuddy_worker(
     extra_args = _parse_json_list_env("CODEBUDDY_WORKER_EXTRA_ARGS", [])
     use_stdin = _use_stdin_prompt()
 
+    worker_model = (
+        model
+        or os.environ.get("ADK_WORKER_MODEL")
+        or os.environ.get("CODEBUDDY_WORKER_MODEL")
+        or os.environ.get("CODEBUDDY_MODEL")
+    )
     cmd = [resolved_bin]
+    if worker_model and worker_model not in ("codebuddy-cli", "codebuddy"):
+        cmd.extend(["--model", worker_model])
+
     if use_stdin:
         cmd.append("-p")
     else:
