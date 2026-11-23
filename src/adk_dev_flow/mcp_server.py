@@ -218,8 +218,9 @@ class FlowService:
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
         marker = self.store.read_active_marker()
-        active_run_id = marker.get("active_run_id") if marker else None
-        is_holding_lock = bool(marker and active_run_id == run_id)
+        active_run_id = (marker.get("run_id") or marker.get("active_run_id")) if marker else None
+        active_ids = marker.get("active_run_ids", []) if marker else []
+        is_holding_lock = bool(marker and (active_run_id == run_id or run_id in active_ids))
         res = {
             "run_id": run["run_id"],
             "status": run["status"],

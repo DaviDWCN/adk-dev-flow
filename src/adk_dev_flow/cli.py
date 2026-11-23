@@ -5,6 +5,9 @@ from importlib import resources
 from pathlib import Path
 
 
+from typing import Sequence
+
+
 def _read_template(name: str) -> str:
     return resources.files("adk_dev_flow.templates").joinpath(name).read_text(encoding="utf-8")
 
@@ -17,20 +20,42 @@ def _write_if_needed(target: Path, content: str, *, force: bool) -> str:
     return f"written: {target}"
 
 
-def _ensure_gitignore_entry(repo_root: Path, entry: str = ".adk/") -> str:
+def _ensure_gitignore_entries(repo_root: Path, entries: Sequence[str]) -> list[str]:
+    """Ensure gitignore entries exist under a clean grouped header without redundant empty lines."""
     gitignore = repo_root / ".gitignore"
-    if gitignore.exists():
-        lines = gitignore.read_text(encoding="utf-8").splitlines()
-        if any(line.strip() == entry for line in lines):
-            return f"skipped (already contains {entry}): {gitignore}"
-        prefix = "\n" if lines and lines[-1].strip() != "" else ""
-        gitignore.write_text(
-            gitignore.read_text(encoding="utf-8") + f"{prefix}\n# ADK dev flow state\n{entry}\n",
-            encoding="utf-8",
-        )
-        return f"updated: {gitignore}"
-    gitignore.write_text(f"# ADK dev flow state\n{entry}\n", encoding="utf-8")
-    return f"written: {gitignore}"
+    if not entries:
+        return []
+    if not gitignore.exists():
+        content = "# ADK dev flow state\n" + "\n".join(entries) + "\n"
+        gitignore.write_text(content, encoding="utf-8")
+        return [f"written: {gitignore}"]
+
+    existing_lines = gitignore.read_text(encoding="utf-8").splitlines()
+    existing_stripped = {line.strip() for line in existing_lines}
+    missing = [entry for entry in entries if entry not in existing_stripped]
+    if not missing:
+        return [f"skipped (already contains entries): {gitignore}"]
+
+    has_header = any("# ADK dev flow state" in line for line in existing_lines)
+    clean_lines = list(existing_lines)
+    while clean_lines and not clean_lines[-1].strip():
+        clean_lines.pop()
+
+    append_lines = []
+    if not clean_lines:
+        append_lines.append("# ADK dev flow state")
+    elif not has_header:
+        append_lines.extend(["", "# ADK dev flow state"])
+
+    append_lines.extend(missing)
+    new_content = "\n".join(clean_lines + append_lines) + "\n"
+    gitignore.write_text(new_content, encoding="utf-8")
+    return [f"updated ({len(missing)} entries): {gitignore}"]
+
+
+def _ensure_gitignore_entry(repo_root: Path, entry: str = ".adk/") -> str:
+    res = _ensure_gitignore_entries(repo_root, [entry])
+    return res[0] if res else f"skipped: {repo_root / '.gitignore'}"
 
 
 def init_target_repo(
@@ -57,13 +82,17 @@ def init_target_repo(
     for tpl_name, dest in mapping:
         actions.append(_write_if_needed(dest, _read_template(tpl_name), force=force))
 
-    for gitignore_pattern in (
-        ".adk/state.db*",
-        ".adk/active_run.json",
-        ".adk/worktrees/",
-        ".adk/locks/",
-    ):
-        actions.append(_ensure_gitignore_entry(root, gitignore_pattern))
+    actions.extend(
+        _ensure_gitignore_entries(
+            root,
+            [
+                ".adk/state.db*",
+                ".adk/active_run.json",
+                ".adk/worktrees/",
+                ".adk/locks/",
+            ],
+        )
+    )
     return actions
 
 

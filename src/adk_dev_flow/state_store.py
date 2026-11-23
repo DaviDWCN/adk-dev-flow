@@ -234,6 +234,7 @@ class StateStore:
         latest = rows[0]
         payload = {
             "run_id": latest["run_id"],
+            "active_run_id": latest["run_id"],
             "status": latest["status"],
             "active_run_ids": [r["run_id"] for r in rows],
             "active_runs": [{"run_id": r["run_id"], "status": r["status"]} for r in rows],

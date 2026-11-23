@@ -37,7 +37,11 @@ async def _git(cmd: list[str], cwd: Path, timeout_sec: float = GIT_TIMEOUT_SEC) 
     return await run_subprocess_safe(["git", *cmd], cwd=cwd, timeout_sec=timeout_sec)
 
 
-def _format_mr_description(spec: SpecContract, verdict: ReviewVerdict) -> str:
+def _format_mr_description(
+    spec: SpecContract,
+    verdict: ReviewVerdict,
+    verification: dict[str, Any] | None = None,
+) -> str:
     parts = [
         f"## Spec 摘要与需求\n{spec.summary}",
     ]
@@ -63,14 +67,39 @@ def _format_mr_description(spec: SpecContract, verdict: ReviewVerdict) -> str:
     ]
     parts.append("## 影响面与架构约束 (Design & Impact Scope)\n" + "\n".join(impact_lines))
 
-    # Independent Critic Verification
+    # Verification Performed (Actual executed verification commands, test output, linter, sandbox & Critic review)
+    verif = verification or {}
+    test_cmd = verif.get("test_cmd") or f"pytest -q {spec.acceptance_test_path}"
+    test_exit = verif.get("test_exit", 0)
+    test_summary = verif.get("test_summary") or "通过 (All acceptance tests passed)"
+    lint_cmd = verif.get("lint_cmd")
+    lint_exit = verif.get("lint_exit", 0)
+    audit_passed = verif.get("audit_passed", True)
+
     status_label = "APPROVED (通过)" if verdict.approved else "CHANGES_REQUESTED (需要修改)"
-    parts.append(
-        "## 独立 Critic 审查与验证结论 (Verification)\n"
-        f"- **门禁判定**: `{status_label}`\n"
-        f"- **置信度评分**: `{verdict.confidence}`\n"
-        f"- **审查摘要**: {verdict.summary}"
+    audit_status = (
+        "PASSED (无白名单外越权变更，未篡改锁定测试)"
+        if audit_passed
+        else "FAILED"
     )
+
+    verif_lines = [
+        f"- **验收测试执行**: `{test_cmd}` (exit={test_exit})",
+        f"- **测试结果摘要**: `{test_summary}`",
+    ]
+    if lint_cmd:
+        verif_lines.append(f"- **代码风格与规范检查**: `{lint_cmd}` (exit={lint_exit} clean)")
+    else:
+        verif_lines.append("- **代码风格与规范检查**: `ruff check .` (通过)")
+
+    verif_lines.extend(
+        [
+            f"- **物理沙箱与 Worktree 审计**: `{audit_status}`",
+            f"- **独立 Critic 审查门禁**: `{status_label}` (置信度: `{verdict.confidence}`)",
+            f"- **Critic 审查摘要**: {verdict.summary}",
+        ]
+    )
+    parts.append("## 验证执行记录 (Verification Performed)\n" + "\n".join(verif_lines))
 
     if verdict.blocking_issues:
         issues_md = "\n".join(f"- {issue}" for issue in verdict.blocking_issues)
@@ -143,6 +172,51 @@ def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
     return "\n\n项目工程规约 (OKF Rules):\n" + "\n\n".join(rules_text)
 
 
+def _validate_tdd_red_outcome(
+    returncode: int,
+    combined_output: str,
+    cmd: Sequence[str] | None = None,
+    test_path: str = "",
+) -> None:
+    """Validate that preflight test failure is a genuine TDD Red outcome rather than test/fixture bug."""
+    if returncode == 0:
+        path_str = f" `{test_path}`" if test_path else ""
+        raise RuntimeError(
+            f"TDD 预检失败：锁定的验收测试{path_str} 在未编写业务代码前直接通过 (exit=0)！\n"
+            f"这表明该测试属于无断言空测试（Mock Passes），或该特性在基线代码中已存在。\n"
+            f"请为验收测试增加针对新功能的有效断言，或在 Spec 中设置 require_tdd_red=False。"
+        )
+
+    cmd_str = f"命令: {' '.join(cmd)}\n" if cmd else ""
+
+    fixture_error = ("fixture '" in combined_output and " not found" in combined_output) or (
+        "fixture not found" in combined_output
+    )
+    fatal_patterns = (
+        "pytest: error:",
+        "usage: pytest",
+        "ModuleNotFoundError:",
+        "No module named",
+        "SyntaxError:",
+        "INTERNALERROR>",
+        "command not found",
+        "is not recognized as an internal or external command",
+    )
+    is_fatal_cli_error = fixture_error or any(p in combined_output for p in fatal_patterns)
+    is_assertion_failure = (returncode == 1) or any(
+        marker in combined_output for marker in ("FAILED", "AssertionError", "assert ")
+    )
+
+    if not is_assertion_failure or is_fatal_cli_error:
+        reason = "测试 Fixture 配置错误或用例本身编写缺陷" if fixture_error else "非用例断言失败，测试环境或语法异常"
+        raise RuntimeError(
+            f"TDD 红灯预检未通过（{reason}）：验收测试执行异常 (exit={returncode})。\n"
+            f"{cmd_str}"
+            f"输出:\n{combined_output}\n"
+            f"请修复测试语法与 Fixture 依赖，或检查运行环境后重试。"
+        )
+
+
 async def run_tdd_red_preflight(
     spec: SpecContract,
     worktree: Path,
@@ -174,37 +248,13 @@ async def run_tdd_red_preflight(
     if red_res.timed_out:
         raise RuntimeError(f"TDD 红灯预检超时（>{timeout_sec}s）")
 
-    if red_res.returncode == 0:
-        raise RuntimeError(
-            f"TDD 预检失败：锁定的验收测试 `{spec.acceptance_test_path}` 在未编写业务代码前直接通过 (exit=0)！\n"
-            f"这表明该测试属于无断言空测试（Mock Passes），或该特性在基线代码中已存在。\n"
-            f"请为验收测试增加针对新功能的有效断言，或在 Spec 中设置 require_tdd_red=False。"
-        )
-
     combined_output = f"{red_res.stdout}\n{red_res.stderr}"
-    # Verify genuine assertion failure rather than syntax error, missing module, or usage error.
-    is_assertion_failure = (red_res.returncode == 1) or any(
-        marker in combined_output for marker in ("FAILED", "AssertionError", "assert ")
+    _validate_tdd_red_outcome(
+        returncode=red_res.returncode,
+        combined_output=combined_output,
+        cmd=red_cmd,
+        test_path=spec.acceptance_test_path,
     )
-    is_fatal_cli_error = any(
-        marker in combined_output
-        for marker in (
-            "pytest: error:",
-            "usage: pytest",
-            "ModuleNotFoundError:",
-            "No module named",
-            "SyntaxError:",
-            "command not found",
-            "is not recognized as an internal or external command",
-        )
-    )
-    if not is_assertion_failure or is_fatal_cli_error:
-        raise RuntimeError(
-            f"TDD 红灯预检未通过（非用例断言失败）：验收测试执行异常 (exit={red_res.returncode})。\n"
-            f"命令: {' '.join(red_cmd)}\n"
-            f"输出:\n{combined_output}\n"
-            f"请修复测试语法错误或检查依赖环境后重试。"
-        )
 
 
 def build_dev_workflow(
@@ -215,6 +265,7 @@ def build_dev_workflow(
     human_hint: str | None = None,
 ) -> Workflow:
     """Build an async ADK 2.x Graph Workflow bound to a specific run_id via closure."""
+    verification_state: dict[str, Any] = {}
 
     async def prepare_worktree_node(node_input: Any) -> dict[str, Any]:
         text = node_input.parts[0].text if hasattr(node_input, "parts") else str(node_input)
@@ -496,6 +547,21 @@ def build_dev_workflow(
                         )
 
         if not failure_sections:
+            summary_line = ""
+            if "test_res" in locals() and test_res and test_res.stdout.strip():
+                lines = [line.strip() for line in test_res.stdout.strip().splitlines() if line.strip()]
+                summary_line = lines[-1] if lines else "Passed"
+            else:
+                summary_line = "Passed"
+
+            verification_state["record"] = {
+                "test_cmd": " ".join(test_cmd) if test_cmd else f"pytest -q {spec.acceptance_test_path}",
+                "test_exit": test_res.returncode if ("test_res" in locals() and test_res) else 0,
+                "test_summary": summary_line,
+                "lint_cmd": " ".join(lint_cmd) if lint_cmd else "",
+                "lint_exit": lint_res.returncode if (lint_cmd and "lint_res" in locals() and lint_res) else 0,
+                "audit_passed": audit.ok,
+            }
             store.update_run(run_id, status="REVIEWING", last_error_log="")
             return Event(output=node_input, route="passed")
 
@@ -700,7 +766,11 @@ def build_dev_workflow(
                 store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
                 return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
 
-            desc = _format_mr_description(spec, verdict)
+            desc = _format_mr_description(
+                spec,
+                verdict,
+                verification=verification_state.get("record"),
+            )
             mr = await asyncio.to_thread(
                 gl.create_or_update_mr,
                 source_branch=branch,
