@@ -720,9 +720,98 @@
     };
 
     let currentStage = 'IDLE';
+    let currentStep = 0;
     let autoPlayTimer = null;
     let sseSource = null;
     let currentRunId = null;
+
+    function highlightAvatar(avatarId, color) {
+      ['svg-architect', 'svg-tester', 'svg-builder', 'svg-critic'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          if (id === avatarId && color) {
+            el.style.filter = `drop-shadow(0 0 6px ${color})`;
+            el.style.transform = 'scale(1.08)';
+            el.style.transition = 'all 0.3s';
+          } else {
+            el.style.filter = 'none';
+            el.style.transform = 'none';
+          }
+        }
+      });
+    }
+
+    function setStep(num, customLog = null, customDetails = null) {
+      currentStep = num;
+      for (let i = 1; i <= 8; i++) {
+        const pill = document.getElementById(`step-pill-${i}`);
+        if (!pill) continue;
+        if (i === num) {
+          pill.className = 'p-1.5 rounded-lg border-2 border-blue-500 bg-blue-50 shadow-sm flex flex-col items-center justify-center text-center cursor-pointer transition-all scale-105';
+        } else if (i < num) {
+          pill.className = 'p-1.5 rounded-lg border border-emerald-300 bg-emerald-50/60 flex flex-col items-center justify-center text-center cursor-pointer transition-all opacity-85';
+        } else {
+          pill.className = 'p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all opacity-70 hover:opacity-100';
+        }
+      }
+
+      const activeBadge = document.getElementById('active-step-badge');
+      const stepTitles = [
+        '待命 · STANDBY',
+        '步骤 1/8 · 架构设计 AI (方案与任务拆分)',
+        '步骤 2/8 · 验收测试 AI (AST红灯预检)',
+        '步骤 3/8 · 前置 Critic AI (规范双审)',
+        '步骤 4/8 · 关键 HITL (人工签字锁定)',
+        '步骤 5/8 · 开发工兵 AI (沙箱编码施工)',
+        '步骤 6/8 · 自动化测试 (全量真机跑测)',
+        '步骤 7/8 · 定向自愈重试 (错误指纹打回)',
+        '步骤 8/8 · AST 硬门禁 + 成果交付代码库'
+      ];
+      if (activeBadge) {
+        activeBadge.textContent = stepTitles[num] || `步骤 ${num}/8`;
+      }
+
+      switch(num) {
+        case 1:
+          setStage('SPEC', customLog || '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分', customDetails || '推导影响面爆炸半径与受影响调用点，拆解原子任务清单');
+          highlightAvatar('svg-architect', '#3b82f6');
+          break;
+        case 2:
+          setStage('SPEC', customLog || '[2. 验收测试] 🧪 QA 测试 AI 提取 AST 骨架生成用例，并在基线执行 TDD Red 预检真机报错', customDetails || '真机执行 pytest，捕获真实 AssertionError，杜绝假测试');
+          highlightAvatar('svg-tester', '#10b981');
+          break;
+        case 3:
+          setStage('SPEC', customLog || '[3. 前置评审] 🧐 Critic AI 评审设计与测试一致性，检查架构规范与业务覆盖', customDetails || '独立第三方静态审查，规则不符一票否决');
+          highlightAvatar('svg-critic', '#06b6d4');
+          break;
+        case 4:
+          setStage('SPEC', customLog || '[4. 关键确认] ✍️ 关键 HITL 阶段：人工确认任务拆分与验收用例，签署冻结契约', customDetails || '人工盖章冻结 Spec，计算 SHA-256 防篡改凭据，准入隔离沙箱');
+          highlightAvatar(null, null);
+          break;
+        case 5:
+          setStage('WORK', customLog || '[5. 编码施工] 🔨 开发工兵进入受限 Worktree 沙箱，以测试用例全绿为目标进行编码', customDetails || '严格遵守白名单边界，只读测试用例物理防篡改');
+          highlightAvatar('svg-builder', '#f59e0b');
+          break;
+        case 6:
+          setStage('TEST', customLog || '[6. 自动化测试] ⚙️ 自动化测试跑道真机运行 pytest，白名单严密防篡改', customDetails || '确定性真机零偏好测试，全绿放行送审，报错进入自愈');
+          highlightAvatar(null, null);
+          break;
+        case 7:
+          setStage('WORK', customLog || '[7. 自愈修复] 🔄 测试未通过打回自愈，开发工兵正在定向修复报错', customDetails || '提取报错堆栈与指纹，重构业务代码定向修复（超3次触发跳闸）');
+          const p = document.getElementById('pipe-loop-tdd');
+          if (p) p.classList.remove('hidden');
+          highlightAvatar('svg-builder', '#ea580c');
+          break;
+        case 8:
+          setStage('MR', customLog || '[8. 成果交付] 🚀 AST 静态硬门禁通过，代码安全合入生产代码库！', customDetails || 'AST 破坏性变更零容忍硬拦截 + 只读 Critic 盲审无异议，准予合并');
+          highlightAvatar(null, null);
+          break;
+        default:
+          setStage('IDLE');
+          highlightAvatar(null, null);
+          break;
+      }
+    }
 
     function setStage(stageKey, customLog = null, customDetails = null) {
       currentStage = stageKey;
@@ -888,30 +977,38 @@
       }
       if (btn) btn.textContent = '⏸ 暂停';
       
-      // 8-step autonomous TDD workflow cycle
-      const sequence = [
-        { stage: 'SPEC', log: '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分' },
-        { stage: 'SPEC', log: '[2. 验收测试] 🧪 QA 测试 AI 提取 AST 骨架生成用例，并在基线执行 TDD Red 预检真机报错' },
-        { stage: 'SPEC', log: '[3. 前置评审] 🧐 Critic AI 评审设计与测试一致性，检查架构规范与业务覆盖' },
-        { stage: 'SPEC', log: '[4. 关卡签字] ✍️ 关键 HITL 阶段：人工确认任务拆分与验收用例，签署冻结契约' },
-        { stage: 'WORK', log: '[5. 编码施工] 🔨 开发工兵进入受限 Worktree 沙箱，以测试用例全绿为目标进行编码' },
-        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[6. 自动化测试] ⚙️ 自动化测试跑道真机运行 pytest，测试未全过打回自愈...' },
-        { stage: 'WORK', log: '[7. 自愈修复] 🔨 开发工兵接收失败指纹与堆栈，重构修复业务代码后再次送测...' },
-        { stage: 'TEST', log: '[6. 自动化测试] ⚙️ 白名单校验通过，全量用例真机测试 100% 全绿！' },
-        { stage: 'CRITIC', log: '[8. 终态审查] 🧐 AST 静态硬门禁拦截潜在破坏性变更，只读 Critic 盲审确认合规' },
-        { stage: 'MR', log: '[8. 成果交付] 🚀 代码通过 AST 硬门禁与审查，安全合入代码库！' }
-      ];
-      let idx = 0;
-      setStage(sequence[0].stage);
+      let stepIdx = 1;
+      setStep(stepIdx);
       autoPlayTimer = setInterval(() => {
-        idx = (idx + 1) % sequence.length;
-        const item = sequence[idx];
-        setStage(item.stage, item.log, item.details);
-        if (item.pipe) {
-          const p = document.getElementById(item.pipe);
-          if (p) p.classList.remove('hidden');
-        }
+        stepIdx = (stepIdx % 8) + 1;
+        setStep(stepIdx);
       }, 2500);
+    }
+
+    function mapStatusToStep(status) {
+      switch ((status || '').toUpperCase()) {
+        case 'SPEC_DESIGNED':
+          return 1;
+        case 'TEST_GENERATED':
+          return 2;
+        case 'PRE_CRITIC_REVIEWED':
+          return 3;
+        case 'SPEC_LOCKED':
+          return 4;
+        case 'RUNNING':
+        case 'WORKER_CODING':
+          return 5;
+        case 'VERIFYING':
+        case 'TDD_RED':
+          return 6;
+        case 'REPAIRING':
+          return 7;
+        case 'MR_READY':
+        case 'FINALIZED':
+          return 8;
+        default:
+          return 0;
+      }
     }
 
     function mapStatusToStage(status) {
