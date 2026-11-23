@@ -1107,7 +1107,8 @@
 
     function handleLiveUpdate(run) {
       if (!run) return;
-      if (!run.status || run.status === 'IDLE') {
+      if (!run.status || run.status === 'IDLE' || run.status === 'STANDBY') {
+        setStep(0);
         setStage('IDLE');
         if (run.repo_name) {
           const repoEl = document.getElementById('forge-repo');
@@ -1117,39 +1118,14 @@
         if (attemptBadge) attemptBadge.textContent = '状态: 待命';
         return;
       }
+      const stepNum = mapStatusToStep(run.status);
       const stage = mapStatusToStage(run.status);
       let log = run.last_log || run.last_error_log || null;
-      if (!log) {
-        switch ((run.status || '').toUpperCase()) {
-          case 'SPEC_DESIGNED':
-            log = '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导，已生成设计方案与任务拆分';
-            break;
-          case 'TEST_GENERATED':
-            log = '[2. 验收测试] 🧪 QA 测试 AI 已生成红灯用例，并在基线通过 TDD Red 预检真机报错';
-            break;
-          case 'PRE_CRITIC_REVIEWED':
-            log = '[3. 前置评审] 🧐 Critic AI 一致性盲审通过，等待关卡-1 人工签字锁定';
-            break;
-          case 'SPEC_LOCKED':
-            log = '[4. 契约锁定] ✍️ 关卡-1 人工签字确认，契约冻结，准入物理沙箱';
-            break;
-          case 'RUNNING':
-          case 'WORKER_CODING':
-            log = '[5. 编码施工] 🔨 开发工兵在独立 Worktree 沙箱内对照测试用例编码施工';
-            break;
-          case 'VERIFYING':
-            log = '[6. 自动化测试] ⚙️ 自动化测试跑道真机执行中 (白名单与用例双重核验)';
-            break;
-          case 'REPAIRING':
-            log = '[7. 自愈修复] 🔨 测试未通过打回自愈，开发工兵正在定向修复报错';
-            break;
-          case 'MR_READY':
-          case 'FINALIZED':
-            log = '[8. 成果交付] 🚀 AST 静态硬门禁防线通过，只读 Critic 盲审无异议，代码安全交付仓库';
-            break;
-        }
+      if (stepNum > 0) {
+        setStep(stepNum, log);
+      } else {
+        setStage(stage, log);
       }
-      setStage(stage, log);
 
       // Repository & Branch
       const repoEl = document.getElementById('forge-repo');

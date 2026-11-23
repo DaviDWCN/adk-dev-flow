@@ -36,6 +36,10 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertIn("spec-red-evidence", html)
         self.assertIn("spec-pre-critic", html)
         self.assertIn("spec-impact", html)
+        self.assertIn("step-pill-1", html)
+        self.assertIn("step-pill-8", html)
+        self.assertIn("active-step-badge", html)
+        self.assertIn("setStep", html)
 
         # Test run_id injection
         injected = get_dashboard_html(initial_run_id="run_custom_999")
