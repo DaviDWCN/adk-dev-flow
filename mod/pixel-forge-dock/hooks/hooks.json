@@ -1,0 +1,4 @@
+{
+  "description": "pixel-forge-dock entrypoints",
+  "modules": ["./register.ts"]
+}
