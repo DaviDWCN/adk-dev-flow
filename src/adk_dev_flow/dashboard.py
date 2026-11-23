@@ -65,6 +65,10 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         "target_branch": spec.get("target_branch", "main"),
         "spec_title": spec.get("title", ""),
         "require_tdd_red": spec.get("require_tdd_red", True),
+        "design_doc": spec.get("design_doc", ""),
+        "red_evidence": spec.get("red_evidence"),
+        "pre_critic_report": spec.get("pre_critic_report"),
+        "impact_analysis": spec.get("impact_analysis"),
         "review": review,
     }
 

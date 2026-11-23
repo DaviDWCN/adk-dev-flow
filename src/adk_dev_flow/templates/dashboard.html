@@ -151,6 +151,53 @@
       </div>
     </div>
 
+    <!-- 8-Step Deterministic Lifecycle Sequence Bar -->
+    <div class="px-3 py-2 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm space-y-1.5 text-[11px]">
+      <div class="flex items-center justify-between font-bold text-slate-700">
+        <span class="flex items-center gap-1.5">
+          <span class="text-xs">🔄</span>
+          <span>8 步确定性研发全生命周期流水线:</span>
+        </span>
+        <span id="active-step-badge" class="font-mono text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 border border-blue-500/20">
+          待命 · STANDBY
+        </span>
+      </div>
+      <div class="grid grid-cols-4 md:grid-cols-8 gap-1.5 font-mono text-[10px]">
+        <div id="step-pill-1" onclick="setStep(1)" title="1. 先有设计AI产出设计文档与任务拆分" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">1. 设计AI 📐</span>
+          <span class="text-[9px] text-slate-500">方案/拆分</span>
+        </div>
+        <div id="step-pill-2" onclick="setStep(2)" title="2. 测试AI根据设计出红色测试用例(AST影响点)" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">2. 测试AI 🧪</span>
+          <span class="text-[9px] text-slate-500">红灯真测</span>
+        </div>
+        <div id="step-pill-3" onclick="setStep(3)" title="3. Critic AI评审设计与测试一致性及架构规范" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">3. Critic双审 🧐</span>
+          <span class="text-[9px] text-slate-500">规范对齐</span>
+        </div>
+        <div id="step-pill-4" onclick="setStep(4)" title="4. 关键HITL确认任务和测试cases并锁定" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">4. 关键HITL ✍️</span>
+          <span class="text-[9px] text-slate-500">签字锁定</span>
+        </div>
+        <div id="step-pill-5" onclick="setStep(5)" title="5. 开发AI在受限沙箱开始编码" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">5. 开发AI 🔨</span>
+          <span class="text-[9px] text-slate-500">沙箱编码</span>
+        </div>
+        <div id="step-pill-6" onclick="setStep(6)" title="6. 对开发结果自动化测试跑道真机验证" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">6. 自动测试 ⚙️</span>
+          <span class="text-[9px] text-slate-500">真机跑测</span>
+        </div>
+        <div id="step-pill-7" onclick="setStep(7)" title="7. 测试不通过打回开发AI定向自愈重试" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">7. 自愈打回 🔄</span>
+          <span class="text-[9px] text-slate-500">错误指纹</span>
+        </div>
+        <div id="step-pill-8" onclick="setStep(8)" title="8. AST硬门禁防线 + 交付主干仓库" class="p-1.5 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-blue-400">
+          <span class="font-bold text-slate-700">8. 仓库交付 🚀</span>
+          <span class="text-[9px] text-slate-500">硬门禁入库</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Center: Interactive Flowchart Canvas with Integrated Cartoon Workers -->
     <div class="relative w-full bg-gradient-to-b from-[var(--card,#ffffff)] to-[var(--background,#f8fafc)] rounded-xl border border-[var(--card-border,rgba(0,0,0,0.1))] p-3 shadow-inner overflow-hidden">
       
@@ -526,6 +573,22 @@
             <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">隔离沙箱:</span>
             <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-xs md:max-w-sm text-right font-semibold" title="">.adk/worktrees/c33c932</span>
           </div>
+          <div id="row-spec-design" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">架构设计:</span>
+            <span id="spec-design" class="font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right" title="">已生成 (任务拆分就绪)</span>
+          </div>
+          <div id="row-spec-red" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">红灯预检:</span>
+            <span id="spec-red-evidence" class="font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right" title="">基线 AssertionError 验真</span>
+          </div>
+          <div id="row-spec-pre-critic" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">前置审查:</span>
+            <span id="spec-pre-critic" class="font-semibold text-cyan-600 truncate max-w-xs md:max-w-sm text-right" title="">设计/测试双审一致</span>
+          </div>
+          <div id="row-spec-impact" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">AST 影响面:</span>
+            <span id="spec-impact" class="font-semibold text-indigo-500 truncate max-w-xs md:max-w-sm text-right" title="">-</span>
+          </div>
         </div>
 
         <!-- Critic Review Verdict Display -->
@@ -567,14 +630,17 @@
           </div>
         </div>
 
-        <!-- Interactive Stage Simulation Buttons -->
-        <div class="grid grid-cols-6 gap-1 pt-2 border-t border-[var(--border,rgba(0,0,0,0.06))] text-[10px]">
-          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">① 方案/测试 📐</button>
-          <button onclick="setStage('WORK')" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">⑤ 编码施工 🔨</button>
-          <button onclick="setStage('TEST')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑥ 自动化测试 ⚙️</button>
-          <button onclick="setStage('CRITIC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑦ 质量把关 🧐</button>
-          <button onclick="setStage('MR')" class="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 transition text-center truncate font-medium">⑧ 成果交付 🚀</button>
-          <button onclick="setStage('ESCALATE')" class="p-1 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">⑨ 异常跳闸 🚨</button>
+        <!-- Interactive 8-Step Simulation Buttons -->
+        <div class="grid grid-cols-4 md:grid-cols-9 gap-1 pt-2 border-t border-[var(--border,rgba(0,0,0,0.06))] text-[9px] font-mono">
+          <button onclick="setStep(1)" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:border-blue-400 transition text-center truncate">1.设计AI 📐</button>
+          <button onclick="setStep(2)" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:border-blue-400 transition text-center truncate">2.测试AI 🧪</button>
+          <button onclick="setStep(3)" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:border-blue-400 transition text-center truncate">3.Critic 🧐</button>
+          <button onclick="setStep(4)" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-600 hover:bg-amber-500/20 transition text-center truncate font-medium">4.HITL ✍️</button>
+          <button onclick="setStep(5)" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">5.开发AI 🔨</button>
+          <button onclick="setStep(6)" class="p-1 rounded bg-purple-500/10 border border-purple-500/30 text-purple-600 hover:bg-purple-500/20 transition text-center truncate font-medium">6.自动测试 ⚙️</button>
+          <button onclick="setStep(7)" class="p-1 rounded bg-orange-500/10 border border-orange-500/30 text-orange-600 hover:bg-orange-500/20 transition text-center truncate font-medium">7.自愈打回 🔄</button>
+          <button onclick="setStep(8)" class="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/20 transition text-center truncate font-medium">8.仓库交付 🚀</button>
+          <button onclick="setStage('ESCALATE')" class="p-1 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">9.跳闸 🚨</button>
         </div>
       </div>
 
@@ -822,15 +888,18 @@
       }
       if (btn) btn.textContent = '⏸ 暂停';
       
-      // Simulate realistic cycle: Spec (Architect + QA) -> Work -> Test (Runner fail) -> Work (Retry) -> Test (Runner pass) -> Critic -> MR
+      // 8-step autonomous TDD workflow cycle
       const sequence = [
-        { stage: 'SPEC', log: '[方案/测试] 📐 架构师定蓝图契约，QA出验收用例，经 [关卡-1 人工签字] 盖章锁定' },
-        { stage: 'WORK', log: '[编码施工] 🔨 工兵在独立沙箱编写代码，白名单监控中' },
-        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[自动化测试] ⚙️ 自动化测试发现用例未全过，报错信息退回工兵修复...' },
-        { stage: 'WORK', log: '[编码施工] 🔨 工兵分析失败用例，重构业务代码修复问题，再次提交补丁...' },
-        { stage: 'TEST', log: '[自动化测试] ⚙️ 测试防篡改校验通过 + 全套用例真机测试全绿通过！' },
-        { stage: 'CRITIC', log: '[质量把关] 🧐 独立审查员第三视角审查代码结构与规范，排查设计隐患...' },
-        { stage: 'MR', log: '[成果交付] 🚀 成果安全存入企业代码库，自动发起 PR/MR！' }
+        { stage: 'SPEC', log: '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分' },
+        { stage: 'SPEC', log: '[2. 验收测试] 🧪 QA 测试 AI 提取 AST 骨架生成用例，并在基线执行 TDD Red 预检真机报错' },
+        { stage: 'SPEC', log: '[3. 前置评审] 🧐 Critic AI 评审设计与测试一致性，检查架构规范与业务覆盖' },
+        { stage: 'SPEC', log: '[4. 关卡签字] ✍️ 关键 HITL 阶段：人工确认任务拆分与验收用例，签署冻结契约' },
+        { stage: 'WORK', log: '[5. 编码施工] 🔨 开发工兵进入受限 Worktree 沙箱，以测试用例全绿为目标进行编码' },
+        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[6. 自动化测试] ⚙️ 自动化测试跑道真机运行 pytest，测试未全过打回自愈...' },
+        { stage: 'WORK', log: '[7. 自愈修复] 🔨 开发工兵接收失败指纹与堆栈，重构修复业务代码后再次送测...' },
+        { stage: 'TEST', log: '[6. 自动化测试] ⚙️ 白名单校验通过，全量用例真机测试 100% 全绿！' },
+        { stage: 'CRITIC', log: '[8. 终态审查] 🧐 AST 静态硬门禁拦截潜在破坏性变更，只读 Critic 盲审确认合规' },
+        { stage: 'MR', log: '[8. 成果交付] 🚀 代码通过 AST 硬门禁与审查，安全合入代码库！' }
       ];
       let idx = 0;
       setStage(sequence[0].stage);
@@ -852,6 +921,9 @@
         case '':
           return 'IDLE';
         case 'SPEC_DRAFTING':
+        case 'SPEC_DESIGNED':
+        case 'TEST_GENERATED':
+        case 'PRE_CRITIC_REVIEWED':
         case 'SPEC_LOCKED':
           return 'SPEC';
         case 'RUNNING':
@@ -949,7 +1021,37 @@
         return;
       }
       const stage = mapStatusToStage(run.status);
-      const log = run.last_log || run.last_error_log || null;
+      let log = run.last_log || run.last_error_log || null;
+      if (!log) {
+        switch ((run.status || '').toUpperCase()) {
+          case 'SPEC_DESIGNED':
+            log = '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导，已生成设计方案与任务拆分';
+            break;
+          case 'TEST_GENERATED':
+            log = '[2. 验收测试] 🧪 QA 测试 AI 已生成红灯用例，并在基线通过 TDD Red 预检真机报错';
+            break;
+          case 'PRE_CRITIC_REVIEWED':
+            log = '[3. 前置评审] 🧐 Critic AI 一致性盲审通过，等待关卡-1 人工签字锁定';
+            break;
+          case 'SPEC_LOCKED':
+            log = '[4. 契约锁定] ✍️ 关卡-1 人工签字确认，契约冻结，准入物理沙箱';
+            break;
+          case 'RUNNING':
+          case 'WORKER_CODING':
+            log = '[5. 编码施工] 🔨 开发工兵在独立 Worktree 沙箱内对照测试用例编码施工';
+            break;
+          case 'VERIFYING':
+            log = '[6. 自动化测试] ⚙️ 自动化测试跑道真机执行中 (白名单与用例双重核验)';
+            break;
+          case 'REPAIRING':
+            log = '[7. 自愈修复] 🔨 测试未通过打回自愈，开发工兵正在定向修复报错';
+            break;
+          case 'MR_READY':
+          case 'FINALIZED':
+            log = '[8. 成果交付] 🚀 AST 静态硬门禁防线通过，只读 Critic 盲审无异议，代码安全交付仓库';
+            break;
+        }
+      }
       setStage(stage, log);
 
       // Repository & Branch
@@ -980,6 +1082,59 @@
       if (wtEl && run.worktree_path) {
         wtEl.textContent = run.worktree_path;
         wtEl.title = run.worktree_path;
+      }
+
+      // 8-step Workflow Artifacts Binding
+      const designRow = document.getElementById('row-spec-design');
+      const designEl = document.getElementById('spec-design');
+      if (designRow && designEl) {
+        if (run.design_doc) {
+          designRow.classList.remove('hidden');
+          designEl.textContent = '已就绪 (包含任务拆分)';
+          designEl.title = run.design_doc.slice(0, 300);
+        } else {
+          designRow.classList.add('hidden');
+        }
+      }
+
+      const redRow = document.getElementById('row-spec-red');
+      const redEl = document.getElementById('spec-red-evidence');
+      if (redRow && redEl) {
+        if (run.red_evidence) {
+          redRow.classList.remove('hidden');
+          const ev = run.red_evidence;
+          const passed = ev.verdict === 'PASSED_RED' || ev.exit_code !== 0;
+          redEl.textContent = passed ? '基线 AssertionError 验真通过' : '未捕获红灯';
+          redEl.className = passed ? 'font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right' : 'font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right';
+        } else {
+          redRow.classList.add('hidden');
+        }
+      }
+
+      const preCriticRow = document.getElementById('row-spec-pre-critic');
+      const preCriticEl = document.getElementById('spec-pre-critic');
+      if (preCriticRow && preCriticEl) {
+        if (run.pre_critic_report) {
+          preCriticRow.classList.remove('hidden');
+          const isAppr = run.pre_critic_report.approved;
+          preCriticEl.textContent = isAppr ? '一致性与规则审查通过' : '存在阻断问题';
+          preCriticEl.className = isAppr ? 'font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right' : 'font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right';
+        } else {
+          preCriticRow.classList.add('hidden');
+        }
+      }
+
+      const impactRow = document.getElementById('row-spec-impact');
+      const impactEl = document.getElementById('spec-impact');
+      if (impactRow && impactEl) {
+        if (run.impact_analysis) {
+          impactRow.classList.remove('hidden');
+          const callers = (run.impact_analysis.impacted_callers || []).length;
+          const tests = (run.impact_analysis.existing_test_files || []).length;
+          impactEl.textContent = `波及调用点: ${callers} · 关联测试: ${tests}`;
+        } else {
+          impactRow.classList.add('hidden');
+        }
       }
 
       // TDD Status Badge

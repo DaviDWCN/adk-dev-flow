@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADK 像素工坊 · 研发流水线拓扑监控看板</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes hammer-swing {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(-25deg); }
+    }
+    @keyframes tube-shake {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(10deg); }
+      75% { transform: rotate(-8deg); }
+    }
+    @keyframes glass-scan {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      50% { transform: translate(-2px, -2px) rotate(-12deg); }
+    }
+    @keyframes truck-vibe {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-1.5px); }
+    }
+    @keyframes bounce-subtle {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2.5px); }
+    }
+    @keyframes alarm-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes scan {
+      0% { transform: translateY(-4px); opacity: 0; }
+      50% { opacity: 0.9; }
+      100% { transform: translateY(10px); opacity: 0; }
+    }
+    @keyframes pipe-flow {
+      from { stroke-dashoffset: 24; }
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes pipe-flow-reverse {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: 24; }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.4)); }
+      50% { filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.8)); }
+    }
+
+    .animate-hammer {
+      transform-origin: 0 0;
+      animation: hammer-swing 0.5s ease-in-out infinite;
+    }
+    .animate-tube-shake {
+      transform-origin: 0 0;
+      animation: tube-shake 0.7s ease-in-out infinite;
+    }
+    .animate-glass-scan {
+      transform-origin: 0 0;
+      animation: glass-scan 1.2s ease-in-out infinite;
+    }
+    .animate-truck-run {
+      animation: truck-vibe 0.35s ease-in-out infinite;
+    }
+    .animate-bounce-subtle {
+      animation: bounce-subtle 1.2s ease-in-out infinite;
+    }
+    .animate-alarm-spin {
+      transform-origin: 0 0;
+      animation: alarm-spin 1.8s linear infinite;
+    }
+    .animate-scan {
+      animation: scan 1.2s ease-in-out infinite;
+    }
+    .pipe-active {
+      stroke-dasharray: 6, 6;
+      animation: pipe-flow 0.8s linear infinite;
+    }
+    .pipe-loopback {
+      stroke-dasharray: 6, 6;
+      animation: pipe-flow-reverse 0.8s linear infinite;
+    }
+    .node-active {
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased p-3 m-0 select-none font-sans text-xs min-h-screen">
+  <div class="max-w-6xl mx-auto space-y-3">
+    
+    <!-- Top Cockpit Bar: Project Overview & Metrics -->
+    <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2.5">
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <span id="live-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+          <span class="font-bold text-sm tracking-tight">ADK 确定性研发流水线 · 控制台</span>
+        </div>
+        <span id="state-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+          STANDBY · 待命
+        </span>
+      </div>
+
+      <div class="flex items-center gap-3 text-[11px] text-[var(--muted-foreground,#64748b)]">
+        <div class="flex items-center gap-1.5 bg-[var(--background,#f8fafc)] px-2.5 py-1 rounded border border-[var(--border,rgba(0,0,0,0.06))]">
+          <span id="forge-icon" class="text-xs">🐙</span>
+          <span id="forge-repo" class="font-mono font-medium text-[var(--foreground,#0f172a)]">DaviDWCN/adk-dev-flow</span>
+        </div>
+        <div class="flex items-center gap-1.5 bg-[var(--background,#f8fafc)] px-2.5 py-1 rounded border border-[var(--border,rgba(0,0,0,0.06))]">
+          <span>🌿</span>
+          <span id="active-branch" class="font-mono font-medium text-[var(--foreground,#0f172a)]">adk/issue-42-feat</span>
+        </div>
+        <div class="flex items-center gap-1.5 bg-[var(--background,#f8fafc)] px-2.5 py-1 rounded border border-[var(--border,rgba(0,0,0,0.06))]">
+          <span>🛡️ Guard:</span>
+          <span class="font-semibold text-emerald-500">ACTIVE</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <select id="run-selector" onchange="switchRun(this.value)" class="text-[11px] bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] rounded px-2 py-0.5 text-[var(--foreground,#0f172a)] font-mono">
+            <option value="">当前任务</option>
+          </select>
+          <button onclick="toggleAutoPlay()" id="btn-autoplay" class="px-2.5 py-1 rounded bg-[var(--primary,#2563eb)] text-[var(--primary-foreground,#ffffff)] text-[11px] font-medium hover:opacity-90 transition shadow-sm">
+            ▶ 演练流水线
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Determinism & Security Guardrail Indicators -->
+    <div class="px-3 py-2 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2 text-[11px]">
+      <div class="flex items-center gap-1.5 font-bold text-slate-700">
+        <span class="text-xs">🛡️</span>
+        <span>核心门禁与审批关卡:</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="hitl-spec-pill" title="人工签字确认 (方案与测试审核)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/30 flex items-center gap-1 transition-all">
+          <span>👤 关卡-1</span> <span>人工签字</span>
+        </span>
+        <span id="gate-tdd-pill" title="验证测试有效 (必须报错防假需求)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/30 flex items-center gap-1 transition-all">
+          <span>🔒 门禁-1</span> <span>测试验证</span>
+        </span>
+        <span id="gate-sandbox-pill" title="划分独立工位 (改动范围锁定防污染)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-indigo-500/10 text-indigo-600 border border-indigo-500/30 flex items-center gap-1 transition-all">
+          <span>🔒 门禁-2</span> <span>隔离工位</span>
+        </span>
+        <span id="gate-verify-pill" title="机器自动测试 (全套用例真机跑通)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-purple-500/10 text-purple-600 border border-purple-500/30 flex items-center gap-1 transition-all">
+          <span>🔒 门禁-3</span> <span>自动化测试</span>
+        </span>
+        <span id="hitl-escalate-pill" title="异常跳闸保护 (人工介入排障复位)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-rose-500/10 text-rose-600 border border-rose-500/30 flex items-center gap-1 transition-all">
+          <span>👤 关卡-2</span> <span>异常复位</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Center: Interactive Flowchart Canvas with Integrated Cartoon Workers -->
+    <div class="relative w-full bg-gradient-to-b from-[var(--card,#ffffff)] to-[var(--background,#f8fafc)] rounded-xl border border-[var(--card-border,rgba(0,0,0,0.1))] p-3 shadow-inner overflow-hidden">
+      
+      <!-- Flowchart SVG Topology Layer: Dual-Track (Upper: Business & Cognitive / Lower: Physical & Deterministic Gates) -->
+      <svg id="topology-svg" viewBox="0 0 960 380" class="w-full h-auto select-none">
+        <defs>
+          <!-- Arrow Markers -->
+          <marker id="arrow-gray" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#94a3b8" />
+          </marker>
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#3b82f6" />
+          </marker>
+          <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#10b981" />
+          </marker>
+          <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#f59e0b" />
+          </marker>
+          <marker id="arrow-rose" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#ef4444" />
+          </marker>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#06b6d4" />
+          </marker>
+        </defs>
+
+        <!-- ================= TRACK 1: UPPER TRACK · 业务与方案域 ================= -->
+        <rect x="15" y="24" width="930" height="134" rx="10" fill="var(--card,#ffffff)" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="4,4" />
+        <!-- Track 1 Title Badge -->
+        <rect x="30" y="15" width="135" height="18" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.8"/>
+        <text x="97" y="27.5" text-anchor="middle" font-size="8" font-weight="600" fill="#475569">上轨 · 方案与施工</text>
+
+        <!-- ================= TRACK 2: LOWER TRACK · 物理与确定性域 ================= -->
+        <rect x="15" y="198" width="930" height="168" rx="10" fill="var(--card,#ffffff)" stroke="#cbd5e1" stroke-width="1.2" />
+        <!-- Track 2 Title Badge -->
+        <rect x="30" y="189" width="145" height="18" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.8"/>
+        <text x="102" y="201.5" text-anchor="middle" font-size="8" font-weight="600" fill="#475569">下轨 · 物理门禁跑道</text>
+
+        <!-- ================= WORKFLOW ORDERED CONDUITS (全部有序连线，无交叉无遮挡) ================= -->
+        <g id="flow-conduits">
+          <!-- 连线 1: ① 方案设计 -> ② 人工签字 (垂直直通下行) -->
+          <path d="M 115 147 L 115 163" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          
+          <!-- 连线 2: ② 人工签字 -> ③ 验证测试有效 (垂直直通入轨) -->
+          <path d="M 115 185 L 115 215" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          <path id="pipe-spec-gate" d="M 115 147 L 115 163 M 115 185 L 115 215" fill="none" stroke="#3b82f6" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow)" />
+
+          <!-- 连线 3: ③ 验证有效 -> ④ 划分独立工位 (横向推进) -->
+          <path d="M 175 286 L 190 286" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          
+          <!-- 连线 4: ④ 划分独立工位 -> ⑤ 进场编码施工 (平滑上行入场) -->
+          <path d="M 265 215 C 265 170, 380 185, 380 149" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          <path id="pipe-gate-work" d="M 175 286 L 190 286 M 265 215 C 265 170, 380 185, 380 149" fill="none" stroke="#f59e0b" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
+
+          <!-- 连线 5: ⑤ 进场施工 -> ⑥ 机器自动化测试 (成果送测垂直下行) -->
+          <path d="M 410 147 L 410 215" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          <path id="pipe-work-test" d="M 410 147 L 410 215" fill="none" stroke="#8b5cf6" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow)" />
+
+          <!-- 回路 1 (失败退回): ⑥ 测试未通过 -> ⑤ 工兵重新修改 (平行垂直上行，限3次) -->
+          <path d="M 490 215 L 490 149" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="4,4" marker-end="url(#arrow-amber)" />
+          <path id="pipe-loop-tdd" d="M 490 215 L 490 149" fill="none" stroke="#f59e0b" stroke-width="2.2" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" />
+
+          <!-- 紧急跳闸支线: ⑥ 连续卡死/破坏 -> ⑨ 异常跳闸保护 (独立通道横向直连) -->
+          <path d="M 545 286 L 580 286" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-rose)" />
+          <path id="pipe-branch-escalate" d="M 545 286 L 580 286" fill="none" stroke="#ef4444" stroke-width="2.2" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
+
+          <!-- 连线 6: ⑥ 测试通过 -> ⑦ 独立质量把关 (放行上行) -->
+          <path d="M 530 215 C 530 168, 770 185, 770 149" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          <path id="pipe-test-critic" d="M 530 215 C 530 168, 770 185, 770 149" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-cyan)" />
+
+          <!-- 回路 2 (把关退回): ⑦ 发现设计隐患 -> ⑤ 退回工兵整改 (上轨水平直连) -->
+          <path d="M 755 94 L 540 94" fill="none" stroke="#06b6d4" stroke-width="1.8" stroke-dasharray="4,4" marker-end="url(#arrow-cyan)" />
+          <path id="pipe-loop-critic" d="M 755 94 L 540 94" fill="none" stroke="#06b6d4" stroke-width="2.2" class="pipe-loopback hidden" marker-end="url(#arrow-cyan)" />
+
+          <!-- 连线 7: ⑦ 把关合格 -> ⑧ 成果正式交付 (终点垂直直通下行) -->
+          <path d="M 845 147 L 845 215" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow-gray)" />
+          <path id="pipe-critic-mr" d="M 845 147 L 845 215" fill="none" stroke="#10b981" stroke-width="2.5" class="hidden" marker-end="url(#arrow-green)" />
+        </g>
+
+        <!-- ================= FLOATING CONDUIT PILL BADGES (防文字遮挡背景徽章) ================= -->
+        <g id="conduit-badges">
+          <!-- 徽章: ④ -> ⑤ 工位就绪 -->
+          <g transform="translate(285, 172)">
+            <rect x="0" y="0" width="48" height="15" rx="5" fill="#ffffff" stroke="#f59e0b" stroke-width="0.8" opacity="0.95"/>
+            <text x="24" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#d97706">就绪 ➔</text>
+          </g>
+
+          <!-- 徽章: ⑤ -> ⑥ 送测 -->
+          <g transform="translate(393, 172)">
+            <rect x="0" y="0" width="34" height="15" rx="5" fill="#ffffff" stroke="#8b5cf6" stroke-width="0.8" opacity="0.95"/>
+            <text x="17" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#6d28d9">送测 ↓</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑤ 未过退回 -->
+          <g transform="translate(456, 172)">
+            <rect x="0" y="0" width="58" height="15" rx="5" fill="#ffffff" stroke="#f59e0b" stroke-width="0.8" opacity="0.95"/>
+            <text x="29" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#d97706">↺ 重试 ≤3</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑨ 紧急跳闸 -->
+          <g transform="translate(545, 278)">
+            <rect x="0" y="0" width="35" height="14" rx="5" fill="#fff1f2" stroke="#ef4444" stroke-width="0.8" opacity="0.95"/>
+            <text x="17.5" y="9.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#ef4444">🚨 熔断</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑦ 测试通过 -->
+          <g transform="translate(620, 170)">
+            <rect x="0" y="0" width="48" height="15" rx="5" fill="#ffffff" stroke="#06b6d4" stroke-width="0.8" opacity="0.95"/>
+            <text x="24" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#0891b2">✓ 全绿 ➔</text>
+          </g>
+
+          <!-- 徽章: ⑦ -> ⑤ 发现隐患退回 -->
+          <g transform="translate(625, 86)">
+            <rect x="0" y="0" width="38" height="15" rx="5" fill="#ffffff" stroke="#06b6d4" stroke-width="0.8" opacity="0.95"/>
+            <text x="19" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#0891b2">↺ 驳回</text>
+          </g>
+
+          <!-- 徽章: ⑦ -> ⑧ 正式交付 -->
+          <g transform="translate(821, 172)">
+            <rect x="0" y="0" width="48" height="15" rx="5" fill="#ffffff" stroke="#10b981" stroke-width="0.8" opacity="0.95"/>
+            <text x="24" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#059669">✓ 交付 ↓</text>
+          </g>
+        </g>
+
+        <!-- ================= STAGES / MODULES (模块与工位) ================= -->
+        <!-- 模块 1: 方案设计与编写测试 (架构师 + QA 质检) -->
+        <g id="node-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
+          <title>① 方案/测试：架构师出蓝图契约，QA写验收用例</title>
+          <rect x="25" y="42" width="180" height="105" rx="8" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.2" class="shadow-sm hover:stroke-blue-400" />
+          <rect x="38" y="50" width="154" height="18" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="0.8"/>
+          <text x="115" y="62.5" text-anchor="middle" font-size="8.5" font-weight="600" fill="#1d4ed8">① 方案 / 测试</text>
+          <!-- Architect Avatar (Left) -->
+          <g transform="translate(48, 70)">
+            <g id="svg-architect" class="">
+              <ellipse cx="20" cy="11" rx="9" ry="5" fill="#3b82f6"/>
+              <path d="M12 11 Q20 4 28 11" fill="#2563eb"/>
+              <circle cx="20" cy="17" r="7" fill="#fde047"/>
+              <circle cx="18" cy="16" r="1.2" fill="#1e293b"/>
+              <circle cx="22" cy="16" r="1.2" fill="#1e293b"/>
+              <rect x="13" y="24" width="14" height="15" rx="3" fill="#1e40af"/>
+              <rect x="23" y="24" width="4" height="12" rx="1" fill="#e0f2fe" transform="rotate(25 23 24)"/>
+            </g>
+          </g>
+          <!-- QA Tester Avatar (Right) -->
+          <g transform="translate(132, 70)">
+            <g id="svg-tester">
+              <ellipse cx="20" cy="10" rx="8" ry="4" fill="#10b981"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fed7aa"/>
+              <rect x="15" y="13" width="10" height="4" rx="2" fill="#0284c7" opacity="0.8"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#f8fafc"/>
+              <!-- Test Tube -->
+              <g transform="translate(28, 23)">
+                <rect id="svg-tube" x="-2" y="-5" width="3.5" height="11" rx="1.5" fill="#10b981" class=""/>
+              </g>
+            </g>
+          </g>
+          <rect x="62" y="124" width="106" height="15" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
+          <text x="115" y="134.5" text-anchor="middle" font-size="7.5" font-weight="500" fill="#64748b">蓝图与用例</text>
+        </g>
+
+        <!-- 关卡 2: 人工签字确认 -->
+        <g id="badge-hitl-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
+          <title>② 签字审批：人工审核业务方案契约与测试用例，签字锁定后准入</title>
+          <rect x="35" y="163" width="160" height="22" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1"/>
+          <text x="115" y="177" text-anchor="middle" font-size="8" font-weight="600" fill="#b45309">② 签字审批 ✍️</text>
+        </g>
+
+        <!-- 模块 5: 进场编码施工 (施工工兵) -->
+        <g id="node-work" class="cursor-pointer transition-all duration-300" onclick="setStage('WORK')">
+          <title>⑤ 编码施工：AI 工兵在受限独立沙箱内编码，以通过全部测试用例为目标</title>
+          <rect x="365" y="42" width="175" height="105" rx="8" fill="var(--card,#ffffff)" stroke="#fde68a" stroke-width="1.2" class="shadow-sm hover:stroke-amber-400" />
+          <rect x="375" y="50" width="155" height="18" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="0.8"/>
+          <text x="452" y="62.5" text-anchor="middle" font-size="8.5" font-weight="600" fill="#b45309">⑤ 编码施工 🔨</text>
+          <!-- Builder Avatar -->
+          <g transform="translate(430, 70)">
+            <g id="svg-builder">
+              <ellipse cx="22" cy="10" rx="9" ry="4" fill="#fbbf24"/>
+              <path d="M14 10 Q22 4 30 10" fill="#f59e0b"/>
+              <circle cx="22" cy="16" r="6.5" fill="#fed7aa"/>
+              <circle cx="20" cy="15" r="1" fill="#334155"/>
+              <circle cx="24" cy="15" r="1" fill="#334155"/>
+              <rect x="15" y="22" width="14" height="14" rx="2" fill="#ea580c"/>
+              <rect x="17" y="24" width="2" height="12" fill="#fef08a"/>
+              <rect x="25" y="24" width="2" height="12" fill="#fef08a"/>
+              <!-- Hammer Arm -->
+              <g transform="translate(28, 23)">
+                <g id="svg-hammer" class="">
+                  <line x1="0" y1="0" x2="8" y2="-5" stroke="#fed7aa" stroke-width="3" stroke-linecap="round"/>
+                  <line x1="6" y1="-9" x2="14" y2="1" stroke="#78350f" stroke-width="2.5"/>
+                  <rect x="8" y="-12" width="8" height="5" rx="1" fill="#94a3b8"/>
+                </g>
+              </g>
+              <rect x="32" y="27" width="10" height="9" rx="1.5" fill="#38bdf8" opacity="0.9"/>
+            </g>
+          </g>
+          <rect x="402" y="124" width="100" height="15" rx="6" fill="#fef3c7" stroke="#fde68a" stroke-width="0.8"/>
+          <text x="452" y="134.5" text-anchor="middle" font-size="7.5" font-weight="600" fill="#b45309">用例全绿</text>
+        </g>
+
+        <!-- 模块 7: 独立质量把关 (客观把关人) -->
+        <g id="node-critic" class="cursor-pointer transition-all duration-300" onclick="setStage('CRITIC')">
+          <title>⑦ 质量把关：独立审查员第三视角审查，排查设计隐患与规范漏洞</title>
+          <rect x="755" y="42" width="180" height="105" rx="8" fill="var(--card,#ffffff)" stroke="#a5f3fc" stroke-width="1.2" class="shadow-sm hover:stroke-cyan-400" />
+          <rect x="765" y="50" width="160" height="18" rx="6" fill="#ecfeff" stroke="#67e8f9" stroke-width="0.8"/>
+          <text x="845" y="62.5" text-anchor="middle" font-size="8.5" font-weight="600" fill="#0891b2">⑦ 质量把关 🧐</text>
+          <!-- Critic Avatar -->
+          <g transform="translate(825, 70)">
+            <g id="svg-critic">
+              <ellipse cx="20" cy="9" rx="10" ry="3" fill="#475569"/>
+              <rect x="14" y="5" width="12" height="5" fill="#334155"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fde047"/>
+              <circle cx="18" cy="16" r="1.5" fill="#1e293b"/>
+              <circle cx="22" cy="16" r="1.5" fill="#1e293b"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#1e293b"/>
+              <!-- Magnifying Glass -->
+              <g transform="translate(27, 20)">
+                <g id="svg-glass" class="">
+                  <circle cx="0" cy="0" r="4.5" stroke="#f59e0b" stroke-width="2" fill="none"/>
+                  <line x1="3" y1="3" x2="8" y2="8" stroke="#78350f" stroke-width="2"/>
+                </g>
+              </g>
+              <line id="svg-scan-beam" x1="23" y1="20" x2="33" y2="30" stroke="#06b6d4" stroke-width="1.5" class="hidden animate-scan" />
+            </g>
+          </g>
+          <rect x="792" y="124" width="106" height="15" rx="6" fill="#ecfeff" stroke="#a5f3fc" stroke-width="0.8"/>
+          <text x="845" y="134.5" text-anchor="middle" font-size="7.5" font-weight="600" fill="#0891b2">一票否决</text>
+        </g>
+
+        <!-- 门禁 3: 验证测试真实有效 -->
+        <g id="gate-tdd-box" class="transition-all duration-300">
+          <title>③ 门禁-1 测试验证：开工前盲测预跑用例，确保报错捕获未实现</title>
+          <rect x="25" y="215" width="150" height="142" rx="8" fill="var(--card,#ffffff)" stroke="#bfdbfe" stroke-width="1.2" class="shadow-sm" />
+          <g id="badge-gate-tdd">
+            <rect x="33" y="223" width="134" height="18" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="0.8"/>
+            <text x="100" y="235.5" text-anchor="middle" font-size="8" font-weight="600" fill="#1d4ed8">③ 测试验证</text>
+          </g>
+          <!-- TDD RED Status Chip -->
+          <g transform="translate(52, 260)">
+            <rect x="0" y="0" width="96" height="34" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="0.8"/>
+            <circle cx="18" cy="17" r="6" fill="#ef4444"/>
+            <path d="M 15 17 L 21 17 M 18 14 L 18 20" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+            <text x="32" y="20.5" font-size="7.5" font-mono font-bold fill="#991b1b">TDD RED</text>
+          </g>
+          <rect x="40" y="325" width="120" height="18" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
+          <text x="100" y="337" text-anchor="middle" font-size="7" font-weight="500" fill="#64748b">红灯捕获</text>
+        </g>
+
+        <!-- 门禁 4: 划分独立工位 -->
+        <g id="node-gate" class="transition-all duration-300">
+          <title>④ 门禁-2 隔离工位：专属隔离 Worktree 运行，严格限制修改范围白名单</title>
+          <rect x="190" y="215" width="150" height="142" rx="8" fill="var(--card,#ffffff)" stroke="#c7d2fe" stroke-width="1.2" class="shadow-sm" />
+          <g id="badge-gate-sandbox">
+            <rect x="198" y="223" width="134" height="18" rx="6" fill="#eef2ff" stroke="#a5b4fc" stroke-width="0.8"/>
+            <text x="265" y="235.5" text-anchor="middle" font-size="8" font-weight="600" fill="#4338ca">④ 隔离工位</text>
+          </g>
+          <!-- Git Branch & Sandbox Graphic -->
+          <circle cx="265" cy="272" r="16" fill="var(--background,#f8fafc)" stroke="#c7d2fe" stroke-width="1"/>
+          <path d="M 261 262 L 261 282 M 261 267 C 266 267, 273 267, 273 275" stroke="#6366f1" stroke-width="2" fill="none" stroke-linecap="round" />
+          <circle cx="261" cy="262" r="2.2" fill="#6366f1" />
+          <circle cx="261" cy="282" r="2.2" fill="#6366f1" />
+          <circle cx="273" cy="275" r="2.2" fill="#10b981" />
+          <rect x="203" y="325" width="124" height="18" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
+          <text x="265" y="337" text-anchor="middle" font-size="7" font-weight="500" fill="#64748b">沙箱白名单</text>
+        </g>
+
+        <!-- 门禁 6: 机器全自动测试跑道 -->
+        <g id="node-test" class="cursor-pointer transition-all duration-300" onclick="setStage('TEST')">
+          <title>⑥ 自动化测试跑道：纯机械化执行，核验测试防篡改 + 全量用例真机跑测</title>
+          <rect x="355" y="215" width="190" height="142" rx="8" fill="var(--card,#ffffff)" stroke="#ddd6fe" stroke-width="1.2" class="shadow-sm hover:stroke-purple-400" />
+          <g id="badge-gate-verify">
+            <rect x="365" y="223" width="170" height="18" rx="6" fill="#faf5ff" stroke="#c4b5fd" stroke-width="0.8"/>
+            <text x="450" y="235.5" text-anchor="middle" font-size="8" font-weight="600" fill="#6d28d9">⑥ 自动化测试 ⚙️</text>
+          </g>
+          <!-- Automated Test Console Graphic -->
+          <g transform="translate(380, 252)">
+            <rect x="0" y="0" width="140" height="56" rx="5" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+            <circle cx="8" cy="8" r="2.2" fill="#ef4444"/>
+            <circle cx="15" cy="8" r="2.2" fill="#f59e0b"/>
+            <circle cx="22" cy="8" r="2.2" fill="#10b981"/>
+            <text x="8" y="24" font-size="7" font-mono fill="#94a3b8">$ pytest -v</text>
+            <rect x="6" y="32" width="128" height="18" rx="3" fill="#1e293b"/>
+            <text x="12" y="44" font-size="7.5" font-mono font-bold fill="#10b981">✓ PASSED</text>
+            <g id="svg-runner-gears" transform="translate(118, 41)" class="">
+              <circle cx="0" cy="0" r="4.5" stroke="#8b5cf6" stroke-width="1.2" fill="none" stroke-dasharray="2,2"/>
+              <circle cx="0" cy="0" r="1.5" fill="#8b5cf6"/>
+            </g>
+          </g>
+          <rect x="375" y="325" width="150" height="18" rx="6" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="0.8"/>
+          <text x="450" y="337" text-anchor="middle" font-size="7" font-weight="600" fill="#7c3aed">真机零偏好</text>
+        </g>
+
+        <!-- 门禁 9: 异常跳闸与人工接管 (直连跳闸支线) -->
+        <g id="node-escalate" class="cursor-pointer transition-all duration-300" onclick="setStage('ESCALATE')">
+          <title>⑨ 关卡-2 异常跳闸：重试超限自动熔断停机，保护主干免受污染</title>
+          <rect x="580" y="215" width="145" height="142" rx="8" fill="var(--card,#ffffff)" stroke="#fecaca" stroke-width="1.2" class="shadow-sm hover:stroke-rose-400" />
+          <rect x="590" y="223" width="125" height="18" rx="6" fill="#fff1f2" stroke="#fca5a5" stroke-width="0.8"/>
+          <text x="652" y="235.5" text-anchor="middle" font-size="8" font-weight="600" fill="#e11d48">⑨ 异常跳闸 🚨</text>
+          <!-- Siren Icon -->
+          <g id="svg-siren" transform="translate(632, 246)">
+            <rect x="12" y="24" width="16" height="8" rx="2" fill="#475569"/>
+            <path d="M14 24 C14 15, 26 15, 26 24 Z" fill="#ef4444" id="svg-siren-dome"/>
+            <g transform="translate(20, 18)">
+              <g id="svg-siren-rays" class="hidden animate-alarm-spin">
+                <line x1="0" y1="-6" x2="0" y2="-14" stroke="#ef4444" stroke-width="2"/>
+                <line x1="-8" y1="0" x2="-15" y2="-3" stroke="#ef4444" stroke-width="2"/>
+                <line x1="8" y1="0" x2="15" y2="-3" stroke="#ef4444" stroke-width="2"/>
+              </g>
+            </g>
+          </g>
+          <!-- HITL-2 Manual Recovery Badge -->
+          <g id="badge-hitl-escalate" class="transition-all duration-300">
+            <rect x="595" y="295" width="115" height="20" rx="6" fill="#fef2f2" stroke="#f87171" stroke-width="1"/>
+            <text x="652" y="308.5" text-anchor="middle" font-size="7.5" font-weight="600" fill="#be123c">👤 人工复位</text>
+          </g>
+          <text x="652" y="337" text-anchor="middle" font-size="7" font-weight="500" fill="#991b1b">熔断防污染</text>
+        </g>
+
+        <!-- 门禁 8: 成果正式归档交付 (位于 ⑦ 正下方，垂直交付) -->
+        <g id="node-mr" class="cursor-pointer transition-all duration-300" onclick="setStage('MR')">
+          <title>⑧ 成果交付：测试与审查双通过，成果安全合入代码库并归档</title>
+          <rect x="755" y="215" width="180" height="142" rx="8" fill="var(--card,#ffffff)" stroke="#a7f3d0" stroke-width="1.2" class="shadow-sm hover:stroke-emerald-400" />
+          <g id="badge-gate-evidence">
+            <rect x="765" y="223" width="160" height="18" rx="6" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="0.8"/>
+            <text x="845" y="235.5" text-anchor="middle" font-size="8" font-weight="600" fill="#059669">⑧ 成果交付 🚀</text>
+          </g>
+          <!-- Truck Avatar -->
+          <g transform="translate(820, 256)">
+            <g id="svg-truck" class="">
+              <rect x="6" y="14" width="16" height="16" rx="2" fill="#6366f1"/>
+              <rect x="8" y="16" width="6" height="6" rx="1" fill="#c7d2fe"/>
+              <rect x="22" y="19" width="20" height="11" rx="1" fill="#4338ca"/>
+              <rect x="25" y="10" width="14" height="10" rx="1.5" fill="#fbbf24" stroke="#d97706" stroke-width="1"/>
+              <circle cx="12" cy="30" r="4" fill="#1e293b"/>
+              <circle cx="36" cy="30" r="4" fill="#1e293b"/>
+            </g>
+          </g>
+          <rect x="795" y="325" width="100" height="18" rx="6" fill="#f0fdf4" stroke="#86efac" stroke-width="0.8"/>
+          <text x="845" y="337" text-anchor="middle" font-size="7.5" font-weight="600" fill="#15803d">PR / MR</text>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- Bottom Split: Business Contract & Boundary Whitelist + Real-time Terminal Log Stream -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+      
+      <!-- Panel Left: Business Spec Contract & Worktree Boundary Status -->
+      <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm space-y-2">
+        <div class="flex items-center justify-between pb-1.5 border-b border-[var(--border,rgba(0,0,0,0.06))]">
+          <span class="font-bold text-[12px] flex items-center gap-1.5">
+            <span>📑</span> 规约契约与沙箱边界
+          </span>
+          <span id="tdd-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold">
+            TDD RED: 已验证
+          </span>
+        </div>
+
+        <div class="space-y-1.5 text-[11px] font-mono">
+          <div class="flex justify-between items-center">
+            <span class="text-[var(--muted-foreground,#64748b)]">基准分支:</span>
+            <span id="spec-target" class="font-semibold text-[var(--foreground,#0f172a)]">main</span>
+          </div>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">修改白名单:</span>
+            <span id="spec-allowed" class="font-semibold text-blue-500 truncate max-w-xs md:max-w-sm text-right" title="">src/adk_dev_flow</span>
+          </div>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">验收测试:</span>
+            <span id="spec-test" class="font-semibold text-purple-500 truncate max-w-xs md:max-w-sm text-right" title="">tests/test_forge.py</span>
+          </div>
+          <div class="flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">隔离沙箱:</span>
+            <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-xs md:max-w-sm text-right font-semibold" title="">.adk/worktrees/c33c932</span>
+          </div>
+          <div id="row-spec-design" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">架构设计:</span>
+            <span id="spec-design" class="font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right" title="">已生成 (任务拆分就绪)</span>
+          </div>
+          <div id="row-spec-red" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">红灯预检:</span>
+            <span id="spec-red-evidence" class="font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right" title="">基线 AssertionError 验真</span>
+          </div>
+          <div id="row-spec-pre-critic" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">前置审查:</span>
+            <span id="spec-pre-critic" class="font-semibold text-cyan-600 truncate max-w-xs md:max-w-sm text-right" title="">设计/测试双审一致</span>
+          </div>
+          <div id="row-spec-impact" class="hidden flex justify-between items-center gap-2">
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">AST 影响面:</span>
+            <span id="spec-impact" class="font-semibold text-indigo-500 truncate max-w-xs md:max-w-sm text-right" title="">-</span>
+          </div>
+        </div>
+
+        <!-- Critic Review Verdict Display -->
+        <div id="critic-verdict-box" class="hidden p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700 flex items-center gap-1">
+              <span>🧐</span> 质量把关结论:
+            </span>
+            <span id="critic-verdict-badge" class="px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600">通过 / PASSED</span>
+          </div>
+          <div id="critic-verdict-summary" class="text-[11px] text-slate-600 break-words leading-relaxed"></div>
+          <div id="critic-blocking-issues" class="hidden text-rose-600 space-y-0.5 pt-1 border-t border-rose-100"></div>
+        </div>
+
+        <div class="p-2 rounded bg-[var(--background,#f8fafc)] border border-[var(--border,rgba(0,0,0,0.05))] text-[11px] text-[var(--muted-foreground,#64748b)]">
+          🔒 白名单与测试防篡改双重审计，超范围修改即时拦截。
+        </div>
+      </div>
+
+      <!-- Panel Right: Live Subprocess Stream & Milestone Logs -->
+      <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm space-y-2 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between pb-1.5 border-b border-[var(--border,rgba(0,0,0,0.06))]">
+            <span class="font-bold text-[12px] flex items-center gap-1.5">
+              <span>💻</span> 实时事件终端 (Live Log)
+            </span>
+            <span id="log-attempt-badge" class="text-[10px] font-mono text-[var(--muted-foreground,#64748b)]">
+              状态: 待命
+            </span>
+          </div>
+          
+          <div class="mt-2 font-mono text-[11px] space-y-1">
+            <div id="log-line-primary" class="font-semibold text-slate-500 break-words">
+              [系统] ☕ 流水线待命中，无活跃执行任务
+            </div>
+            <div id="log-line-secondary" class="text-[11px] text-[var(--muted-foreground,#64748b)] break-words">
+              可通过 flow_dispatch 派发新任务，或点击下方按钮演练全流程
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Stage Simulation Buttons -->
+        <div class="grid grid-cols-6 gap-1 pt-2 border-t border-[var(--border,rgba(0,0,0,0.06))] text-[10px]">
+          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">① 方案/测试 📐</button>
+          <button onclick="setStage('WORK')" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">⑤ 编码施工 🔨</button>
+          <button onclick="setStage('TEST')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑥ 自动化测试 ⚙️</button>
+          <button onclick="setStage('CRITIC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑦ 质量把关 🧐</button>
+          <button onclick="setStage('MR')" class="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 transition text-center truncate font-medium">⑧ 成果交付 🚀</button>
+          <button onclick="setStage('ESCALATE')" class="p-1 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">⑨ 异常跳闸 🚨</button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    const STAGE_CONFIG = {
+      IDLE: {
+        nodeId: null,
+        badge: 'STANDBY · 待命',
+        badgeClass: 'bg-slate-100 text-slate-500 border-slate-200',
+        activePipes: [],
+        log: '[系统] ☕ 流水线待命中，无活跃执行任务',
+        details: '可通过 flow_dispatch 派发新任务，或点击下方按钮演练全流程'
+      },
+      SPEC: {
+        nodeId: 'node-spec',
+        badge: '① 方案/测试 · 待审批',
+        badgeClass: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
+        activePipes: ['pipe-spec-gate'],
+        log: '[方案/测试] 📐 蓝图契约完成，验收测试就绪，待人工审批',
+        details: '用例进入门禁-1盲测，必须证明能捕获未实现方可准入'
+      },
+      WORK: {
+        nodeId: 'node-work',
+        badge: '⑤ 编码施工 · 目标全绿',
+        badgeClass: 'bg-amber-500/20 text-amber-500 border-amber-500/30',
+        activePipes: ['pipe-gate-work'],
+        log: '[编码施工] 🔨 工兵在独立沙箱编写代码，白名单监控中',
+        details: '超范围修改即时拦截，测试文件禁止改动'
+      },
+      TEST: {
+        nodeId: 'node-test',
+        badge: '⑥ 自动化测试 · 跑道执行',
+        badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
+        activePipes: ['pipe-work-test'],
+        log: '[自动化测试] ⚙️ 防篡改审计核验 + 全量用例真机跑测',
+        details: '确定性执行：未过退回工兵修复；全通放行送审'
+      },
+      CRITIC: {
+        nodeId: 'node-critic',
+        badge: '⑦ 质量把关 · 独立审查',
+        badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
+        activePipes: ['pipe-test-critic'],
+        log: '[质量把关] 🧐 第三视角审查代码结构与规范，排查隐患',
+        details: '发现隐患退回整改；通过准予交付'
+      },
+      MR: {
+        nodeId: 'node-mr',
+        badge: '⑧ 成果交付 · 任务竣工',
+        badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
+        activePipes: ['pipe-critic-mr'],
+        log: '[成果交付] 🚀 成果安全存入代码库，自动发起 PR/MR',
+        details: '全套测试存证完备，符合交付准入规范'
+      },
+      ESCALATE: {
+        nodeId: 'node-escalate',
+        badge: '⑨ 异常跳闸 · 熔断保护',
+        badgeClass: 'bg-rose-500/20 text-rose-500 border-rose-500/30',
+        activePipes: ['pipe-branch-escalate'],
+        log: '[异常跳闸] 🚨 重试超限自动熔断停机，保护工作现场',
+        details: '主干零污染，等待人工排障复位'
+      }
+    };
+
+    const DEFAULT_NODE_BORDERS = {
+      'node-spec': 'var(--card-border,rgba(0,0,0,0.1))',
+      'node-work': '#f59e0b',
+      'node-test': '#8b5cf6',
+      'node-critic': 'var(--card-border,rgba(0,0,0,0.1))',
+      'node-mr': '#10b981',
+      'node-escalate': '#ef4444',
+      'node-gate': '#6366f1',
+      'gate-tdd-box': '#3b82f6'
+    };
+
+    let currentStage = 'IDLE';
+    let autoPlayTimer = null;
+    let sseSource = null;
+    let currentRunId = null;
+
+    function setStage(stageKey, customLog = null, customDetails = null) {
+      currentStage = stageKey;
+      const conf = STAGE_CONFIG[stageKey] || STAGE_CONFIG.IDLE;
+
+      // 1. Reset all node highlight styles to their default border colors
+      Object.keys(DEFAULT_NODE_BORDERS).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('node-active');
+          const rect = el.querySelector('rect');
+          if (rect) {
+            rect.setAttribute('stroke', DEFAULT_NODE_BORDERS[id]);
+            rect.setAttribute('stroke-width', '1.5');
+          }
+        }
+      });
+
+      // 2. Highlight active node (if applicable)
+      if (conf.nodeId) {
+        const activeNode = document.getElementById(conf.nodeId);
+        if (activeNode) {
+          activeNode.classList.add('node-active');
+          const activeShape = activeNode.querySelector('rect') || activeNode.querySelector('circle');
+          if (activeShape) {
+            const strokeColor = stageKey === 'WORK' ? '#d97706' : (stageKey === 'MR' ? '#10b981' : (stageKey === 'ESCALATE' ? '#ef4444' : (stageKey === 'CRITIC' ? '#0891b2' : '#3b82f6')));
+            activeShape.setAttribute('stroke', strokeColor);
+            activeShape.setAttribute('stroke-width', '2.5');
+          }
+        }
+      }
+
+      // Also highlight associated lower deterministic gate
+      if (stageKey === 'SPEC') {
+        const tddGate = document.getElementById('gate-tdd-box');
+        if (tddGate) {
+          const r = tddGate.querySelector('rect');
+          if (r) { r.setAttribute('stroke', '#3b82f6'); r.setAttribute('stroke-width', '2.5'); }
+        }
+      } else if (stageKey === 'WORK') {
+        const gateNode = document.getElementById('node-gate');
+        if (gateNode) {
+          const r = gateNode.querySelector('rect');
+          if (r) { r.setAttribute('stroke', '#6366f1'); r.setAttribute('stroke-width', '2.5'); }
+        }
+      }
+
+      // 3. Update active pipes
+      ['pipe-spec-gate', 'pipe-gate-work', 'pipe-work-test', 'pipe-test-critic', 'pipe-critic-mr', 'pipe-loop-tdd', 'pipe-loop-critic', 'pipe-branch-escalate'].forEach(id => {
+        const pipe = document.getElementById(id);
+        if (pipe) pipe.classList.add('hidden');
+      });
+      (conf.activePipes || []).forEach(id => {
+        const pipe = document.getElementById(id);
+        if (pipe) pipe.classList.remove('hidden');
+      });
+
+      // 4. Character-specific animations: active character performs their role
+      const arch = document.getElementById('svg-architect');
+      if (arch) arch.className.baseVal = stageKey === 'SPEC' ? 'animate-bounce-subtle' : '';
+
+      // Tube shakes during SPEC (QA is shaking test tube and drafting tests!)
+      const tube = document.getElementById('svg-tube');
+      if (tube) tube.className.baseVal = stageKey === 'SPEC' ? 'animate-tube-shake' : '';
+
+      const hammer = document.getElementById('svg-hammer');
+      if (hammer) hammer.className.baseVal = stageKey === 'WORK' ? 'animate-hammer' : '';
+
+      // Machine runner gears spin during TEST (automated machine runner running tests!)
+      const runnerGears = document.getElementById('svg-runner-gears');
+      if (runnerGears) runnerGears.className.baseVal = stageKey === 'TEST' ? 'animate-alarm-spin' : '';
+
+      const glass = document.getElementById('svg-glass');
+      if (glass) glass.className.baseVal = stageKey === 'CRITIC' ? 'animate-glass-scan' : '';
+      const scanBeam = document.getElementById('svg-scan-beam');
+      if (scanBeam) scanBeam.className.baseVal = stageKey === 'CRITIC' ? 'animate-scan' : 'hidden';
+
+      // Truck rests parked when MR is completed (no endless vibration)
+      const truck = document.getElementById('svg-truck');
+      if (truck) truck.className.baseVal = (autoPlayTimer && stageKey === 'MR') ? 'animate-truck-run' : '';
+
+      const sirenRays = document.getElementById('svg-siren-rays');
+      if (sirenRays) sirenRays.className.baseVal = stageKey === 'ESCALATE' ? 'animate-alarm-spin' : 'hidden';
+
+      // 5. Update Cockpit Badge & Indicator
+      const badge = document.getElementById('state-badge');
+      if (badge) {
+        badge.textContent = conf.badge;
+        badge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold ' + conf.badgeClass;
+      }
+
+      const liveInd = document.getElementById('live-indicator');
+      if (liveInd) {
+        if (stageKey === 'IDLE') {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+        } else if (stageKey === 'ESCALATE') {
+          liveInd.className = 'w-3 h-3 rounded-full bg-rose-500 animate-ping';
+        } else if (stageKey === 'MR') {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+        } else {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping';
+        }
+      }
+
+      // 6. Update Terminal Logs
+      const logPrim = document.getElementById('log-line-primary');
+      const logSec = document.getElementById('log-line-secondary');
+      if (logPrim) logPrim.textContent = customLog || conf.log;
+      if (logSec) logSec.textContent = customDetails || conf.details;
+
+      // 7. Update Determinism & HITL Pill Active States
+      const pillMap = {
+        'hitl-spec-pill': stageKey === 'SPEC' || stageKey === 'WORK' || stageKey === 'TEST' || stageKey === 'CRITIC' || stageKey === 'MR',
+        'gate-tdd-pill': stageKey === 'WORK' || stageKey === 'TEST' || stageKey === 'CRITIC' || stageKey === 'MR',
+        'gate-sandbox-pill': stageKey === 'WORK',
+        'gate-verify-pill': stageKey === 'TEST',
+        'hitl-escalate-pill': stageKey === 'ESCALATE'
+      };
+      for (const [pillId, isActive] of Object.entries(pillMap)) {
+        const pill = document.getElementById(pillId);
+        if (pill) {
+          if (isActive) {
+            pill.classList.add('ring-2', 'ring-offset-1', 'font-bold', 'scale-105');
+          } else {
+            pill.classList.remove('ring-2', 'ring-offset-1', 'font-bold', 'scale-105');
+          }
+        }
+      }
+
+      // 8. Highlight SVG Deterministic & HITL Badges
+      const svgBadgeMap = {
+        'badge-hitl-spec': stageKey === 'SPEC' ? '#f59e0b' : null,
+        'badge-gate-tdd': stageKey === 'WORK' ? '#3b82f6' : null,
+        'badge-gate-sandbox': stageKey === 'WORK' ? '#6366f1' : null,
+        'badge-gate-verify': stageKey === 'TEST' ? '#8b5cf6' : null,
+        'badge-gate-evidence': stageKey === 'MR' ? '#10b981' : null,
+        'badge-hitl-escalate': stageKey === 'ESCALATE' ? '#ef4444' : null
+      };
+      for (const [badgeId, activeColor] of Object.entries(svgBadgeMap)) {
+        const bEl = document.getElementById(badgeId);
+        if (bEl) {
+          const rect = bEl.querySelector('rect');
+          if (rect) {
+            if (activeColor) {
+              rect.setAttribute('stroke-width', '2');
+              rect.setAttribute('filter', 'drop-shadow(0 0 4px ' + activeColor + ')');
+            } else {
+              rect.setAttribute('stroke-width', '1');
+              rect.removeAttribute('filter');
+            }
+          }
+        }
+      }
+    }
+
+    function toggleAutoPlay() {
+      const btn = document.getElementById('btn-autoplay');
+      if (autoPlayTimer) {
+        clearInterval(autoPlayTimer);
+        autoPlayTimer = null;
+        if (btn) btn.textContent = '▶ 演练流水线';
+        return;
+      }
+      if (btn) btn.textContent = '⏸ 暂停';
+      
+      // 8-step autonomous TDD workflow cycle
+      const sequence = [
+        { stage: 'SPEC', log: '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分' },
+        { stage: 'SPEC', log: '[2. 验收测试] 🧪 QA 测试 AI 提取 AST 骨架生成用例，并在基线执行 TDD Red 预检真机报错' },
+        { stage: 'SPEC', log: '[3. 前置评审] 🧐 Critic AI 评审设计与测试一致性，检查架构规范与业务覆盖' },
+        { stage: 'SPEC', log: '[4. 关卡签字] ✍️ 关键 HITL 阶段：人工确认任务拆分与验收用例，签署冻结契约' },
+        { stage: 'WORK', log: '[5. 编码施工] 🔨 开发工兵进入受限 Worktree 沙箱，以测试用例全绿为目标进行编码' },
+        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[6. 自动化测试] ⚙️ 自动化测试跑道真机运行 pytest，测试未全过打回自愈...' },
+        { stage: 'WORK', log: '[7. 自愈修复] 🔨 开发工兵接收失败指纹与堆栈，重构修复业务代码后再次送测...' },
+        { stage: 'TEST', log: '[6. 自动化测试] ⚙️ 白名单校验通过，全量用例真机测试 100% 全绿！' },
+        { stage: 'CRITIC', log: '[8. 终态审查] 🧐 AST 静态硬门禁拦截潜在破坏性变更，只读 Critic 盲审确认合规' },
+        { stage: 'MR', log: '[8. 成果交付] 🚀 代码通过 AST 硬门禁与审查，安全合入代码库！' }
+      ];
+      let idx = 0;
+      setStage(sequence[0].stage);
+      autoPlayTimer = setInterval(() => {
+        idx = (idx + 1) % sequence.length;
+        const item = sequence[idx];
+        setStage(item.stage, item.log, item.details);
+        if (item.pipe) {
+          const p = document.getElementById(item.pipe);
+          if (p) p.classList.remove('hidden');
+        }
+      }, 2500);
+    }
+
+    function mapStatusToStage(status) {
+      switch ((status || '').toUpperCase()) {
+        case 'IDLE':
+        case 'STANDBY':
+        case '':
+          return 'IDLE';
+        case 'SPEC_DRAFTING':
+        case 'SPEC_DESIGNED':
+        case 'TEST_GENERATED':
+        case 'PRE_CRITIC_REVIEWED':
+        case 'SPEC_LOCKED':
+          return 'SPEC';
+        case 'RUNNING':
+        case 'WORKER_CODING':
+        case 'REPAIRING':
+          return 'WORK';
+        case 'VERIFYING':
+        case 'TDD_RED':
+          return 'TEST';
+        case 'REVIEWING':
+          return 'CRITIC';
+        case 'MR_READY':
+        case 'FINALIZED':
+          return 'MR';
+        case 'ESCALATED':
+        case 'ABORTED':
+          return 'ESCALATE';
+        default:
+          return 'IDLE';
+      }
+    }
+
+    function initLiveConnection() {
+      const urlParams = new URLSearchParams(window.location.search);
+      currentRunId = urlParams.get('run_id');
+
+      if (window.location.protocol.startsWith('http')) {
+        fetchRuns();
+        fetchStatus(currentRunId);
+        connectSSE(currentRunId);
+      }
+    }
+
+    function fetchStatus(runId) {
+      const url = runId ? `/api/status?run_id=${encodeURIComponent(runId)}` : '/api/status';
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status) handleLiveUpdate(data);
+        })
+        .catch(() => {});
+    }
+
+    function fetchRuns() {
+      fetch('/api/runs')
+        .then(res => res.json())
+        .then(data => {
+          const sel = document.getElementById('run-selector');
+          if (!sel || !data.runs || !data.runs.length) return;
+          sel.innerHTML = data.runs.map(r => 
+            `<option value="${r.run_id}" ${r.run_id === currentRunId ? 'selected' : ''}>${r.run_id} (${r.status})</option>`
+          ).join('');
+        })
+        .catch(() => {});
+    }
+
+    function switchRun(runId) {
+      if (!runId) return;
+      currentRunId = runId;
+      fetchStatus(runId);
+      connectSSE(runId);
+    }
+
+    function connectSSE(runId) {
+      if (sseSource) {
+        sseSource.close();
+        sseSource = null;
+      }
+      const sseUrl = runId ? `/api/events?run_id=${encodeURIComponent(runId)}` : '/api/events';
+      try {
+        sseSource = new EventSource(sseUrl);
+        sseSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleLiveUpdate(data);
+          } catch (e) {}
+        };
+        sseSource.onerror = () => {
+          const liveInd = document.getElementById('live-indicator');
+          if (liveInd) liveInd.className = 'w-2.5 h-2.5 rounded-full bg-slate-300';
+        };
+      } catch (e) {}
+    }
+
+    function handleLiveUpdate(run) {
+      if (!run) return;
+      if (!run.status || run.status === 'IDLE') {
+        setStage('IDLE');
+        if (run.repo_name) {
+          const repoEl = document.getElementById('forge-repo');
+          if (repoEl) repoEl.textContent = run.repo_name;
+        }
+        const attemptBadge = document.getElementById('log-attempt-badge');
+        if (attemptBadge) attemptBadge.textContent = '状态: 待命';
+        return;
+      }
+      const stage = mapStatusToStage(run.status);
+      let log = run.last_log || run.last_error_log || null;
+      if (!log) {
+        switch ((run.status || '').toUpperCase()) {
+          case 'SPEC_DESIGNED':
+            log = '[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导，已生成设计方案与任务拆分';
+            break;
+          case 'TEST_GENERATED':
+            log = '[2. 验收测试] 🧪 QA 测试 AI 已生成红灯用例，并在基线通过 TDD Red 预检真机报错';
+            break;
+          case 'PRE_CRITIC_REVIEWED':
+            log = '[3. 前置评审] 🧐 Critic AI 一致性盲审通过，等待关卡-1 人工签字锁定';
+            break;
+          case 'SPEC_LOCKED':
+            log = '[4. 契约锁定] ✍️ 关卡-1 人工签字确认，契约冻结，准入物理沙箱';
+            break;
+          case 'RUNNING':
+          case 'WORKER_CODING':
+            log = '[5. 编码施工] 🔨 开发工兵在独立 Worktree 沙箱内对照测试用例编码施工';
+            break;
+          case 'VERIFYING':
+            log = '[6. 自动化测试] ⚙️ 自动化测试跑道真机执行中 (白名单与用例双重核验)';
+            break;
+          case 'REPAIRING':
+            log = '[7. 自愈修复] 🔨 测试未通过打回自愈，开发工兵正在定向修复报错';
+            break;
+          case 'MR_READY':
+          case 'FINALIZED':
+            log = '[8. 成果交付] 🚀 AST 静态硬门禁防线通过，只读 Critic 盲审无异议，代码安全交付仓库';
+            break;
+        }
+      }
+      setStage(stage, log);
+
+      // Repository & Branch
+      const repoEl = document.getElementById('forge-repo');
+      if (repoEl && run.repo_name) repoEl.textContent = run.repo_name;
+
+      const branchEl = document.getElementById('active-branch');
+      if (branchEl && run.branch) branchEl.textContent = run.branch;
+
+      // Contract & Boundary Specs
+      const targetEl = document.getElementById('spec-target');
+      if (targetEl && run.target_branch) targetEl.textContent = run.target_branch;
+
+      const allowedEl = document.getElementById('spec-allowed');
+      if (allowedEl && run.allowed_paths) {
+        const val = Array.isArray(run.allowed_paths) ? run.allowed_paths.join(', ') : run.allowed_paths;
+        allowedEl.textContent = val || '(未限制)';
+        allowedEl.title = val || '';
+      }
+
+      const testEl = document.getElementById('spec-test');
+      if (testEl && run.locked_test) {
+        testEl.textContent = run.locked_test;
+        testEl.title = run.locked_test;
+      }
+
+      const wtEl = document.getElementById('spec-worktree');
+      if (wtEl && run.worktree_path) {
+        wtEl.textContent = run.worktree_path;
+        wtEl.title = run.worktree_path;
+      }
+
+      // 8-step Workflow Artifacts Binding
+      const designRow = document.getElementById('row-spec-design');
+      const designEl = document.getElementById('spec-design');
+      if (designRow && designEl) {
+        if (run.design_doc) {
+          designRow.classList.remove('hidden');
+          designEl.textContent = '已就绪 (包含任务拆分)';
+          designEl.title = run.design_doc.slice(0, 300);
+        } else {
+          designRow.classList.add('hidden');
+        }
+      }
+
+      const redRow = document.getElementById('row-spec-red');
+      const redEl = document.getElementById('spec-red-evidence');
+      if (redRow && redEl) {
+        if (run.red_evidence) {
+          redRow.classList.remove('hidden');
+          const ev = run.red_evidence;
+          const passed = ev.verdict === 'PASSED_RED' || ev.exit_code !== 0;
+          redEl.textContent = passed ? '基线 AssertionError 验真通过' : '未捕获红灯';
+          redEl.className = passed ? 'font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right' : 'font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right';
+        } else {
+          redRow.classList.add('hidden');
+        }
+      }
+
+      const preCriticRow = document.getElementById('row-spec-pre-critic');
+      const preCriticEl = document.getElementById('spec-pre-critic');
+      if (preCriticRow && preCriticEl) {
+        if (run.pre_critic_report) {
+          preCriticRow.classList.remove('hidden');
+          const isAppr = run.pre_critic_report.approved;
+          preCriticEl.textContent = isAppr ? '一致性与规则审查通过' : '存在阻断问题';
+          preCriticEl.className = isAppr ? 'font-semibold text-emerald-500 truncate max-w-xs md:max-w-sm text-right' : 'font-semibold text-rose-500 truncate max-w-xs md:max-w-sm text-right';
+        } else {
+          preCriticRow.classList.add('hidden');
+        }
+      }
+
+      const impactRow = document.getElementById('row-spec-impact');
+      const impactEl = document.getElementById('spec-impact');
+      if (impactRow && impactEl) {
+        if (run.impact_analysis) {
+          impactRow.classList.remove('hidden');
+          const callers = (run.impact_analysis.impacted_callers || []).length;
+          const tests = (run.impact_analysis.existing_test_files || []).length;
+          impactEl.textContent = `波及调用点: ${callers} · 关联测试: ${tests}`;
+        } else {
+          impactRow.classList.add('hidden');
+        }
+      }
+
+      // TDD Status Badge
+      const tddBadge = document.getElementById('tdd-badge');
+      if (tddBadge) {
+        const s = (run.status || '').toUpperCase();
+        if (s === 'MR_READY' || s === 'FINALIZED') {
+          tddBadge.textContent = 'TDD RED: PASSED (100%)';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold';
+        } else if (s === 'ESCALATED') {
+          tddBadge.textContent = 'TDD RED: ESCALATED / 熔断';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-600 font-semibold';
+        } else if (s === 'VERIFYING' || s === 'TDD_RED') {
+          tddBadge.textContent = 'TDD RED: VERIFYING...';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/20 text-purple-600 font-semibold';
+        } else {
+          tddBadge.textContent = 'TDD RED: ACTIVE GUARD';
+          tddBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-600 font-semibold';
+        }
+      }
+
+      // Attempt / State Badge
+      const attemptBadge = document.getElementById('log-attempt-badge');
+      if (attemptBadge) {
+        attemptBadge.textContent = `修复: ${run.attempt || 0}/3 · 状态: ${run.status}`;
+      }
+
+      // Critic Verdict Display
+      const criticBox = document.getElementById('critic-verdict-box');
+      if (criticBox) {
+        if (run.review && (run.review.summary || run.review.approved !== undefined)) {
+          criticBox.classList.remove('hidden');
+          const isAppr = run.review.approved;
+          const badge = document.getElementById('critic-verdict-badge');
+          if (badge) {
+            badge.textContent = isAppr ? '通过 / PASSED' : '阻断 / BLOCKED';
+            badge.className = isAppr 
+              ? 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600'
+              : 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-rose-500/20 text-rose-600';
+          }
+          const sumEl = document.getElementById('critic-verdict-summary');
+          if (sumEl) sumEl.textContent = run.review.summary || (isAppr ? '代码符合架构规约与测试要求' : '审查未通过');
+
+          const issuesEl = document.getElementById('critic-blocking-issues');
+          if (issuesEl) {
+            if (run.review.blocking_issues && run.review.blocking_issues.length > 0) {
+              issuesEl.classList.remove('hidden');
+              issuesEl.innerHTML = '<strong>阻塞问题:</strong><ul class="list-disc pl-4 mt-0.5 space-y-0.5">' + 
+                run.review.blocking_issues.map(i => `<li>${i}</li>`).join('') + '</ul>';
+            } else {
+              issuesEl.classList.add('hidden');
+            }
+          }
+        } else if (stage === 'MR') {
+          criticBox.classList.remove('hidden');
+          const badge = document.getElementById('critic-verdict-badge');
+          if (badge) {
+            badge.textContent = '通过 / PASSED';
+            badge.className = 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600';
+          }
+          const sumEl = document.getElementById('critic-verdict-summary');
+          if (sumEl) sumEl.textContent = 'Critic 审查确认白名单合规且用例通过，准予交付';
+        }
+      }
+    }
+
+    // Listen for MCP App postMessage communications
+    window.addEventListener('message', (event) => {
+      if (!event.data) return;
+      const data = event.data;
+      if (data.structuredContent) {
+        handleLiveUpdate(data.structuredContent);
+      } else if (data.status) {
+        handleLiveUpdate(data);
+      }
+    });
+
+    // Default start in calm IDLE state
+    setStage('IDLE');
+    initLiveConnection();
+  </script>
+</body>
+</html>

@@ -38,7 +38,7 @@ def write_codebuddy_marketplace_manifest(repo_root: Path, version: str) -> Path:
             {
                 "name": "adk-dev-flow",
                 "source": "./plugin/adk-dev-flow",
-                "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 13 工具、AST 代码图谱影响面分析、TDD 红灯契约门禁、Git Worktree 隔离施工、独立 Critic 盲审与像素工坊实时看板。",
+                "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 15 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
                 "version": version,
             }
         ],
@@ -142,7 +142,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
         "name": "adk-dev-flow",
         "displayName": "ADK Deterministic Dev Flow",
         "version": version,
-        "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 13 工具、AST 代码图谱影响面分析、TDD 红灯契约门禁、Git Worktree 隔离施工、独立 Critic 盲审与像素工坊实时看板。",
+        "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 15 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
         "logo": "assets/logo.svg",
         "suggestedPrompts": [
           "按照确定性研发流程处理当前的开发需求",
@@ -223,10 +223,13 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     # `mcp_config.json` is the Gemini CLI convention. Emit both from one config.
     (target / ".mcp.json").write_text(mcp_json_text, encoding="utf-8")
 
-    # 3. assets/logo.svg
+    # 3. assets/logo.svg & assets/dashboard.html
     assets_dir = target / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "logo.svg").write_text(generate_logo_svg(), encoding="utf-8")
+    src_dashboard = root / "src" / "adk_dev_flow" / "templates" / "dashboard.html"
+    if src_dashboard.exists():
+        shutil.copy2(src_dashboard, assets_dir / "dashboard.html")
 
     # 4. skills/deterministic-dev/SKILL.md
     skills_dir = target / "skills" / "deterministic-dev"
@@ -249,19 +252,53 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     else:
         (rules_dir / "AGENTS.md").write_text("# Engineering Invariants\n", encoding="utf-8")
 
-    # 6. README.md
+    # 6. sidecars/dashboard/sidecar.json (Antigravity Aux Pane UI Extension)
+    sidecar_dir = target / "sidecars" / "dashboard"
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    sidecar_data = {
+        "command": "python",
+        "args": [
+            "-m",
+            "adk_dev_flow.dashboard",
+            "--port",
+            "${port}"
+        ],
+        "restart_policy": "always",
+        "display_name": "ADK 像素工坊看板",
+        "description": "ADK 确定性研发流水线像素卡通工人工位动画实时监控看板",
+        "has_web_ui": True,
+        "agent_permissions": {
+            "allows_user_interactions": False
+        },
+        "ui_config": {
+            "display_name": "ADK 像素工坊看板",
+            "views": [
+                {
+                    "path": "/",
+                    "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+                    "title": "ADK 像素工坊看板"
+                }
+            ]
+        }
+    }
+    (sidecar_dir / "sidecar.json").write_text(
+        json.dumps(sidecar_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    # 7. README.md
     readme_content = f"""# ADK Deterministic Dev Flow Plugin (v{version})
 
 面向所有 Agent 的确定性研发流水线插件包。
 
 ## 核心特性
-- 🛠️ **13 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_dispatch`, `flow_dashboard` 等。
+- 🛠️ **15 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_preflight_test`, `flow_dispatch`, `flow_dashboard` 等。
 - 🌲 **AST 代码图谱与影响面分析**：自动推导修改的爆炸半径与测试集。
-- 🎨 **像素工坊工位动画看板**：支持 Aux Pane 侧边栏及内联渲染。
-- 🛡️ **物理沙箱与 TDD Red 强制契约**：杜绝非白名单越权修改。
+- 🎨 **像素工坊工位动画看板**：支持 Aux Pane 侧边栏（Sidecar / MCP App）及内联与独立 Web 渲染。
+- 🛡️ **物理沙箱与 TDD Red 强制契约**：杜绝非白名单越权修改与非确定性 AI 输出破坏生产。
 
 ## 安装与使用
-当此插件启用后，Agent 自动获取 `deterministic-dev` 研发技能与强一致性工程规范。
+当此插件启用后，Agent 自动获取 `deterministic-dev` 研发技能、像素工坊看板与强一致性工程规范。
 """
     (target / "README.md").write_text(readme_content, encoding="utf-8")
 
@@ -274,11 +311,54 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
             "mcp_config.json",
             ".mcp.json",
             "assets/logo.svg",
+            "assets/dashboard.html",
+            "sidecars/dashboard/sidecar.json",
             "skills/deterministic-dev/SKILL.md",
             "rules/AGENTS.md",
             "README.md",
         ],
     }
+
+
+def sync_mcp_tool_schemas(extra_dirs: list[Path] | None = None) -> list[str]:
+    """Export tool JSON schemas for all registered FastMCP tools into Antigravity MCP cache directories."""
+    import asyncio
+    from adk_dev_flow.mcp_server import create_mcp_server
+
+    try:
+        mcp, _ = create_mcp_server()
+        tools = asyncio.run(mcp.list_tools())
+    except Exception:
+        return []
+
+    user_home = Path.home()
+    target_dirs: list[Path] = [
+        user_home / ".gemini" / "antigravity" / "mcp" / "adk-dev-flow",
+        user_home / ".gemini" / "antigravity" / "mcp" / "adk-dev-flow_adk-dev-flow",
+    ]
+    if extra_dirs:
+        target_dirs.extend(extra_dirs)
+
+    written: list[str] = []
+    for d in target_dirs:
+        try:
+            if d.parent.exists():
+                d.mkdir(parents=True, exist_ok=True)
+                for t in tools:
+                    schema_data = {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    }
+                    out_path = d / f"{t.name}.json"
+                    out_path.write_text(
+                        json.dumps(schema_data, ensure_ascii=False) + "\n",
+                        encoding="utf-8",
+                    )
+                    written.append(str(out_path))
+        except Exception:
+            continue
+    return written
 
 
 def sync_plugin_all(repo_root: Path, install_global: bool = True) -> dict[str, Any]:
@@ -290,14 +370,17 @@ def sync_plugin_all(repo_root: Path, install_global: bool = True) -> dict[str, A
     manifest_path = write_codebuddy_marketplace_manifest(root, repo_res["version"])
 
     global_res = None
+    schemas_written: list[str] = []
     if install_global:
         global_target = get_default_gemini_plugins_dir() / "adk-dev-flow"
         global_res = build_plugin_bundle(root, global_target)
+        schemas_written = sync_mcp_tool_schemas()
 
     return {
         "repo_plugin": repo_res,
         "global_plugin": global_res,
         "codebuddy_manifest": str(manifest_path),
+        "schemas_written": schemas_written,
     }
 
 
@@ -329,6 +412,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     print(f"📦 仓库内置插件路径: {res['repo_plugin']['target_dir']}")
     if res['global_plugin']:
         print(f"🌐 全局 Agent 插件路径: {res['global_plugin']['target_dir']}")
+    if res.get('schemas_written'):
+        print(f"🛠️  同步 FastMCP 工具架构缓存: {len(res['schemas_written'])} 个 Schema 文件已更新")
     print(f"🧩 CodeBuddy marketplace 清单: {res['codebuddy_manifest']}")
     print(f"   安装: codebuddy plugin marketplace add <repo-root> && codebuddy plugin install adk-dev-flow@adk-dev-flow-local")
     print(f"🏷️  版本: v{res['repo_plugin']['version']}")

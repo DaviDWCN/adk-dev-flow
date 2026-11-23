@@ -32,6 +32,10 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertIn("node-escalate", html)
         self.assertIn("topology-svg", html)
         self.assertIn("animate-hammer", html)
+        self.assertIn("row-spec-design", html)
+        self.assertIn("spec-red-evidence", html)
+        self.assertIn("spec-pre-critic", html)
+        self.assertIn("spec-impact", html)
 
         # Test run_id injection
         injected = get_dashboard_html(initial_run_id="run_custom_999")
@@ -60,6 +64,7 @@ class TestDashboardSuite(unittest.TestCase):
             branch="feat/test-branch",
             attempt=1,
             last_error_log="[Worker] 🔨 正在编辑代码",
+            spec_json='{"title": "Demo", "design_doc": "# Architecture Design", "red_evidence": {"verdict": "PASSED_RED", "exit_code": 1}, "pre_critic_report": {"approved": true}, "impact_analysis": {"impacted_callers": ["foo()"]}}',
         )
 
         resp_status2 = client.get("/api/status?run_id=run_abc_1")
@@ -69,6 +74,10 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertEqual(data["status"], "RUNNING")
         self.assertEqual(data["attempt"], 1)
         self.assertIn("正在编辑代码", data["last_log"])
+        self.assertEqual(data["design_doc"], "# Architecture Design")
+        self.assertEqual(data["red_evidence"]["verdict"], "PASSED_RED")
+        self.assertTrue(data["pre_critic_report"]["approved"])
+        self.assertEqual(data["impact_analysis"]["impacted_callers"], ["foo()"])
 
         # 4. List runs route
         resp_runs = client.get("/api/runs")

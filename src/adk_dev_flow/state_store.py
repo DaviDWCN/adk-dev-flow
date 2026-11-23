@@ -9,6 +9,9 @@ from typing import Any, Iterator, Literal, Sequence
 
 RunStatus = Literal[
     "SPEC_DRAFTING",
+    "SPEC_DESIGNED",
+    "TEST_GENERATED",
+    "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
     "RUNNING",
     "REPAIRING",
@@ -20,6 +23,9 @@ RunStatus = Literal[
 
 ACTIVE_STATUSES: tuple[str, ...] = (
     "SPEC_DRAFTING",
+    "SPEC_DESIGNED",
+    "TEST_GENERATED",
+    "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
     "RUNNING",
     "REPAIRING",

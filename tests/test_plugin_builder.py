@@ -11,6 +11,7 @@ from adk_dev_flow.plugin_builder import (
     extract_pyproject_version,
     generate_logo_svg,
     strip_yaml_frontmatter,
+    sync_mcp_tool_schemas,
     sync_plugin_all,
 )
 
@@ -100,6 +101,17 @@ class TestPluginBuilder(unittest.TestCase):
             self.assertTrue(readme_file.is_file())
             self.assertIn("ADK Deterministic Dev Flow Plugin", readme_file.read_text(encoding="utf-8"))
 
+            # 7. sidecars/dashboard/sidecar.json
+            sidecar_file = target / "sidecars" / "dashboard" / "sidecar.json"
+            self.assertTrue(sidecar_file.is_file())
+            sidecar_data = json.loads(sidecar_file.read_text(encoding="utf-8"))
+            self.assertTrue(sidecar_data.get("has_web_ui"))
+            self.assertEqual(sidecar_data["ui_config"]["views"][0]["entrypoint"], "SIDECAR_UI_ENTRYPOINT_AUX_PANE")
+
+            # 8. assets/dashboard.html
+            dash_file = target / "assets" / "dashboard.html"
+            self.assertTrue(dash_file.is_file())
+
     def test_sync_plugin_all_no_global(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_root = Path(tmp)
@@ -117,6 +129,18 @@ class TestPluginBuilder(unittest.TestCase):
             self.assertIsNone(res["global_plugin"])
             self.assertEqual(res["repo_plugin"]["version"], "0.9.9")
             self.assertTrue((fake_root / "plugin" / "adk-dev-flow" / "plugin.json").is_file())
+
+    def test_sync_mcp_tool_schemas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            custom_dir = Path(tmp) / "custom_mcp"
+            written = sync_mcp_tool_schemas(extra_dirs=[custom_dir])
+            self.assertTrue(len(written) >= 15)
+            # Verify flow_preflight_test and flow_dashboard are present in written
+            names = [Path(p).stem for p in written]
+            self.assertIn("flow_preflight_test", names)
+            self.assertIn("flow_dashboard", names)
+            self.assertTrue((custom_dir / "flow_preflight_test.json").is_file())
+            self.assertTrue((custom_dir / "flow_dashboard.json").is_file())
 
     def test_cli_main(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

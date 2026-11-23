@@ -72,6 +72,22 @@ class SpecContract(BaseModel):
         description="任务执行所需增量安装的第三方 Python 依赖（如 ['httpx>=0.27', 'pydantic-settings']）",
     )
     tasks: list[AtomicTask] = Field(min_length=1)
+    design_doc: str | None = Field(
+        default=None,
+        description="设计 Agent 产出的详细架构方案、数据契约及设计决策",
+    )
+    impact_analysis: dict[str, Any] | None = Field(
+        default=None,
+        description="AST 代码图谱影响面分析结果（关联生产文件、测试集及受波及调用点）",
+    )
+    red_evidence: dict[str, Any] | None = Field(
+        default=None,
+        description="基线 TDD 红灯预检执行客观凭证（退出码、错误摘要、判定）",
+    )
+    pre_critic_report: dict[str, Any] | None = Field(
+        default=None,
+        description="前置 Critic 对设计与测试一致性及合规性的审查报告",
+    )
 
     @model_validator(mode="after")
     def _validate_contract_integrity(self) -> SpecContract:
@@ -139,6 +155,11 @@ class SpecContract(BaseModel):
             f"# {self.title}\n\n"
             f"## Summary\n"
             f"{self.summary}\n\n"
+        )
+        if self.design_doc:
+            content += f"## Architecture Design\n\n{self.design_doc.strip()}\n\n"
+
+        content += (
             f"## Tasks Breakdown\n\n"
             f"{tasks_md}\n\n"
             f"## Locked Acceptance Test (`{self.acceptance_test_path}`)\n\n"
@@ -146,6 +167,32 @@ class SpecContract(BaseModel):
             f"{self.acceptance_test_code.strip()}\n"
             f"```\n"
         )
+
+        if self.red_evidence:
+            exit_code = self.red_evidence.get("exit_code", "N/A")
+            summary = (
+                self.red_evidence.get("assertion_error_summary")
+                or self.red_evidence.get("summary")
+                or "Red validated"
+            )
+            content += (
+                f"\n## TDD 基线红灯凭证 (Pre-flight Red Evidence)\n\n"
+                f"- **基线执行退出码**: `{exit_code}`\n"
+                f"- **红灯有效性**: `{'纯净业务断言红灯' if self.red_evidence.get('is_pure_semantic_failure') else '需关注'}`\n"
+                f"- **错误摘要**: `{summary}`\n"
+            )
+
+        if self.pre_critic_report:
+            score = self.pre_critic_report.get("consistency_score", "N/A")
+            status = "APPROVED" if self.pre_critic_report.get("approved") else "CHANGES_REQUESTED"
+            summary = self.pre_critic_report.get("summary") or "一致性预审已完成"
+            content += (
+                f"\n## 前置 Critic 审查报告 (Pre-Critic Review)\n\n"
+                f"- **前置审查结论**: `{status}`\n"
+                f"- **设计-测试契约一致性打分**: `{score}`\n"
+                f"- **审查摘要**: {summary}\n"
+            )
+
         return content
 
     @classmethod

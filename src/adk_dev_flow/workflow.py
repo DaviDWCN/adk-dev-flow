@@ -4,7 +4,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any
+import re
+from typing import Any, Sequence
 
 from google.adk import Agent, Event, Runner, Workflow
 from google.adk.sessions import InMemorySessionService
@@ -35,6 +36,37 @@ VERIFY_TIMEOUT_SEC = float(os.environ.get("ADK_VERIFY_TIMEOUT", "180"))
 
 async def _git(cmd: list[str], cwd: Path, timeout_sec: float = GIT_TIMEOUT_SEC) -> CommandResult:
     return await run_subprocess_safe(["git", *cmd], cwd=cwd, timeout_sec=timeout_sec)
+
+
+def enforce_deterministic_verdict_guard(
+    verdict: dict[str, Any],
+    ast_findings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Deterministically enforce that non-deterministic LLM Critic cannot override hard AST rules.
+
+    If any AST report contains syntax errors, dangerous nodes (eval/exec/secrets), or breaking signature
+    changes, approved MUST be forced to False, and blocking issues prepended.
+    """
+    out = dict(verdict)
+    violations: list[str] = []
+    for report in ast_findings:
+        f_path = report.get("file_path", "unknown")
+        if not report.get("syntax_ok", True):
+            violations.append(f"[{f_path}] 语法解析异常: {report.get('syntax_error')}")
+        for d in report.get("dangerous_nodes", []):
+            violations.append(f"[{f_path}] 高危模式: {d}")
+        for b in report.get("breaking_issues", []):
+            violations.append(f"[{f_path}] 破坏性接口变更: {b}")
+
+    if violations:
+        out["approved"] = False
+        blocking = list(out.get("blocking_issues") or [])
+        combined_blocking = [v for v in violations if v not in blocking] + blocking
+        out["blocking_issues"] = combined_blocking
+        old_sum = out.get("summary") or ""
+        out["summary"] = f"[AST 静态契约门禁一票否决] 发现 {len(violations)} 个确定性静态违规项；{old_sum}".strip()
+
+    return out
 
 
 def _format_mr_description(
@@ -674,6 +706,9 @@ def build_dev_workflow(
             except Exception:
                 pass
 
+        # Save ast_findings into verification_state so publish_mr_node can deterministically enforce it.
+        verification_state["ast_findings"] = ast_findings
+
         # Return an explicit JSON string so ADK 2.x reliably delivers text content to Critic Agent.
         critic_payload = {
             "spec": {
@@ -714,7 +749,10 @@ def build_dev_workflow(
 
     async def publish_mr_node(node_input: Any) -> dict[str, Any]:
         # Strict Fail-Closed parsing: any invalid/unrecognized output sets approved=False.
-        verdict = ReviewVerdict.model_validate(parse_review_verdict_dict(node_input))
+        raw_dict = parse_review_verdict_dict(node_input)
+        ast_findings = verification_state.get("ast_findings") or []
+        guarded_dict = enforce_deterministic_verdict_guard(raw_dict, ast_findings)
+        verdict = ReviewVerdict.model_validate(guarded_dict)
 
         run = store.get_run(run_id)
         if run is None:

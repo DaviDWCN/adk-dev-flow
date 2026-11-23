@@ -1,0 +1,26 @@
+{
+  "command": "python",
+  "args": [
+    "-m",
+    "adk_dev_flow.dashboard",
+    "--port",
+    "${port}"
+  ],
+  "restart_policy": "always",
+  "display_name": "ADK 像素工坊看板",
+  "description": "ADK 确定性研发流水线像素卡通工人工位动画实时监控看板",
+  "has_web_ui": true,
+  "agent_permissions": {
+    "allows_user_interactions": false
+  },
+  "ui_config": {
+    "display_name": "ADK 像素工坊看板",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "ADK 像素工坊看板"
+      }
+    ]
+  }
+}

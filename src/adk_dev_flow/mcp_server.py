@@ -95,15 +95,21 @@ class FlowService:
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
+        valid_draft_statuses = (
+            "SPEC_DRAFTING",
+            "SPEC_DESIGNED",
+            "TEST_GENERATED",
+            "PRE_CRITIC_REVIEWED",
+        )
         ok = self.store.transition_run(
             run_id,
-            expected_statuses=("SPEC_DRAFTING",),
+            expected_statuses=valid_draft_statuses,
             new_status="SPEC_LOCKED",
             spec_json=spec.model_dump_json(),
         )
         if not ok:
             return {
-                "error": f"当前状态不可锁定 Spec（需 SPEC_DRAFTING，实际为 {run['status']}）"
+                "error": f"当前状态不可锁定 Spec（需处于起草或前置审查阶段 {valid_draft_statuses}，实际为 {run['status']}）"
             }
 
         ast_impact: dict[str, Any] | None = None
@@ -132,12 +138,119 @@ class FlowService:
             res["ast_impact"] = ast_impact
         return res
 
-    def flow_analyze_impact(self, target_paths: list[str]) -> dict[str, Any]:
+    def flow_analyze_impact(
+        self, target_paths: list[str], include_skeletons: bool = False
+    ) -> dict[str, Any]:
         from adk_dev_flow.ast_graph import CodeGraph
 
         cg = CodeGraph(self.repo_root)
+        if include_skeletons:
+            return cg.get_test_generation_context(target_paths)
         report = cg.analyze_impact(target_paths)
         return report.to_dict()
+
+    def flow_preflight_test(
+        self, test_path: str, test_code: str, run_id: str | None = None
+    ) -> dict[str, Any]:
+        """Pre-flight test runner on baseline repository to verify TDD Red validity."""
+        import ast
+        import subprocess
+        import sys
+        from adk_dev_flow.workflow import _validate_tdd_red_outcome
+        from adk_dev_flow.worktree_utils import resolve_tool_command
+
+        # 1. Syntax check
+        try:
+            ast.parse(test_code, filename=test_path)
+        except SyntaxError as exc:
+            return {
+                "ok": False,
+                "exit_code": 1,
+                "is_pure_semantic_failure": False,
+                "error": f"测试代码存在 Python 语法错误 (line {exc.lineno}): {exc.msg}",
+            }
+
+        target_file = (self.repo_root / test_path).resolve()
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        old_content: bytes | None = None
+        if target_file.is_file():
+            try:
+                old_content = target_file.read_bytes()
+            except Exception:
+                old_content = None
+
+        target_file.write_text(test_code, encoding="utf-8")
+        try:
+            cmd = resolve_tool_command(
+                "pytest",
+                ["-q", str(target_file)],
+                worktree=self.repo_root,
+                repo_root=self.repo_root,
+                env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
+                placeholder_vars={"test_path": test_path},
+            )
+            if cmd is None:
+                cmd = [sys.executable, "-m", "pytest", "-q", str(target_file)]
+
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.repo_root),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=60,
+            )
+            combined_out = f"{proc.stdout}\n{proc.stderr}"
+            try:
+                _validate_tdd_red_outcome(
+                    returncode=proc.returncode,
+                    combined_output=combined_out,
+                    cmd=cmd,
+                    test_path=test_path,
+                )
+                evidence = {
+                    "ok": True,
+                    "exit_code": proc.returncode,
+                    "is_pure_semantic_failure": True,
+                    "assertion_error_summary": combined_out.strip()[-1000:],
+                    "command": " ".join(cmd),
+                }
+                if run_id:
+                    self.store.update_run(run_id, status="TEST_GENERATED")
+                return evidence
+            except RuntimeError as err:
+                return {
+                    "ok": False,
+                    "exit_code": proc.returncode,
+                    "is_pure_semantic_failure": False,
+                    "error": str(err),
+                    "output": combined_out[-1000:],
+                }
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "exit_code": -1,
+                "is_pure_semantic_failure": False,
+                "error": "测试执行超时 (>60s)",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "exit_code": -1,
+                "is_pure_semantic_failure": False,
+                "error": f"测试执行失败: {exc}",
+            }
+        finally:
+            if old_content is not None:
+                try:
+                    target_file.write_bytes(old_content)
+                except Exception:
+                    pass
+            else:
+                try:
+                    target_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
         p = Path(spec_file_path)
@@ -539,9 +652,22 @@ def create_mcp_server(
         return service.flow_lock_spec_from_file(run_id=run_id, spec_file_path=spec_file_path)
 
     @mcp.tool()
-    def flow_analyze_impact(target_paths: list[str]) -> dict[str, Any]:
-        """使用 AST 代码图谱静态分析目标代码的影响面（爆炸半径），推导关联生产代码、调用方与受影响测试用例。"""
-        return service.flow_analyze_impact(target_paths=target_paths)
+    def flow_analyze_impact(
+        target_paths: list[str], include_skeletons: bool = False
+    ) -> dict[str, Any]:
+        """使用 AST 代码图谱静态分析目标代码的影响面（爆炸半径），推导关联生产代码、调用方与受影响测试用例，可包含测试骨架上下文。"""
+        return service.flow_analyze_impact(
+            target_paths=target_paths, include_skeletons=include_skeletons
+        )
+
+    @mcp.tool()
+    def flow_preflight_test(
+        test_path: str, test_code: str, run_id: str | None = None
+    ) -> dict[str, Any]:
+        """在当前基线代码上预检执行验收测试，客观判定是否属于纯净有效的 TDD 红灯（排除空测试通过与语法/Fixture假红灯）。"""
+        return service.flow_preflight_test(
+            test_path=test_path, test_code=test_code, run_id=run_id
+        )
 
     @mcp.tool()
     async def flow_dispatch(run_id: str) -> dict[str, Any]:

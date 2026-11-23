@@ -7,6 +7,18 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from adk_dev_flow.cpg import (
+    CfgEdge,
+    CfgNode,
+    CpgBuilder,
+    CpgEdge,
+    CpgStore,
+    DfgEdge,
+    FileCpg,
+    compute_content_hash,
+    compute_git_blob_oid,
+)
+
 
 class SymbolKind(str, Enum):
     MODULE = "module"
@@ -30,6 +42,42 @@ class SymbolDef:
     param_defaults: dict[str, str] = field(default_factory=dict)
     return_annotation: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "kind": self.kind.value if isinstance(self.kind, SymbolKind) else str(self.kind),
+            "line_start": self.line_start,
+            "line_end": self.line_end,
+            "signature": self.signature,
+            "docstring": self.docstring,
+            "decorators": list(self.decorators),
+            "calls": sorted(list(self.calls)),
+            "parameters": list(self.parameters),
+            "param_defaults": dict(self.param_defaults),
+            "return_annotation": self.return_annotation,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SymbolDef:
+        kind_raw = d.get("kind", "function")
+        try:
+            kind = SymbolKind(kind_raw)
+        except Exception:
+            kind = SymbolKind.FUNCTION
+        return cls(
+            name=d["name"],
+            kind=kind,
+            line_start=d.get("line_start", 1),
+            line_end=d.get("line_end", 1),
+            signature=d.get("signature", ""),
+            docstring=d.get("docstring"),
+            decorators=d.get("decorators", []),
+            calls=set(d.get("calls", [])),
+            parameters=d.get("parameters", []),
+            param_defaults=d.get("param_defaults", {}),
+            return_annotation=d.get("return_annotation"),
+        )
+
 
 @dataclass
 class FileAstInfo:
@@ -40,6 +88,30 @@ class FileAstInfo:
     syntax_valid: bool = True
     syntax_error: str | None = None
     mtime: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_path": self.file_path,
+            "imports": list(self.imports),
+            "internal_imports": list(self.internal_imports),
+            "definitions": {k: v.to_dict() for k, v in self.definitions.items()},
+            "syntax_valid": self.syntax_valid,
+            "syntax_error": self.syntax_error,
+            "mtime": self.mtime,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> FileAstInfo:
+        defs = {k: SymbolDef.from_dict(v) for k, v in d.get("definitions", {}).items()}
+        return cls(
+            file_path=d.get("file_path", ""),
+            imports=d.get("imports", []),
+            internal_imports=d.get("internal_imports", []),
+            definitions=defs,
+            syntax_valid=d.get("syntax_valid", True),
+            syntax_error=d.get("syntax_error"),
+            mtime=d.get("mtime", 0.0),
+        )
 
 
 @dataclass
@@ -259,9 +331,11 @@ class CodeGraph:
         "node_modules",
     }
 
-    def __init__(self, repo_root: Path | str) -> None:
+    def __init__(self, repo_root: Path | str, store: CpgStore | None = None) -> None:
         self.repo_root = Path(repo_root).resolve()
+        self.store = store
         self.file_index: dict[str, FileAstInfo] = {}
+        self.file_cpgs: dict[str, FileCpg] = {}
         # file_path -> set of file_paths that import it
         self.reverse_file_deps: dict[str, set[str]] = {}
         # symbol_name -> file_path
@@ -269,29 +343,74 @@ class CodeGraph:
         # symbol_name -> set of caller symbol names
         self.reverse_symbol_calls: dict[str, set[str]] = {}
 
-    def scan_file(self, rel_path: str, code: str | None = None) -> FileAstInfo:
-        """Parse a single python file and extract AST metadata."""
+    def close(self) -> None:
+        """Close backing CPG store if open."""
+        if self.store is not None:
+            self.store.close()
+
+    def __enter__(self) -> CodeGraph:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    def scan_file_cpg(
+        self,
+        rel_path: str,
+        code: str | None = None,
+        blob_oid: str | None = None,
+    ) -> tuple[FileAstInfo, FileCpg]:
+        """Parse a single python file and extract AST + intra-procedural CFG and DFG.
+
+        Leverages CpgStore CAS cache when blob_oid is provided or computed.
+        """
         full_path = self.repo_root / rel_path
         if code is None:
             if not full_path.exists() or not full_path.is_file():
-                return FileAstInfo(file_path=rel_path, syntax_valid=False, syntax_error="文件不存在")
+                info = FileAstInfo(file_path=rel_path, syntax_valid=False, syntax_error="文件不存在")
+                cpg = FileCpg(file_path=rel_path, blob_oid="", content_hash="", ast_info=info)
+                return info, cpg
             try:
                 code = full_path.read_text(encoding="utf-8", errors="replace")
                 mtime = full_path.stat().st_mtime
             except Exception as e:
-                return FileAstInfo(file_path=rel_path, syntax_valid=False, syntax_error=str(e))
+                info = FileAstInfo(file_path=rel_path, syntax_valid=False, syntax_error=str(e))
+                cpg = FileCpg(file_path=rel_path, blob_oid="", content_hash="", ast_info=info)
+                return info, cpg
         else:
             mtime = 0.0
 
+        if not blob_oid:
+            blob_oid = compute_git_blob_oid(code)
+
+        # 1. Check CAS cache in store
+        if self.store is not None:
+            cached_cpg = self.store.get_blob_cpg(blob_oid, ast_info_cls=FileAstInfo)
+            if cached_cpg is not None:
+                cached_cpg.file_path = rel_path
+                ast_info = cached_cpg.ast_info
+                if isinstance(ast_info, FileAstInfo):
+                    ast_info.file_path = rel_path
+                    ast_info.mtime = mtime
+                    return ast_info, cached_cpg
+
+        # 2. Parse AST
         try:
             tree = ast.parse(code, filename=rel_path)
         except SyntaxError as e:
-            return FileAstInfo(
+            info = FileAstInfo(
                 file_path=rel_path,
                 syntax_valid=False,
                 syntax_error=f"SyntaxError at line {e.lineno}: {e.msg}",
                 mtime=mtime,
             )
+            cpg = FileCpg(
+                file_path=rel_path,
+                blob_oid=blob_oid,
+                content_hash=compute_content_hash(code),
+                ast_info=info,
+            )
+            return info, cpg
 
         source_lines = code.splitlines()
         visitor = SymbolVisitor(source_lines)
@@ -319,14 +438,89 @@ class CodeGraph:
             syntax_valid=True,
             mtime=mtime,
         )
+
+        # 3. Build CFG and DFG
+        builder = CpgBuilder(code, file_path=rel_path)
+        cfg_nodes, cfg_edges, dfg_edges = builder.build(tree)
+
+        content_hash = compute_content_hash(code)
+        cpg = FileCpg(
+            file_path=rel_path,
+            blob_oid=blob_oid,
+            content_hash=content_hash,
+            ast_info=info,
+            cfg_nodes=cfg_nodes,
+            cfg_edges=cfg_edges,
+            dfg_edges=dfg_edges,
+        )
+
+        # 4. Save to CAS store
+        if self.store is not None:
+            self.store.put_blob_cpg(blob_oid, rel_path, cpg)
+
+        return info, cpg
+
+    def scan_file(self, rel_path: str, code: str | None = None) -> FileAstInfo:
+        """Parse a single python file and extract AST metadata (delegates to scan_file_cpg)."""
+        info, cpg = self.scan_file_cpg(rel_path, code=code)
+        self.file_cpgs[rel_path] = cpg
         return info
+
+    def _build_dependencies(self) -> None:
+        """Resolve imports, build reverse dependencies and reverse symbol calls."""
+        self.reverse_file_deps.clear()
+        self.symbol_to_file.clear()
+        self.reverse_symbol_calls.clear()
+
+        # Build symbol_to_file
+        for rel, info in self.file_index.items():
+            for sym_name in info.definitions.keys():
+                self.symbol_to_file[sym_name] = rel
+
+        # Build module-to-file resolver map
+        module_to_file: dict[str, str] = {}
+        for rel in self.file_index.keys():
+            no_ext = rel[:-3] if rel.endswith(".py") else rel
+            dotted = no_ext.replace("/", ".").replace("\\", ".")
+            module_to_file[dotted] = rel
+            if dotted.startswith("src."):
+                module_to_file[dotted[4:]] = rel
+
+        # Resolve imports and build reverse dependencies
+        for rel, info in self.file_index.items():
+            info.internal_imports.clear()
+            for imp in info.imports:
+                matched_file: str | None = None
+                if imp in module_to_file:
+                    matched_file = module_to_file[imp]
+                else:
+                    parts = imp.split(".")
+                    for i in range(len(parts) - 1, 0, -1):
+                        prefix = ".".join(parts[:i])
+                        if prefix in module_to_file:
+                            matched_file = module_to_file[prefix]
+                            break
+
+                if matched_file and matched_file != rel:
+                    info.internal_imports.append(matched_file)
+                    self.reverse_file_deps.setdefault(matched_file, set()).add(rel)
+
+            # Build reverse symbol calls
+            for sym_name, sym in info.definitions.items():
+                for called in sym.calls:
+                    target_sym = called
+                    if target_sym not in self.symbol_to_file:
+                        matches = [s for s in self.symbol_to_file if s.endswith(f".{called}") or s == called]
+                        if len(matches) == 1:
+                            target_sym = matches[0]
+
+                    if target_sym in self.symbol_to_file:
+                        self.reverse_symbol_calls.setdefault(target_sym, set()).add(sym_name)
 
     def index_repo(self, subdirs: list[str] | None = None) -> None:
         """Scan and build code graph across the repository."""
         self.file_index.clear()
-        self.reverse_file_deps.clear()
-        self.symbol_to_file.clear()
-        self.reverse_symbol_calls.clear()
+        self.file_cpgs.clear()
 
         dirs_to_scan = [self.repo_root / s for s in subdirs] if subdirs else [self.repo_root]
 
@@ -346,54 +540,165 @@ class CodeGraph:
                 rel = p.resolve().relative_to(self.repo_root).as_posix()
             except ValueError:
                 rel = p.as_posix()
-            info = self.scan_file(rel)
+            info, cpg = self.scan_file_cpg(rel)
             self.file_index[rel] = info
-            for sym_name in info.definitions.keys():
-                self.symbol_to_file[sym_name] = rel
+            self.file_cpgs[rel] = cpg
 
-        # 2. Build module-to-file resolver map
-        module_to_file: dict[str, str] = {}
-        for rel in self.file_index.keys():
-            # e.g., src/adk_dev_flow/models.py -> adk_dev_flow.models or src.adk_dev_flow.models
-            no_ext = rel[:-3] if rel.endswith(".py") else rel
-            dotted = no_ext.replace("/", ".").replace("\\", ".")
-            module_to_file[dotted] = rel
-            # also handle src. stripping
-            if dotted.startswith("src."):
-                module_to_file[dotted[4:]] = rel
+        # 2. Build dependency relationships
+        self._build_dependencies()
 
-        # 3. Resolve imports and build reverse dependencies
-        for rel, info in self.file_index.items():
-            for imp in info.imports:
-                matched_file: str | None = None
-                # Check direct or prefix match
-                if imp in module_to_file:
-                    matched_file = module_to_file[imp]
+    def sync_git(self, commit_sha: str | None = None) -> dict[str, int]:
+        """Incrementally synchronize AST and CPG graph with Git repository tree.
+
+        Uses git ls-tree to retrieve exact Git Blob OIDs.
+        Unchanged blobs hit the CAS cache (0 AST parsing overhead, <15ms).
+        Only modified or new blobs trigger AST/CFG/DFG extraction.
+        """
+        import subprocess
+
+        # 1. Resolve commit SHA
+        if not commit_sha:
+            try:
+                res = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=str(self.repo_root),
+                    capture_output=True,
+                    check=True,
+                )
+                commit_sha = res.stdout.decode("ascii").strip()
+            except Exception:
+                self.index_repo()
+                return {"parsed_files": len(self.file_index), "cached_hits": 0, "total_files": len(self.file_index)}
+
+        # 2. Run git ls-tree -r -z <commit_sha>
+        try:
+            res = subprocess.run(
+                ["git", "ls-tree", "-r", "-z", commit_sha],
+                cwd=str(self.repo_root),
+                capture_output=True,
+                check=True,
+            )
+            raw_output = res.stdout
+        except Exception:
+            self.index_repo()
+            return {"parsed_files": len(self.file_index), "cached_hits": 0, "total_files": len(self.file_index)}
+
+        # 3. Parse tree entries
+        parsed_files = 0
+        cached_hits = 0
+        current_tree_blobs: dict[str, str] = {}
+
+        if self.store is None:
+            db_dir = self.repo_root / ".adk" / "cache"
+            db_dir.mkdir(parents=True, exist_ok=True)
+            self.store = CpgStore(db_dir / "code_graph.sqlite")
+
+        entries = raw_output.split(b"\0")
+        current_repo_files: set[str] = set()
+
+        for entry in entries:
+            if not entry:
+                continue
+            try:
+                meta, path_bytes = entry.split(b"\t", 1)
+                rel_path = path_bytes.decode("utf-8", errors="replace").replace("\\", "/")
+                parts = meta.split(b" ")
+                if len(parts) >= 3 and parts[1] == b"blob":
+                    blob_oid = parts[2].decode("ascii")
                 else:
-                    parts = imp.split(".")
-                    for i in range(len(parts) - 1, 0, -1):
-                        prefix = ".".join(parts[:i])
-                        if prefix in module_to_file:
-                            matched_file = module_to_file[prefix]
-                            break
+                    continue
+            except Exception:
+                continue
 
-                if matched_file and matched_file != rel:
-                    info.internal_imports.append(matched_file)
-                    self.reverse_file_deps.setdefault(matched_file, set()).add(rel)
+            # Only process python files and ignore ignored directories
+            if not rel_path.endswith(".py"):
+                continue
+            path_parts = set(rel_path.split("/"))
+            if path_parts.intersection(self.DEFAULT_IGNORE_DIRS):
+                continue
 
-            # 4. Build reverse symbol calls
-            for sym_name, sym in info.definitions.items():
-                for called in sym.calls:
-                    # Direct match or method match
-                    target_sym = called
-                    if target_sym not in self.symbol_to_file:
-                        # try matching suffix (e.g., TokenBucket.consume -> consume)
-                        matches = [s for s in self.symbol_to_file if s.endswith(f".{called}") or s == called]
-                        if len(matches) == 1:
-                            target_sym = matches[0]
+            current_repo_files.add(rel_path)
+            current_tree_blobs[rel_path] = blob_oid
 
-                    if target_sym in self.symbol_to_file:
-                        self.reverse_symbol_calls.setdefault(target_sym, set()).add(sym_name)
+            # Check CAS cache
+            cached_cpg = self.store.get_blob_cpg(blob_oid, ast_info_cls=FileAstInfo)
+            if cached_cpg is not None:
+                cached_hits += 1
+                cached_cpg.file_path = rel_path
+                ast_info = cached_cpg.ast_info
+                if isinstance(ast_info, FileAstInfo):
+                    ast_info.file_path = rel_path
+                    self.file_index[rel_path] = ast_info
+                self.file_cpgs[rel_path] = cached_cpg
+            else:
+                # Cache miss: parse file
+                parsed_files += 1
+                full_path = self.repo_root / rel_path
+                code = None
+                if full_path.is_file():
+                    try:
+                        code = full_path.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        code = None
+                if code is None:
+                    try:
+                        cat_res = subprocess.run(
+                            ["git", "cat-file", "-p", blob_oid],
+                            cwd=str(self.repo_root),
+                            capture_output=True,
+                            check=True,
+                        )
+                        code = cat_res.stdout.decode("utf-8", errors="replace")
+                    except Exception:
+                        code = ""
+
+                info, cpg = self.scan_file_cpg(rel_path, code=code, blob_oid=blob_oid)
+                self.file_index[rel_path] = info
+                self.file_cpgs[rel_path] = cpg
+
+        # Remove deleted files from index
+        to_remove = [f for f in self.file_index if f not in current_repo_files]
+        for f in to_remove:
+            self.file_index.pop(f, None)
+            self.file_cpgs.pop(f, None)
+
+        # Save snapshot
+        self.store.put_commit_snapshot(commit_sha, current_tree_blobs)
+
+        # Rebuild dependency relations
+        self._build_dependencies()
+
+        return {
+            "parsed_files": parsed_files,
+            "cached_hits": cached_hits,
+            "total_files": len(current_repo_files),
+        }
+
+    def trace_data_flow(
+        self,
+        source_var: str,
+        target_var: str,
+        rel_path: str | None = None,
+    ) -> list[DfgEdge]:
+        """Find data flow path (chain of DfgEdges) from source_var to target_var."""
+        cpgs_to_check = [self.file_cpgs[rel_path]] if rel_path and rel_path in self.file_cpgs else list(self.file_cpgs.values())
+        for cpg in cpgs_to_check:
+            adj: dict[str, list[DfgEdge]] = {}
+            for edge in cpg.dfg_edges:
+                adj.setdefault(edge.source_var, []).append(edge)
+
+            queue: list[tuple[str, list[DfgEdge]]] = [(source_var, [])]
+            visited = {source_var}
+            while queue:
+                curr, path = queue.pop(0)
+                if curr == target_var or target_var in curr:
+                    return path
+                for edge in adj.get(curr, []):
+                    nxt = edge.target_var
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        queue.append((nxt, path + [edge]))
+        return []
 
     def analyze_impact(self, target_paths_or_symbols: list[str]) -> ImpactReport:
         """Compute the blast radius / impacted files and tests for modified paths/symbols."""
@@ -480,6 +785,57 @@ class CodeGraph:
             impacted_callers=sorted(list(impacted_callers)),
             summary=summary,
         )
+
+    def get_test_generation_context(self, target_paths_or_symbols: list[str]) -> dict[str, Any]:
+        """Generate structured context specifically tailored for Test Agents.
+
+        Provides:
+        1. 'impact': ImpactReport (impacted production, test files, callers).
+        2. 'target_skeletons': Type-annotated skeletons for target files (no function bodies).
+        3. 'impacted_caller_skeletons': Signatures of callers that invoke symbols in target files.
+        4. 'impacted_tests_info': Existing test functions within the impacted test files.
+        """
+        report = self.analyze_impact(target_paths_or_symbols)
+
+        target_skeletons: dict[str, str] = {}
+        for f in report.target_paths:
+            norm = f.strip().replace("\\", "/")
+            matching = [p for p in self.file_index if p == norm or p.endswith(f"/{norm}")]
+            for m in matching:
+                p = self.repo_root / m
+                if p.is_file():
+                    try:
+                        code = p.read_text(encoding="utf-8", errors="replace")
+                        target_skeletons[m] = generate_skeleton(code, file_path=m)
+                    except Exception:
+                        pass
+
+        caller_skeletons: dict[str, str] = {}
+        for caller in report.impacted_callers:
+            if caller in self.symbol_to_file:
+                c_file = self.symbol_to_file[caller]
+                info = self.file_index.get(c_file)
+                if info and caller in info.definitions:
+                    sym = info.definitions[caller]
+                    caller_skeletons[caller] = f"{c_file}:{sym.line_start} {sym.signature}"
+
+        impacted_tests_info: dict[str, list[str]] = {}
+        for tf in report.impacted_test_files:
+            info = self.file_index.get(tf)
+            if info:
+                test_funcs = [
+                    name
+                    for name in info.definitions
+                    if name.startswith("test_") or ".test_" in name
+                ]
+                impacted_tests_info[tf] = test_funcs
+
+        return {
+            "impact": report.to_dict(),
+            "target_skeletons": target_skeletons,
+            "impacted_caller_skeletons": caller_skeletons,
+            "impacted_tests_info": impacted_tests_info,
+        }
 
 
 def generate_skeleton(code: str, file_path: str = "") -> str:
@@ -606,6 +962,39 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
                                 report.dangerous_nodes.append(
                                     f"疑似混淆还原敏感凭据 `{target.id} = {val_fn}(...)` (line {node.lineno})"
                                 )
+
+    # 3b. CPG DFG-based taint flow analysis
+    try:
+        builder = CpgBuilder(new_code, file_path=file_path)
+        _, _, dfg_edges = builder.build(new_tree)
+        adj: dict[str, list[DfgEdge]] = {}
+        for edge in dfg_edges:
+            adj.setdefault(edge.source_var, []).append(edge)
+
+        # Identify function arguments as potential taint sources
+        param_sources: set[str] = set()
+        for item in ast.walk(new_tree):
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for arg in item.args.args:
+                    param_sources.add(arg.arg)
+
+        # Trace reachable targets from parameters
+        for p in param_sources:
+            visited = {p}
+            queue = [p]
+            while queue:
+                curr = queue.pop(0)
+                for edge in adj.get(curr, []):
+                    nxt = edge.target_var
+                    if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):
+                        report.dangerous_nodes.append(
+                            f"检测到污点变量 `{p}` 流入危险函数 `{nxt}` (line {edge.target_line})"
+                        )
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        queue.append(nxt)
+    except Exception:
+        pass
 
     # 4. Breaking change detection against base code
     if base_tree:
