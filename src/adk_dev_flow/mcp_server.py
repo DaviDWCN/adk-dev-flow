@@ -488,6 +488,20 @@ def load_project_config(repo_root: Path, apply_to_env: bool = True) -> dict[str,
             except Exception:
                 pass
 
+    # 3. Read .adk/env.json (plain uppercase KEY=value map). This is written by
+    #    the deterministic-dev workflow; it shares the same namespace as the
+    #    config keys above and is the most specific source for a project.
+    env_json = root / ".adk" / "env.json"
+    if env_json.is_file():
+        try:
+            data = json.loads(env_json.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    if isinstance(k, str) and isinstance(v, str):
+                        merged[k] = v
+        except Exception:
+            pass
+
     if apply_to_env:
         for k, v in merged.items():
             os.environ[k] = v

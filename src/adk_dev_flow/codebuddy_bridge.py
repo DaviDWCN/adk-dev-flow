@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import socket
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -211,17 +212,19 @@ class CodeBuddyLlm(BaseLlm):
         binary_name = self.cli_bin or os.environ.get("CODEBUDDY_BIN", "codebuddy")
         resolved_bin = shutil.which(binary_name) or binary_name
 
-        cmd = [
+        cmd = _spawn_argv(
             resolved_bin,
-            "-y",
-            "--permission-mode",
-            "bypassPermissions",
-            "--tools",
-            "",
-            "-p",
-            "--max-turns",
-            "1",
-        ]
+            [
+                "-y",
+                "--permission-mode",
+                "bypassPermissions",
+                "--tools",
+                "",
+                "-p",
+                "--max-turns",
+                "1",
+            ],
+        )
         model_name = (
             self.model
             if (self.model and self.model not in ("codebuddy-cli", "codebuddy"))
@@ -229,6 +232,8 @@ class CodeBuddyLlm(BaseLlm):
         )
         if model_name and model_name not in ("codebuddy-cli", "codebuddy"):
             cmd.extend(["--model", model_name])
+
+        cmd.extend(["--port", str(_free_port())])
 
         res = await run_subprocess_safe(
             cmd,
@@ -262,6 +267,27 @@ class CodeBuddyLlm(BaseLlm):
 
 
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:/@-]+$")
+
+
+def _free_port() -> int:
+    """Return a currently free localhost TCP port for the CLI's HTTP server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _spawn_argv(binary: str, args: list[str]) -> list[str]:
+    """Build the argv used to launch the CodeBuddy CLI.
+
+    ``CODEBUDDY_BIN_ARGS`` may carry extra leading arguments (for example the JS
+    entry point when the CLI is launched through ``node``). Windows cannot
+    CreateProcess an npm-style ``.cmd``/``.bat`` shim directly, so such shims
+    have to be launched through ``cmd /c``.
+    """
+    argv = [binary, *_parse_json_list_env("CODEBUDDY_BIN_ARGS", []), *args]
+    if os.name == "nt" and binary.lower().endswith((".cmd", ".bat")):
+        return ["cmd", "/c", *argv]
+    return argv
 
 
 def validate_model_name(name: str | None) -> str | None:
@@ -321,12 +347,14 @@ async def run_codebuddy_worker(
         or os.environ.get("CODEBUDDY_WORKER_MODEL")
         or os.environ.get("CODEBUDDY_MODEL")
     )
-    cmd = [
+    cmd = _spawn_argv(
         resolved_bin,
-        "-y",
-        "--permission-mode",
-        "bypassPermissions",
-    ]
+        [
+            "-y",
+            "--permission-mode",
+            "bypassPermissions",
+        ],
+    )
     valid_model = validate_model_name(worker_model)
     if valid_model:
         cmd.extend(["--model", valid_model])
@@ -347,6 +375,8 @@ async def run_codebuddy_worker(
             *extra_args,
         ]
     )
+    if "--port" not in extra_args:
+        cmd.extend(["--port", str(_free_port())])
 
     if use_stdin:
         cmd.append("-p")
