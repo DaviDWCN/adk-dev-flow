@@ -154,8 +154,8 @@
     <!-- Center: Interactive Flowchart Canvas with Integrated Cartoon Workers -->
     <div class="relative w-full bg-gradient-to-b from-[var(--card,#ffffff)] to-[var(--background,#f8fafc)] rounded-xl border border-[var(--card-border,rgba(0,0,0,0.1))] p-3 shadow-inner overflow-hidden">
       
-      <!-- Flowchart SVG Topology Layer (Connecting Pipelines & Feedback Loops) -->
-      <svg id="topology-svg" viewBox="0 0 960 315" class="w-full h-auto select-none">
+      <!-- Flowchart SVG Topology Layer: Dual-Track (Upper: AI Probabilistic / Lower: Deterministic Physical Gates) -->
+      <svg id="topology-svg" viewBox="0 0 960 380" class="w-full h-auto select-none">
         <defs>
           <!-- Arrow Markers -->
           <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -170,61 +170,64 @@
           <marker id="arrow-rose" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-rose-500" />
           </marker>
-          <!-- Gradient for main pipeline -->
-          <linearGradient id="pipe-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#3b82f6" />
-            <stop offset="50%" stop-color="#f59e0b" />
-            <stop offset="100%" stop-color="#10b981" />
-          </linearGradient>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-cyan-500" />
+          </marker>
         </defs>
 
-        <!-- Base Conduit Lines (Background Pipelines) -->
-        <!-- Main Forward Trunk: Spec -> Gate -> Worker -> Tester -> Critic -> Delivery -->
-        <path d="M 115 130 L 185 130" stroke="currentColor" stroke-width="3" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path d="M 245 130 L 315 130" stroke="currentColor" stroke-width="3" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path d="M 405 130 L 475 130" stroke="currentColor" stroke-width="3" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path d="M 565 130 L 635 130" stroke="currentColor" stroke-width="3" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path d="M 725 130 L 795 130" stroke="currentColor" stroke-width="3" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- ================= TRACK 1: UPPER TRACK · AI PROBABILISTIC DOMAIN ================= -->
+        <rect x="15" y="24" width="930" height="134" rx="12" fill="var(--card,#ffffff)" stroke="#818cf8" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.95" />
+        <!-- Track 1 Title Badge -->
+        <rect x="30" y="16" width="330" height="18" rx="9" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+        <text x="195" y="28.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#3730a3">🤖 上轨 · AI 概率生成域 (思维起草 · 业务编码实现 · 语义盲审)</text>
 
-        <!-- Dynamic Animated Conduit Overlays (Active State) -->
-        <path id="pipe-spec-gate" d="M 115 130 L 185 130" stroke="#3b82f6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-gate-work" d="M 245 130 L 315 130" stroke="#f59e0b" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
-        <path id="pipe-work-test" d="M 405 130 L 475 130" stroke="#8b5cf6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-test-critic" d="M 565 130 L 635 130" stroke="#06b6d4" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-critic-mr" d="M 725 130 L 795 130" stroke="#10b981" stroke-width="3" class="hidden" marker-end="url(#arrow-green)" />
+        <!-- Base Conduit Lines between Upper & Lower Tracks -->
+        <!-- Conduit 1: Spec -> HITL-1 -> Gate 1 -->
+        <path d="M 100 147 L 100 163 M 100 185 L 100 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- Conduit 2: Gate 1/2 -> Work -->
+        <path d="M 175 288 L 190 288 M 272 218 C 272 170, 420 185, 420 147" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- Conduit 3: Work -> Test Gate 3 -->
+        <path d="M 477 147 L 477 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- Conduit 4: Test Gate 3 -> Critic -->
+        <path d="M 545 218 C 545 175, 740 185, 740 147" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- Conduit 5: Critic -> Forge MR -->
+        <path d="M 787 147 C 787 185, 690 185, 690 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
 
-        <!-- Feedback Loop 1 (Top): TDD Failure Loopback to Worker -->
-        <path d="M 520 85 C 520 28, 360 28, 360 85" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-loop-tdd" d="M 520 85 C 520 28, 360 28, 360 85" fill="none" stroke="#f59e0b" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" />
-        <text x="440" y="22" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-amber-500">
-          ↺ TDD 验收未通过 · 自动自愈修复 (上限 3 轮)
+        <!-- Dynamic Animated Forward Conduits -->
+        <path id="pipe-spec-gate" d="M 100 147 L 100 163 M 100 185 L 100 218" stroke="#3b82f6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
+        <path id="pipe-gate-work" d="M 272 218 C 272 170, 420 185, 420 147" stroke="#f59e0b" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
+        <path id="pipe-work-test" d="M 477 147 L 477 218" stroke="#8b5cf6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
+        <path id="pipe-test-critic" d="M 545 218 C 545 175, 740 185, 740 147" stroke="#06b6d4" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-cyan)" />
+        <path id="pipe-critic-mr" d="M 787 147 C 787 185, 690 185, 690 218" stroke="#10b981" stroke-width="3" class="hidden" marker-end="url(#arrow-green)" />
+
+        <!-- Feedback Loop 1: TDD Failure Loopback (Gate 3 -> Worker) -->
+        <path d="M 435 218 C 405 180, 405 180, 435 147" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <path id="pipe-loop-tdd" d="M 435 218 C 405 180, 405 180, 435 147" fill="none" stroke="#f59e0b" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" />
+        <text x="445" y="183" text-anchor="middle" font-size="8" font-weight="bold" fill="#f59e0b">
+          ↺ Pytest 报错堆栈逆向注入 · 自动自愈 (上限 3 轮)
         </text>
 
-        <!-- Feedback Loop 2 (Bottom): Critic Changes Requested Loopback -->
-        <path d="M 680 175 C 680 230, 360 230, 360 175" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-loop-critic" d="M 680 175 C 680 230, 360 230, 360 175" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow)" />
-        <text x="615" y="222" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-cyan-500">
-          ↺ Critic 独立盲审阻塞 · 定向整改循环
+        <!-- Feedback Loop 2: Critic Blocking Loopback (Critic -> Worker) -->
+        <path d="M 715 95 L 535 95" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <path id="pipe-loop-critic" d="M 715 95 L 535 95" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-cyan)" />
+        <text x="625" y="88" text-anchor="middle" font-size="8" font-weight="bold" fill="#0891b2">
+          ↺ 盲审 Blocking 阻断 · 定向回退整改
         </text>
 
-        <!-- Branch 3 (Bottom-Center): Circuit Breaker Escalation to Siren -->
-        <path d="M 520 175 L 520 230" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-branch-escalate" d="M 520 175 L 520 230" fill="none" stroke="#ef4444" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
-        <text x="440" y="206" text-anchor="middle" font-size="9" font-weight="600" fill="currentColor" class="text-rose-500">
-          🚨 熔断停机 (超限/重复)
+        <!-- Circuit Breaker Escalation Branch: Gate 3 -> Siren -->
+        <path d="M 585 288 L 795 288" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <path id="pipe-branch-escalate" d="M 585 288 L 795 288" fill="none" stroke="#ef4444" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
+        <text x="690" y="280" text-anchor="middle" font-size="8" font-weight="bold" fill="#ef4444">
+          🚨 熔断硬停机 (超限/破坏性故障)
         </text>
 
-        <!-- Node 1: Spec 蓝图规约 (Architect) -->
+        <!-- Node 1: AI 蓝图起草 (Architect) -->
         <g id="node-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
-          <!-- HITL Seal Badge above Node 1 -->
-          <g id="badge-hitl-spec" class="transition-all duration-300">
-            <rect x="25" y="58" width="90" height="16" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.2"/>
-            <text x="70" y="69.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#b45309">👤 HITL 契约签署</text>
-          </g>
-          <rect x="25" y="80" width="90" height="100" rx="12" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-blue-400" />
-          <text x="70" y="98" text-anchor="middle" font-size="10" font-weight="bold" fill="var(--muted-foreground,#64748b)">1. 规约锁定</text>
+          <rect x="35" y="42" width="130" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-blue-400" />
+          <text x="100" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#4f46e5">1. AI 蓝图起草</text>
+          <text x="100" y="70" text-anchor="middle" font-size="8" fill="#64748b">契约规约 · 红灯用例构思</text>
           <!-- Architect Avatar -->
-          <g transform="translate(50, 106)">
+          <g transform="translate(80, 72)">
             <g id="svg-architect" class="">
               <ellipse cx="20" cy="11" rx="9" ry="5" fill="#3b82f6"/>
               <path d="M12 11 Q20 4 28 11" fill="#2563eb"/>
@@ -235,122 +238,149 @@
               <rect x="23" y="24" width="4" height="12" rx="1" fill="#e0f2fe" transform="rotate(25 23 24)"/>
             </g>
           </g>
-          <text x="70" y="168" text-anchor="middle" font-size="9" font-weight="600" fill="#3b82f6">蓝图架构师</text>
+          <text x="100" y="137" text-anchor="middle" font-size="9" font-weight="600" fill="#4f46e5">蓝图架构师 📐</text>
         </g>
 
-        <!-- Gateway Node: Worktree 物理隔离闸门 (Git Fork & Guard Hook) -->
-        <g id="node-gate" class="transition-all duration-300">
-          <circle cx="215" cy="130" r="24" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm" />
-          <!-- Git Branch & Security Lock Icon -->
-          <path d="M 210 120 L 210 138 M 210 125 C 215 125, 222 125, 222 133" stroke="#6366f1" stroke-width="2.2" fill="none" stroke-linecap="round" />
-          <circle cx="210" cy="120" r="2.5" fill="#6366f1" />
-          <circle cx="210" cy="138" r="2.5" fill="#6366f1" />
-          <circle cx="222" cy="133" r="2.5" fill="#10b981" />
-          <text x="215" y="166" text-anchor="middle" font-size="8.5" font-weight="bold" fill="var(--muted-foreground,#64748b)">隔离闸门</text>
-          <!-- Gate 1: Deterministic TDD Red Preflight Badge below Gateway -->
-          <g id="badge-gate-tdd" class="transition-all duration-300">
-            <rect x="165" y="174" width="100" height="16" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
-            <text x="215" y="185.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#1d4ed8">🔒 100% 真实红灯门禁</text>
-          </g>
+        <!-- Inter-Track Checkpoint: HITL-1 契约签署确认 -->
+        <g id="badge-hitl-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
+          <rect x="35" y="163" width="130" height="22" rx="11" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" filter="drop-shadow(0 1px 2px rgba(245,158,11,0.2))"/>
+          <text x="100" y="177" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#b45309">👤 HITL-1 契约签署确认 ✍️</text>
         </g>
 
-        <!-- Node 2: 工兵编码沙箱 (Worker Builder) -->
+        <!-- Node 2: AI 施工工兵 (Worker Builder) -->
         <g id="node-work" class="cursor-pointer transition-all duration-300" onclick="setStage('WORK')">
-          <!-- Sandbox Forcefield dashed ring enclosing Node 2 -->
-          <rect x="310" y="50" width="105" height="140" rx="16" fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.6"/>
-          <!-- Gate 2: Sandbox Forcefield Badge above Node 2 -->
-          <g id="badge-gate-sandbox" class="transition-all duration-300">
-            <rect x="315" y="54" width="95" height="16" rx="8" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.2"/>
-            <text x="362" y="65.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#b45309">🔒 物理沙箱·白名单</text>
-          </g>
-          <rect x="315" y="75" width="95" height="110" rx="12" fill="var(--card,#ffffff)" stroke="#f59e0b" stroke-width="2" class="shadow-md" />
-          <text x="362" y="94" text-anchor="middle" font-size="10" font-weight="bold" fill="#f59e0b">2. 工兵编码</text>
+          <rect x="375" y="42" width="160" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="#f59e0b" stroke-width="1.5" class="shadow-sm hover:stroke-amber-400" />
+          <text x="455" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#d97706">2. AI 施工工兵</text>
+          <text x="455" y="70" text-anchor="middle" font-size="8" fill="#64748b">白名单编码 · 堆栈自愈</text>
           <!-- Builder Avatar -->
-          <g id="svg-builder" transform="translate(338, 102)">
-            <ellipse cx="22" cy="10" rx="9" ry="4" fill="#fbbf24"/>
-            <path d="M14 10 Q22 4 30 10" fill="#f59e0b"/>
-            <circle cx="22" cy="16" r="6.5" fill="#fed7aa"/>
-            <circle cx="20" cy="15" r="1" fill="#334155"/>
-            <circle cx="24" cy="15" r="1" fill="#334155"/>
-            <rect x="15" y="22" width="14" height="14" rx="2" fill="#ea580c"/>
-            <rect x="17" y="24" width="2" height="12" fill="#fef08a"/>
-            <rect x="25" y="24" width="2" height="12" fill="#fef08a"/>
-            <!-- Hammer Arm (Anchored cleanly at shoulder pivot 28, 23) -->
-            <g transform="translate(28, 23)">
-              <g id="svg-hammer" class="">
-                <line x1="0" y1="0" x2="8" y2="-5" stroke="#fed7aa" stroke-width="3" stroke-linecap="round"/>
-                <line x1="6" y1="-9" x2="14" y2="1" stroke="#78350f" stroke-width="2.5"/>
-                <rect x="8" y="-12" width="8" height="5" rx="1" fill="#94a3b8"/>
+          <g transform="translate(433, 72)">
+            <g id="svg-builder">
+              <ellipse cx="22" cy="10" rx="9" ry="4" fill="#fbbf24"/>
+              <path d="M14 10 Q22 4 30 10" fill="#f59e0b"/>
+              <circle cx="22" cy="16" r="6.5" fill="#fed7aa"/>
+              <circle cx="20" cy="15" r="1" fill="#334155"/>
+              <circle cx="24" cy="15" r="1" fill="#334155"/>
+              <rect x="15" y="22" width="14" height="14" rx="2" fill="#ea580c"/>
+              <rect x="17" y="24" width="2" height="12" fill="#fef08a"/>
+              <rect x="25" y="24" width="2" height="12" fill="#fef08a"/>
+              <!-- Hammer Arm -->
+              <g transform="translate(28, 23)">
+                <g id="svg-hammer" class="">
+                  <line x1="0" y1="0" x2="8" y2="-5" stroke="#fed7aa" stroke-width="3" stroke-linecap="round"/>
+                  <line x1="6" y1="-9" x2="14" y2="1" stroke="#78350f" stroke-width="2.5"/>
+                  <rect x="8" y="-12" width="8" height="5" rx="1" fill="#94a3b8"/>
+                </g>
               </g>
-            </g>
-            <rect x="32" y="27" width="10" height="9" rx="1.5" fill="#38bdf8" opacity="0.9"/>
-          </g>
-          <text x="362" y="172" text-anchor="middle" font-size="9" font-weight="bold" fill="#f59e0b">施工工兵 🔨</text>
-        </g>
-
-        <!-- Node 3: TDD 验收门禁 (Tester) -->
-        <g id="node-test" class="cursor-pointer transition-all duration-300" onclick="setStage('TEST')">
-          <!-- Gate 3: Deterministic SHA-256 & AST Gate above Node 3 -->
-          <g id="badge-gate-verify" class="transition-all duration-300">
-            <rect x="468" y="58" width="104" height="16" rx="8" fill="#faf5ff" stroke="#8b5cf6" stroke-width="1.2"/>
-            <text x="520" y="69.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#6d28d9">🔒 SHA256 & AST门禁</text>
-          </g>
-          <rect x="475" y="80" width="90" height="100" rx="12" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-purple-400" />
-          <text x="520" y="98" text-anchor="middle" font-size="10" font-weight="bold" fill="var(--muted-foreground,#64748b)">3. 验收门禁</text>
-          <!-- Tester Avatar -->
-          <g id="svg-tester" transform="translate(500, 106)">
-            <ellipse cx="20" cy="10" rx="8" ry="4" fill="#10b981"/>
-            <circle cx="20" cy="16" r="6.5" fill="#fed7aa"/>
-            <rect x="15" y="13" width="10" height="4" rx="2" fill="#0284c7" opacity="0.8"/>
-            <rect x="13" y="22" width="14" height="15" rx="2" fill="#f8fafc"/>
-            <!-- Test Tube (Anchored at tester's hand) -->
-            <g transform="translate(28, 23)">
-              <rect id="svg-tube" x="-2" y="-5" width="3.5" height="11" rx="1.5" fill="#10b981" class=""/>
+              <rect x="32" y="27" width="10" height="9" rx="1.5" fill="#38bdf8" opacity="0.9"/>
             </g>
           </g>
-          <text x="520" y="168" text-anchor="middle" font-size="9" font-weight="600" fill="#8b5cf6">TDD 质检员 🧪</text>
+          <text x="455" y="137" text-anchor="middle" font-size="9" font-weight="bold" fill="#d97706">施工工兵 🔨</text>
         </g>
 
-        <!-- Node 4: 独立 Critic 审查 (Critic) -->
+        <!-- Node 4: AI 独立 Critic (Critic) -->
         <g id="node-critic" class="cursor-pointer transition-all duration-300" onclick="setStage('CRITIC')">
-          <!-- Gate 4: Critic Fail-Closed Gate Badge above Node 4 -->
-          <g id="badge-gate-critic" class="transition-all duration-300">
-            <rect x="633" y="58" width="94" height="16" rx="8" fill="#ecfeff" stroke="#06b6d4" stroke-width="1.2"/>
-            <text x="680" y="69.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#0e7490">🛡️ Fail-Closed 盲审</text>
-          </g>
-          <rect x="635" y="80" width="90" height="100" rx="12" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-cyan-400" />
-          <text x="680" y="98" text-anchor="middle" font-size="10" font-weight="bold" fill="var(--muted-foreground,#64748b)">4. Critic 审查</text>
+          <rect x="715" y="42" width="145" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-cyan-400" />
+          <text x="787" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#0891b2">4. AI 独立盲审</text>
+          <text x="787" y="70" text-anchor="middle" font-size="8" fill="#64748b">Fail-Closed 架构规范</text>
           <!-- Critic Avatar -->
-          <g id="svg-critic" transform="translate(660, 106)">
-            <ellipse cx="20" cy="9" rx="10" ry="3" fill="#475569"/>
-            <rect x="14" y="5" width="12" height="5" fill="#334155"/>
-            <circle cx="20" cy="16" r="6.5" fill="#fde047"/>
-            <circle cx="18" cy="16" r="1.5" fill="#1e293b"/>
-            <circle cx="22" cy="16" r="1.5" fill="#1e293b"/>
-            <rect x="13" y="22" width="14" height="15" rx="2" fill="#1e293b"/>
-            <!-- Magnifying Glass (Anchored at hand) -->
-            <g transform="translate(27, 20)">
-              <g id="svg-glass" class="">
-                <circle cx="0" cy="0" r="4.5" stroke="#f59e0b" stroke-width="2" fill="none"/>
-                <line x1="3" y1="3" x2="8" y2="8" stroke="#78350f" stroke-width="2"/>
+          <g transform="translate(767, 72)">
+            <g id="svg-critic">
+              <ellipse cx="20" cy="9" rx="10" ry="3" fill="#475569"/>
+              <rect x="14" y="5" width="12" height="5" fill="#334155"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fde047"/>
+              <circle cx="18" cy="16" r="1.5" fill="#1e293b"/>
+              <circle cx="22" cy="16" r="1.5" fill="#1e293b"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#1e293b"/>
+              <!-- Magnifying Glass -->
+              <g transform="translate(27, 20)">
+                <g id="svg-glass" class="">
+                  <circle cx="0" cy="0" r="4.5" stroke="#f59e0b" stroke-width="2" fill="none"/>
+                  <line x1="3" y1="3" x2="8" y2="8" stroke="#78350f" stroke-width="2"/>
+                </g>
               </g>
+              <line id="svg-scan-beam" x1="23" y1="20" x2="33" y2="30" stroke="#06b6d4" stroke-width="1.5" class="hidden animate-scan" />
             </g>
-            <line id="svg-scan-beam" x1="23" y1="20" x2="33" y2="30" stroke="#06b6d4" stroke-width="1.5" class="hidden animate-scan" />
           </g>
-          <text x="680" y="168" text-anchor="middle" font-size="9" font-weight="600" fill="#06b6d4">独立 Critic 🧐</text>
+          <text x="787" y="137" text-anchor="middle" font-size="9" font-weight="600" fill="#0891b2">审查 Critic 🧐</text>
         </g>
 
-        <!-- Node 5: Forge 交付发布 (MR Delivery Truck) -->
-        <g id="node-mr" class="cursor-pointer transition-all duration-300" onclick="setStage('MR')">
-          <!-- Gate 5: Verification Evidence Badge above Node 5 -->
-          <g id="badge-gate-evidence" class="transition-all duration-300">
-            <rect x="795" y="58" width="105" height="16" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.2"/>
-            <text x="847" y="69.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">📑 证据入库·交付</text>
+        <!-- ================= TRACK 2: LOWER TRACK · 100% DETERMINISTIC GATES ================= -->
+        <rect x="15" y="200" width="930" height="168" rx="12" fill="var(--card,#ffffff)" stroke="#059669" stroke-width="1.5" />
+        <!-- Track 2 Title Badge -->
+        <rect x="30" y="191" width="375" height="18" rx="9" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+        <text x="217" y="203.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#065f46">🔒 下轨 · 100% 物理确定性门禁域 (真实退出码 · 物理沙箱 · SHA-256防篡改 · 真实Git发布)</text>
+
+        <!-- Gate 1: TDD 真实红灯门禁 (Physical Interception) -->
+        <g id="gate-tdd-box" class="transition-all duration-300">
+          <rect x="25" y="218" width="150" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#3b82f6" stroke-width="1.5" class="shadow-sm" />
+          <g id="badge-gate-tdd">
+            <rect x="32" y="226" width="136" height="16" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
+            <text x="100" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#1d4ed8">🔒 门禁 1: TDD 真实红灯预检</text>
           </g>
-          <rect x="795" y="80" width="105" height="100" rx="12" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-emerald-400" />
-          <text x="847" y="98" text-anchor="middle" font-size="10" font-weight="bold" fill="var(--muted-foreground,#64748b)">5. Forge 交付</text>
+          <text x="100" y="258" text-anchor="middle" font-size="8" font-mono font-semibold fill="#334155">pytest [locked_test]</text>
+          <text x="100" y="274" text-anchor="middle" font-size="8" font-semibold fill="#dc2626">真实退出码 Exit ≠ 0</text>
+          <path d="M 85 285 L 115 285 M 100 280 L 100 295" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>
+          <text x="100" y="308" text-anchor="middle" font-size="7.5" fill="#ef4444">物理阻断：全绿则熔断拒绝</text>
+          <text x="100" y="322" text-anchor="middle" font-size="7.5" fill="#64748b">严防无意义/伪需求测试</text>
+          <text x="100" y="345" text-anchor="middle" font-size="8" font-weight="bold" fill="#2563eb">100% 机器硬性阻断生效</text>
+        </g>
+
+        <!-- Gate 2: Worktree 物理沙箱 & Guard Hook -->
+        <g id="node-gate" class="transition-all duration-300">
+          <rect x="190" y="218" width="165" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#6366f1" stroke-width="1.5" class="shadow-sm" />
+          <g id="badge-gate-sandbox">
+            <rect x="200" y="226" width="145" height="16" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+            <text x="272" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#4338ca">🔒 门禁 2: Worktree 物理隔离</text>
+          </g>
+          <!-- Git Branch & Security Lock Graphic -->
+          <circle cx="272" cy="268" r="18" fill="var(--card,#ffffff)" stroke="#6366f1" stroke-width="1.2"/>
+          <path d="M 268 258 L 268 276 M 268 263 C 273 263, 280 263, 280 271" stroke="#6366f1" stroke-width="2.2" fill="none" stroke-linecap="round" />
+          <circle cx="268" cy="258" r="2.5" fill="#6366f1" />
+          <circle cx="268" cy="276" r="2.5" fill="#6366f1" />
+          <circle cx="280" cy="271" r="2.5" fill="#10b981" />
+          <text x="272" y="300" text-anchor="middle" font-size="8" font-medium fill="#475569">CodeBuddy Guard Hook</text>
+          <text x="272" y="315" text-anchor="middle" font-size="8" font-semibold fill="#b45309">白名单外写操作 403 阻断</text>
+          <text x="272" y="330" text-anchor="middle" font-size="7.5" fill="#64748b">独立沙箱分支 · 零主干污染</text>
+          <text x="272" y="347" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4338ca">OS 白名单物理锁死</text>
+        </g>
+
+        <!-- Gate 3: TDD 验收实验室 (Tester) -->
+        <g id="node-test" class="cursor-pointer transition-all duration-300" onclick="setStage('TEST')">
+          <rect x="370" y="218" width="215" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#8b5cf6" stroke-width="1.5" class="shadow-sm hover:stroke-purple-400" />
+          <g id="badge-gate-verify">
+            <rect x="382" y="226" width="190" height="16" rx="8" fill="#faf5ff" stroke="#8b5cf6" stroke-width="1"/>
+            <text x="477" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#6d28d9">🔒 门禁 3: SHA-256 & 验收门禁</text>
+          </g>
+          <!-- Tester Avatar -->
+          <g transform="translate(385, 256)">
+            <g id="svg-tester">
+              <ellipse cx="20" cy="10" rx="8" ry="4" fill="#10b981"/>
+              <circle cx="20" cy="16" r="6.5" fill="#fed7aa"/>
+              <rect x="15" y="13" width="10" height="4" rx="2" fill="#0284c7" opacity="0.8"/>
+              <rect x="13" y="22" width="14" height="15" rx="2" fill="#f8fafc"/>
+              <!-- Test Tube -->
+              <g transform="translate(28, 23)">
+                <rect id="svg-tube" x="-2" y="-5" width="3.5" height="11" rx="1.5" fill="#10b981" class=""/>
+              </g>
+            </g>
+          </g>
+          <text x="495" y="260" font-size="8" fill="#475569">① 锁实用例 SHA-256 指纹防篡改</text>
+          <text x="495" y="274" font-size="8" fill="#475569">② AST 语法树无破坏性变更分析</text>
+          <text x="495" y="288" font-size="8" font-semibold fill="#10b981">③ pytest 进程退出码 Exit = 0</text>
+          <text x="495" y="306" font-size="7.5" fill="#ef4444" font-weight="bold">❌ 未通过: 向上反馈 Traceback</text>
+          <text x="495" y="320" font-size="7.5" fill="#10b981" font-weight="bold">✅ 全绿: 放行进入独立盲审</text>
+          <text x="477" y="347" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#8b5cf6">TDD 质检实验室 🧪 (100% 物理机器判定)</text>
+        </g>
+
+        <!-- Gate 4: Forge 物理交付站 (Truck) -->
+        <g id="node-mr" class="cursor-pointer transition-all duration-300" onclick="setStage('MR')">
+          <rect x="600" y="218" width="180" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#10b981" stroke-width="1.5" class="shadow-sm hover:stroke-emerald-400" />
+          <g id="badge-gate-evidence">
+            <rect x="612" y="226" width="156" height="16" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+            <text x="690" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">🔒 门禁 4: Forge 真实交付</text>
+          </g>
           <!-- Truck Avatar -->
-          <g transform="translate(822, 108)">
+          <g transform="translate(665, 252)">
             <g id="svg-truck" class="">
               <rect x="6" y="14" width="16" height="16" rx="2" fill="#6366f1"/>
               <rect x="8" y="16" width="6" height="6" rx="1" fill="#c7d2fe"/>
@@ -360,14 +390,16 @@
               <circle cx="36" cy="30" r="4" fill="#1e293b"/>
             </g>
           </g>
-          <text x="847" y="168" text-anchor="middle" font-size="9" font-weight="bold" fill="#10b981">GitLab/GitHub 🚀</text>
+          <text x="690" y="306" text-anchor="middle" font-size="8" fill="#475569">真实 Git Commit & Push 远程库</text>
+          <text x="690" y="320" text-anchor="middle" font-size="8" fill="#475569">GitLab / GitHub MR 证据存证发布</text>
+          <text x="690" y="347" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#10b981">Forge 交付站 🚀 (任务竣工发布)</text>
         </g>
 
-        <!-- Node 6: 熔断警报器 (Circuit Breaker Siren Station) -->
+        <!-- Gate 5: 物理断路器与人类介入操纵台 (Siren & HITL-2) -->
         <g id="node-escalate" class="cursor-pointer transition-all duration-300" onclick="setStage('ESCALATE')">
-          <circle cx="520" cy="258" r="26" fill="var(--card,#ffffff)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-rose-400" />
+          <rect x="795" y="218" width="145" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#ef4444" stroke-width="1.5" class="shadow-sm hover:stroke-rose-400" />
           <!-- Siren Icon -->
-          <g id="svg-siren" transform="translate(500, 238)">
+          <g id="svg-siren" transform="translate(845, 232)">
             <rect x="12" y="24" width="16" height="8" rx="2" fill="#475569"/>
             <path d="M14 24 C14 15, 26 15, 26 24 Z" fill="#ef4444" id="svg-siren-dome"/>
             <g transform="translate(20, 18)">
@@ -378,13 +410,14 @@
               </g>
             </g>
           </g>
-          <text x="520" y="294" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ef4444">熔断断路器 🚨</text>
+          <text x="867" y="278" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ef4444">🚨 物理断路器停机</text>
+          <text x="867" y="292" text-anchor="middle" font-size="7.5" fill="#64748b">超出 3 轮 / 破坏性故障</text>
           <!-- HITL-2 Manual Recovery Badge next to Siren -->
           <g id="badge-hitl-escalate" class="transition-all duration-300">
-            <path d="M 548 258 L 565 258" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="2,2"/>
-            <rect x="565" y="249" width="112" height="18" rx="9" fill="#fff1f2" stroke="#ef4444" stroke-width="1.2"/>
-            <text x="621" y="261" text-anchor="middle" font-size="8" font-weight="bold" fill="#be123c">👤 HITL 人类介入操纵台</text>
+            <rect x="805" y="306" width="125" height="20" rx="10" fill="#fff1f2" stroke="#ef4444" stroke-width="1.2"/>
+            <text x="867" y="319.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#be123c">👤 HITL-2 人类接管台</text>
           </g>
+          <text x="867" y="347" text-anchor="middle" font-size="7.5" font-mono font-bold fill="#ef4444">flow_resume(instruction=...)</text>
         </g>
 
       </svg>
@@ -484,57 +517,68 @@
         badge: 'STANDBY (待命静止 · 无活跃任务)',
         badgeClass: 'bg-slate-100 text-slate-500 border-slate-200',
         activePipes: [],
-        log: '[System] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务',
-        details: '各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方按钮演练'
+        log: '[System] ☕ 当前流水线处于静止待命状态，双轨架构各角色就绪',
+        details: '可通过 flow_dispatch 发起任务，或点击下方演练按钮直观感受 AI 生成域与物理确定性门禁域的协同运作'
       },
       SPEC: {
         nodeId: 'node-spec',
-        badge: 'SPEC_LOCKED (蓝图契约已锁定)',
+        badge: 'SPEC_LOCKED (蓝图起草完成 · 契约锁定)',
         badgeClass: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
         activePipes: ['pipe-spec-gate'],
-        log: '[Commander] 📐 SpecContract 已通过 OKF 规约静态校验，验收用例已完全冻结',
-        details: '受保护路径规则已生成，白名单外的直接写操作将被 Guard Hook 实时阻断'
+        log: '[Architect] 📐 AI 蓝图架构师起草完成，经 [👤 HITL-1 契约签署确认] 冻结白名单与验收用例',
+        details: '下轨 TDD 门禁 1 执行真实红灯预检，必须 Exit Code != 0 物理阻断方可放行'
       },
       WORK: {
         nodeId: 'node-work',
-        badge: 'RUNNING (工兵隔离施工中...)',
+        badge: 'RUNNING (AI 工兵沙箱施工中...)',
         badgeClass: 'bg-amber-500/20 text-amber-500 border-amber-500/30',
         activePipes: ['pipe-gate-work'],
-        log: '[Worker] 🔨 正在独立 Git Worktree 沙箱中编写业务逻辑与代码',
-        details: '严格限制在 allowed_paths 白名单内，严禁触碰锁定的验收测试'
+        log: '[Worker] 🔨 AI 工兵在 Worktree 物理隔离沙箱内编写业务代码，严格受限于白名单',
+        details: '受操作系统级 Guard Hook 物理监控，越界写入直接 403 阻断，测试文件禁止篡改'
       },
       TEST: {
         nodeId: 'node-test',
-        badge: 'VERIFYING (TDD 验收门禁检验)',
+        badge: 'VERIFYING (100% 物理确定性验收检验)',
         badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
         activePipes: ['pipe-work-test'],
-        log: '[Tester] 🧪 正在执行 pytest -v 运行验收用例集并进行 SHA-256 篡改审计',
-        details: '门禁未通过时将触发上方的橙色反馈回路 (Loop 1~3 自动修复)'
+        log: '[Tester] 🧪 下轨质检实验室执行真实 pytest -v、SHA-256 哈希审计与 AST 破坏性分析',
+        details: '若用例失败则将 Traceback 报错逆向抛回上轨工兵自愈；全部全绿则放行至独立盲审'
       },
       CRITIC: {
         nodeId: 'node-critic',
-        badge: 'REVIEWING (独立 Critic 审查盲审)',
+        badge: 'REVIEWING (AI 独立 Critic 架构盲审)',
         badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
         activePipes: ['pipe-test-critic'],
-        log: '[Critic] 🧐 独立盲审中：扫描越界变更、测试有效性与架构安全规范',
-        details: '若存在 blocking_issues 将沿下方青色回路退回工兵针对性整改'
+        log: '[Critic] 🧐 AI 独立审查员在干净沙箱进行 Fail-Closed 盲审，扫描潜在坏味道与越界',
+        details: '若发现阻塞性缺陷则沿回路退回上轨工兵针对性修改；无异议则批准进入交付'
       },
       MR: {
         nodeId: 'node-mr',
-        badge: 'MR_READY (已交付 Forge 发布 · 任务完成)',
+        badge: 'MR_READY (已交付 Forge 真实发布)',
         badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
         activePipes: ['pipe-critic-mr'],
-        log: '[MR] 🚀 验收与审查全部通过！已向 GitLab/GitHub 提交 PR/MR 并移除 Draft 标记',
-        details: '代码已生成标准化 OKF 审计证明文件，随时可合入主线分支'
+        log: '[MR] 🚀 物理交付站执行 Git 真实 Commit/Push，向远程 GitLab/GitHub 发布存证 MR',
+        details: '已附带完整的 OKF 证明，经所有物理确定性门禁加锁验证，随时可安全合入'
       },
       ESCALATE: {
         nodeId: 'node-escalate',
-        badge: 'ESCALATED (触发断路器熔断停机)',
+        badge: 'ESCALATED (触发物理断路器硬熔断)',
         badgeClass: 'bg-rose-500/20 text-rose-500 border-rose-500/30',
         activePipes: ['pipe-branch-escalate'],
-        log: '[Alert] 🚨 触发最大修复轮次或高危异常，流水线熔断保护已生效',
-        details: '主工作区未受任何污染，请人类工程师排查后调用 flow_resume 恢复'
+        log: '[Alert] 🚨 触发最大重试轮次(>3轮)或高危破坏，物理断路器硬熔断停机，保护现场',
+        details: '主干代码零污染，请人类工程师在 [👤 HITL-2 人类接管台] 审查后调用 flow_resume 恢复'
       }
+    };
+
+    const DEFAULT_NODE_BORDERS = {
+      'node-spec': 'var(--card-border,rgba(0,0,0,0.1))',
+      'node-work': '#f59e0b',
+      'node-test': '#8b5cf6',
+      'node-critic': 'var(--card-border,rgba(0,0,0,0.1))',
+      'node-mr': '#10b981',
+      'node-escalate': '#ef4444',
+      'node-gate': '#6366f1',
+      'gate-tdd-box': '#3b82f6'
     };
 
     let currentStage = 'IDLE';
@@ -546,14 +590,14 @@
       currentStage = stageKey;
       const conf = STAGE_CONFIG[stageKey] || STAGE_CONFIG.IDLE;
 
-      // 1. Reset all node highlight styles
-      ['node-spec', 'node-work', 'node-test', 'node-critic', 'node-mr', 'node-escalate'].forEach(id => {
+      // 1. Reset all node highlight styles to their default border colors
+      Object.keys(DEFAULT_NODE_BORDERS).forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('node-active');
-          const rect = el.querySelector('rect') || el.querySelector('circle');
-          if (rect && id !== 'node-escalate') {
-            rect.setAttribute('stroke', 'var(--card-border,rgba(0,0,0,0.1))');
+          const rect = el.querySelector('rect');
+          if (rect) {
+            rect.setAttribute('stroke', DEFAULT_NODE_BORDERS[id]);
             rect.setAttribute('stroke-width', '1.5');
           }
         }
@@ -566,10 +610,25 @@
           activeNode.classList.add('node-active');
           const activeShape = activeNode.querySelector('rect') || activeNode.querySelector('circle');
           if (activeShape) {
-            const strokeColor = stageKey === 'WORK' ? '#f59e0b' : (stageKey === 'MR' ? '#10b981' : (stageKey === 'ESCALATE' ? '#ef4444' : '#3b82f6'));
+            const strokeColor = stageKey === 'WORK' ? '#d97706' : (stageKey === 'MR' ? '#10b981' : (stageKey === 'ESCALATE' ? '#ef4444' : (stageKey === 'CRITIC' ? '#0891b2' : '#3b82f6')));
             activeShape.setAttribute('stroke', strokeColor);
             activeShape.setAttribute('stroke-width', '2.5');
           }
+        }
+      }
+
+      // Also highlight associated lower deterministic gate
+      if (stageKey === 'SPEC') {
+        const tddGate = document.getElementById('gate-tdd-box');
+        if (tddGate) {
+          const r = tddGate.querySelector('rect');
+          if (r) { r.setAttribute('stroke', '#3b82f6'); r.setAttribute('stroke-width', '2.5'); }
+        }
+      } else if (stageKey === 'WORK') {
+        const gateNode = document.getElementById('node-gate');
+        if (gateNode) {
+          const r = gateNode.querySelector('rect');
+          if (r) { r.setAttribute('stroke', '#6366f1'); r.setAttribute('stroke-width', '2.5'); }
         }
       }
 
@@ -654,9 +713,8 @@
       const svgBadgeMap = {
         'badge-hitl-spec': stageKey === 'SPEC' ? '#f59e0b' : null,
         'badge-gate-tdd': stageKey === 'WORK' ? '#3b82f6' : null,
-        'badge-gate-sandbox': stageKey === 'WORK' ? '#f59e0b' : null,
+        'badge-gate-sandbox': stageKey === 'WORK' ? '#6366f1' : null,
         'badge-gate-verify': stageKey === 'TEST' ? '#8b5cf6' : null,
-        'badge-gate-critic': stageKey === 'CRITIC' ? '#06b6d4' : null,
         'badge-gate-evidence': stageKey === 'MR' ? '#10b981' : null,
         'badge-hitl-escalate': stageKey === 'ESCALATE' ? '#ef4444' : null
       };
@@ -669,7 +727,7 @@
               rect.setAttribute('stroke-width', '2');
               rect.setAttribute('filter', 'drop-shadow(0 0 4px ' + activeColor + ')');
             } else {
-              rect.setAttribute('stroke-width', '1.2');
+              rect.setAttribute('stroke-width', '1');
               rect.removeAttribute('filter');
             }
           }
@@ -689,13 +747,13 @@
       
       // Simulate realistic cycle: Spec -> Work -> Test (Fail/Loop) -> Work (Retry) -> Test (Pass) -> Critic -> MR
       const sequence = [
-        { stage: 'SPEC' },
-        { stage: 'WORK' },
-        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[Tester] 🧪 发现失败用例，激活上方自愈回路，进入第 1 轮自动修复...' },
-        { stage: 'WORK', log: '[Worker] 🔨 工兵结合 Pytest 报错堆栈进行针对性自愈...' },
-        { stage: 'TEST', log: '[Tester] 🧪 验收测试全绿通过 (100% Pass)！通过门禁' },
-        { stage: 'CRITIC' },
-        { stage: 'MR' }
+        { stage: 'SPEC', log: '[Architect] 📐 AI 蓝图架构师起草完成，经 [👤 HITL-1 契约签署确认] 冻结白名单与用例' },
+        { stage: 'WORK', log: '[Worker] 🔨 AI 工兵在 Worktree 物理隔离沙箱内编写代码，白名单外写入实时拦截' },
+        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[Tester] 🧪 验收用例未全绿，逆向将 Pytest 报错堆栈注入上轨工兵，开启针对性自愈...' },
+        { stage: 'WORK', log: '[Worker] 🔨 AI 工兵基于报错堆栈针对性重构业务逻辑，提交修复补丁...' },
+        { stage: 'TEST', log: '[Tester] 🧪 SHA-256 指纹通过 + AST 无破坏 + pytest 进程退出码 Exit=0 全绿通过！' },
+        { stage: 'CRITIC', log: '[Critic] 🧐 AI 独立审查员在干净沙箱进行 Fail-Closed 盲审，扫描潜在坏味道与越界...' },
+        { stage: 'MR', log: '[MR] 🚀 物理交付站完成 Git 真实 Commit/Push，向远程发布附带 OKF 存证的 MR！' }
       ];
       let idx = 0;
       setStage(sequence[0].stage);
