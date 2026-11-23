@@ -196,7 +196,8 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
                     "adk_dev_flow.mcp_server"
                 ],
                 "env": {
-                    "PYTHONUNBUFFERED": "1"
+                    "PYTHONUNBUFFERED": "1",
+                    "REPO_ROOT": "."
                 }
             }
         }

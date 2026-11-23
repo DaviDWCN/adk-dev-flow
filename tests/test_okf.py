@@ -176,6 +176,7 @@ class TestOKFIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_flow_lock_spec_from_file_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
+            (repo_root / ".git").mkdir()
             store = StateStore(repo_root)
             gl = GitLabClient()
             service = FlowService(repo_root, store, gl)

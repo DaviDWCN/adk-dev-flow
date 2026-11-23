@@ -57,7 +57,13 @@ def init_target_repo(
     for tpl_name, dest in mapping:
         actions.append(_write_if_needed(dest, _read_template(tpl_name), force=force))
 
-    actions.append(_ensure_gitignore_entry(root, ".adk/"))
+    for gitignore_pattern in (
+        ".adk/state.db*",
+        ".adk/active_run.json",
+        ".adk/worktrees/",
+        ".adk/locks/",
+    ):
+        actions.append(_ensure_gitignore_entry(root, gitignore_pattern))
     return actions
 
 
@@ -82,7 +88,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Overwrite existing template files.",
     )
+    parser.add_argument(
+        "--unlock",
+        action="store_true",
+        help="Clear active workflow run marker (.adk/active_run.json) to unlock the workspace.",
+    )
     args = parser.parse_args(argv)
+    if args.unlock:
+        target_dir = Path(args.target).resolve()
+        marker = target_dir / ".adk" / "active_run.json"
+        if marker.exists():
+            marker.unlink()
+            print(f"[OK] 已成功清除工作区锁定标记: {marker}")
+        else:
+            print(f"[INFO] 未发现工作区锁定标记 ({marker})，当前无需解锁。")
+        return 0
     actions = init_target_repo(Path(args.target), include_ci=args.with_ci, force=args.force)
     for line in actions:
         print(line)

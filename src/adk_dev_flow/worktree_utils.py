@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -20,6 +21,14 @@ _HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{6,16}")
 _ISO_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL | re.IGNORECASE)
 _LINE_NUM_RE = re.compile(r"(?::\d+)+")
+
+
+def get_preferred_python_interpreter() -> str:
+    """Resolve preferred Python interpreter, honoring ADK_PYTHON environment variable if set."""
+    override = os.environ.get("ADK_PYTHON", "").strip()
+    if override:
+        return override
+    return sys.executable
 
 
 def compute_sha256_bytes(data: bytes) -> str:
@@ -185,7 +194,13 @@ def resolve_tool_command(
             return None
         if trimmed:
             rendered = trimmed.format(**(placeholder_vars or {}))
-            return shlex.split(rendered)
+            raw_tokens = shlex.split(rendered, posix=(sys.platform != "win32"))
+            if sys.platform == "win32":
+                return [
+                    t[1:-1] if (len(t) >= 2 and t[0] in ('"', "'") and t[0] == t[-1]) else t
+                    for t in raw_tokens
+                ]
+            return raw_tokens
 
     for candidate_root in (worktree, repo_root):
         found = _find_venv_bin(candidate_root, tool_name)

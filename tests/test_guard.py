@@ -119,14 +119,15 @@ class TestGuard(unittest.TestCase):
         self.assertEqual(bad.returncode, 2)
         self.assertIn("Fail-Closed", bad.stderr)
 
-        # Blocked protected file -> exit code 2
+        # Blocked protected file for worker or during active flow -> exit code 2
+        env_worker = {**env, "ADK_WORKER_TOKEN": "run-1"}
         blocked = subprocess.run(
             [sys.executable, "-m", "adk_dev_flow.guard"],
             input=json.dumps({"tool_input": {"file_path": str(self.cwd / ".gitlab-ci.yml")}}),
             text=True,
             capture_output=True,
             cwd=str(self.cwd),
-            env=env,
+            env=env_worker,
             encoding="utf-8",
             errors="replace",
         )

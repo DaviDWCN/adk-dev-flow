@@ -161,9 +161,21 @@ class GitLabClient(BaseGitForge):
         ssl_verify: bool | None = None,
         timeout: float | None = None,
     ) -> None:
-        self.url = (url or os.environ.get("GITLAB_URL", "")).strip()
-        self.token = (token or os.environ.get("GITLAB_TOKEN", "")).strip()
-        self.project_id = (project_id or os.environ.get("GITLAB_PROJECT_ID", "")).strip()
+        self.url = (
+            url
+            or os.environ.get("GITLAB_URL", "")
+            or os.environ.get("CI_SERVER_URL", "")
+        ).strip()
+        self.token = (
+            token
+            or os.environ.get("GITLAB_TOKEN", "")
+            or os.environ.get("CI_JOB_TOKEN", "")
+        ).strip()
+        self.project_id = (
+            project_id
+            or os.environ.get("GITLAB_PROJECT_ID", "")
+            or os.environ.get("CI_PROJECT_ID", "")
+        ).strip()
         self.ca_bundle = (ca_bundle or os.environ.get("GITLAB_CA_BUNDLE", "")).strip()
         self.ssl_verify_flag = (
             ssl_verify
@@ -467,6 +479,14 @@ def get_git_forge(repo_root: Path | None = None) -> BaseGitForge:
             gl_client = GitLabClient()
             if gl_client.enabled or gl_client.token:
                 return gl_client
+        configured_gl = os.environ.get("GITLAB_URL", "") or os.environ.get("CI_SERVER_URL", "")
+        if configured_gl:
+            from urllib.parse import urlparse
+            gl_host = urlparse(configured_gl).netloc.lower()
+            if gl_host and gl_host in lower_remote:
+                gl_client = GitLabClient()
+                if gl_client.enabled or gl_client.token:
+                    return gl_client
 
     # 3. Environment heuristic inspection
     gh_candidate = GitHubClient(repo_root=repo_root)

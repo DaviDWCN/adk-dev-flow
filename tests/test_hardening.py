@@ -108,6 +108,7 @@ class TestHardeningSuite(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sig1, sig2)
 
     def test_protected_paths_include_test_configs_and_git(self) -> None:
+        worker_env = {"ADK_WORKER_TOKEN": "run-test"}
         for p in [
             "conftest.py",
             "pytest.ini",
@@ -116,7 +117,7 @@ class TestHardeningSuite(unittest.IsolatedAsyncioTestCase):
             ".git/config",
             "pyproject.toml",
         ]:
-            allowed, reason = evaluate_file_edit(p, cwd=self.wt)
+            allowed, reason = evaluate_file_edit(p, cwd=self.wt, env=worker_env)
             self.assertFalse(allowed, f"Expected {p} to be protected")
             self.assertIn("受保护", reason)
 

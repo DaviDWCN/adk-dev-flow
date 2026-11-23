@@ -25,7 +25,8 @@ class TestCliInit(unittest.TestCase):
             self.assertTrue(mcp_cfg.is_file())
             self.assertTrue(settings_cfg.is_file())
             self.assertTrue(ci_cfg.is_file())
-            self.assertIn(".adk/", gitignore.read_text(encoding="utf-8"))
+            self.assertIn(".adk/state.db*", gitignore.read_text(encoding="utf-8"))
+            self.assertIn(".adk/worktrees/", gitignore.read_text(encoding="utf-8"))
 
             # Verify valid JSON templates and secure defaults
             mcp_data = json.loads(mcp_cfg.read_text(encoding="utf-8"))
@@ -39,10 +40,10 @@ class TestCliInit(unittest.TestCase):
                 "adk-workflow-guard",
             )
 
-            # Second run without --force skips existing files and does not duplicate .adk/
+            # Second run without --force skips existing files and does not duplicate gitignore entries
             actions2 = init_target_repo(target, include_ci=True, force=False)
             self.assertTrue(all(a.startswith("skipped") for a in actions2))
-            self.assertEqual(gitignore.read_text(encoding="utf-8").count(".adk/"), 1)
+            self.assertEqual(gitignore.read_text(encoding="utf-8").count(".adk/worktrees/"), 1)
 
 
 if __name__ == "__main__":

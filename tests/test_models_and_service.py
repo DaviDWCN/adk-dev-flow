@@ -180,6 +180,7 @@ class TestFlowServiceLifecycle(unittest.IsolatedAsyncioTestCase):
     async def test_init_lock_dispatch_cas_resume_list_and_finalize(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            (root / ".git").mkdir()
             store = StateStore(root)
             fake_gl = MagicMock()
             fake_gl.enabled = False

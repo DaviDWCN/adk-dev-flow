@@ -39,18 +39,46 @@ async def _git(cmd: list[str], cwd: Path, timeout_sec: float = GIT_TIMEOUT_SEC) 
 
 def _format_mr_description(spec: SpecContract, verdict: ReviewVerdict) -> str:
     parts = [
-        f"## Spec 摘要\n{spec.summary}",
-        (
-            "## 独立 Critic 审查结论\n"
-            f"- 通过: `{verdict.approved}`\n"
-            f"- 摘要: {verdict.summary}"
-        ),
+        f"## Spec 摘要与需求\n{spec.summary}",
     ]
+
+    # Acceptance Criteria (AC)
+    ac_lines = [
+        f"- **验收测试用例**: `{spec.acceptance_test_path}`",
+        f"- **TDD 红灯强制校验**: `{'已验证通过 (Baseline Red -> Fixed Green)' if spec.require_tdd_red else '未开启'}`",
+    ]
+    if spec.tasks:
+        ac_lines.append("- **原子任务分解清单**:")
+        for t in spec.tasks:
+            ac_lines.append(f"  - [x] **{t.id}: {t.title}** - {t.description}")
+    parts.append("## 验收准则 (Acceptance Criteria)\n" + "\n".join(ac_lines))
+
+    # Design & Impact Scope
+    allowed_files = getattr(spec, "allowed_modify_files", None) or spec.allowed_paths or []
+    files_str = ", ".join(f"`{f}`" for f in allowed_files) if allowed_files else "`全库受控`"
+    deps_str = ", ".join(f"`{d}`" for d in spec.extra_dependencies) if spec.extra_dependencies else "无"
+    impact_lines = [
+        f"- **允许变更文件白名单**: {files_str}",
+        f"- **增量外部依赖**: {deps_str}",
+    ]
+    parts.append("## 影响面与架构约束 (Design & Impact Scope)\n" + "\n".join(impact_lines))
+
+    # Independent Critic Verification
+    status_label = "APPROVED (通过)" if verdict.approved else "CHANGES_REQUESTED (需要修改)"
+    parts.append(
+        "## 独立 Critic 审查与验证结论 (Verification)\n"
+        f"- **门禁判定**: `{status_label}`\n"
+        f"- **置信度评分**: `{verdict.confidence}`\n"
+        f"- **审查摘要**: {verdict.summary}"
+    )
+
     if verdict.blocking_issues:
         issues_md = "\n".join(f"- {issue}" for issue in verdict.blocking_issues)
         parts.append(f"### 需人工关注项\n{issues_md}")
+
     if spec.issue_iid is not None:
         parts.append(f"Closes #{spec.issue_iid}")
+
     return "\n\n".join(parts)
 
 
@@ -66,6 +94,33 @@ def _format_critic_note(run_id: str, verdict: ReviewVerdict, attempt: int) -> st
         lines.append("\n#### 阻塞项")
         lines.extend(f"- {item}" for item in verdict.blocking_issues)
     return "\n".join(lines)
+
+
+async def save_and_commit_spec_in_worktree(
+    spec: SpecContract,
+    worktree: Path,
+    run_id: str,
+) -> tuple[bool, Path]:
+    """Serialize SpecContract to OKF Markdown in worktree .adk/specs/ and commit to git.
+
+    Guarantees that the specification is committed into the feature branch history alongside code changes.
+    """
+    spec_dir = worktree / ".adk" / "specs"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"issue-{spec.issue_iid}.md" if spec.issue_iid is not None else f"task-{run_id[:6]}.md"
+    spec_file = spec_dir / filename
+    spec_content = spec.to_okf_markdown()
+    spec_file.write_text(spec_content, encoding="utf-8")
+
+    rel_path = f".adk/specs/{filename}"
+    add_res = await _git(["add", "-f", "--", rel_path], worktree)
+    if add_res.returncode == 0:
+        await _git(
+            ["commit", "-m", f"docs(spec): append OKF specification for {run_id[:6]}"],
+            worktree,
+        )
+        return True, spec_file
+    return False, spec_file
 
 
 def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
@@ -88,6 +143,70 @@ def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
     return "\n\n项目工程规约 (OKF Rules):\n" + "\n\n".join(rules_text)
 
 
+async def run_tdd_red_preflight(
+    spec: SpecContract,
+    worktree: Path,
+    repo_root: Path,
+    timeout_sec: float = VERIFY_TIMEOUT_SEC,
+) -> None:
+    """Pre-flight TDD Red verification on the clean baseline worktree.
+
+    Fails closed if pytest cannot be resolved, if execution crashes, or if the test passes (exit 0).
+    Requires a genuine assertion failure on baseline to prove the test is effective.
+    """
+    red_cmd = resolve_tool_command(
+        "pytest",
+        ["-q", spec.acceptance_test_path],
+        worktree=worktree,
+        repo_root=repo_root,
+        env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
+        placeholder_vars={"test_path": spec.acceptance_test_path},
+    )
+    if red_cmd is None:
+        raise RuntimeError(
+            f"TDD 红灯预检失败：未能解析 pytest 执行命令（未找到 venv 或全局 pytest）。\n"
+            f"请为仓库创建 Python 虚拟环境 (.venv) 并安装 pytest，或通过 ADK_TDD_RED_CMD 环境变量指定测试命令。"
+        )
+
+    red_res = await run_subprocess_safe(
+        red_cmd, cwd=worktree, timeout_sec=timeout_sec
+    )
+    if red_res.timed_out:
+        raise RuntimeError(f"TDD 红灯预检超时（>{timeout_sec}s）")
+
+    if red_res.returncode == 0:
+        raise RuntimeError(
+            f"TDD 预检失败：锁定的验收测试 `{spec.acceptance_test_path}` 在未编写业务代码前直接通过 (exit=0)！\n"
+            f"这表明该测试属于无断言空测试（Mock Passes），或该特性在基线代码中已存在。\n"
+            f"请为验收测试增加针对新功能的有效断言，或在 Spec 中设置 require_tdd_red=False。"
+        )
+
+    combined_output = f"{red_res.stdout}\n{red_res.stderr}"
+    # Verify genuine assertion failure rather than syntax error, missing module, or usage error.
+    is_assertion_failure = (red_res.returncode == 1) or any(
+        marker in combined_output for marker in ("FAILED", "AssertionError", "assert ")
+    )
+    is_fatal_cli_error = any(
+        marker in combined_output
+        for marker in (
+            "pytest: error:",
+            "usage: pytest",
+            "ModuleNotFoundError:",
+            "No module named",
+            "SyntaxError:",
+            "command not found",
+            "is not recognized as an internal or external command",
+        )
+    )
+    if not is_assertion_failure or is_fatal_cli_error:
+        raise RuntimeError(
+            f"TDD 红灯预检未通过（非用例断言失败）：验收测试执行异常 (exit={red_res.returncode})。\n"
+            f"命令: {' '.join(red_cmd)}\n"
+            f"输出:\n{combined_output}\n"
+            f"请修复测试语法错误或检查依赖环境后重试。"
+        )
+
+
 def build_dev_workflow(
     repo_root: Path,
     store: StateStore,
@@ -105,7 +224,19 @@ def build_dev_workflow(
         existing_run = store.get_run(run_id)
         assert existing_run is not None, f"run_id={run_id} 不存在"
 
-        branch = existing_run.get("branch") or f"adk/issue-{spec.issue_iid or 'task'}-{run_id[:6]}"
+        branch = existing_run.get("branch") or getattr(spec, "branch", None)
+        if not branch:
+            branch_pattern = os.environ.get("ADK_BRANCH_PATTERN")
+            if branch_pattern:
+                title_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", spec.title.lower()).strip("-")[:25]
+                branch = branch_pattern.format(
+                    iid=spec.issue_iid or "task",
+                    run_id=run_id,
+                    run_id6=run_id[:6],
+                    title=title_slug,
+                )
+            else:
+                branch = f"adk/issue-{spec.issue_iid or 'task'}-{run_id[:6]}"
         worktree = (
             Path(existing_run["worktree_path"])
             if existing_run.get("worktree_path")
@@ -117,8 +248,9 @@ def build_dev_workflow(
 
         if not worktree.exists():
             worktree.parent.mkdir(parents=True, exist_ok=True)
+            base_ref = getattr(spec, "base_branch", None) or spec.target_branch
             res = await _git(
-                ["worktree", "add", "-b", branch, str(worktree), spec.target_branch],
+                ["worktree", "add", "-b", branch, str(worktree), base_ref],
                 repo_root,
             )
             if res.returncode != 0:
@@ -156,6 +288,9 @@ def build_dev_workflow(
                 raise RuntimeError(f"读取锁定测试 commit SHA 失败: {lock_sha_res.stderr.strip()}")
             locked_test_commit_sha = lock_sha_res.stdout.strip()
 
+            # Save and commit OKF spec contract into the worktree branch
+            await save_and_commit_spec_in_worktree(spec, worktree=worktree, run_id=run_id)
+
             if spec.extra_dependencies:
                 dep_ok, dep_msg = await sync_worktree_dependencies(
                     worktree, repo_root, spec.extra_dependencies
@@ -165,24 +300,7 @@ def build_dev_workflow(
 
             # Pre-flight TDD Red verification on the clean baseline worktree
             if spec.require_tdd_red and os.environ.get("ADK_SKIP_TDD_RED", "0") != "1":
-                red_cmd = resolve_tool_command(
-                    "pytest",
-                    ["-q", spec.acceptance_test_path],
-                    worktree=worktree,
-                    repo_root=repo_root,
-                    env_override=os.environ.get("ADK_TEST_CMD"),
-                    placeholder_vars={"test_path": spec.acceptance_test_path},
-                )
-                if red_cmd is not None:
-                    red_res = await run_subprocess_safe(
-                        red_cmd, cwd=worktree, timeout_sec=VERIFY_TIMEOUT_SEC
-                    )
-                    if red_res.returncode == 0:
-                        raise RuntimeError(
-                            f"TDD 预检失败：锁定的验收测试 `{spec.acceptance_test_path}` 在未编写业务代码前直接通过 (exit=0)！\n"
-                            f"这表明该测试属于无断言空测试（Mock Passes），或该特性在基线代码中已存在。\n"
-                            f"请为验收测试增加针对新功能的有效断言，或在 Spec 中设置 require_tdd_red=False。"
-                        )
+                await run_tdd_red_preflight(spec, worktree=worktree, repo_root=repo_root)
         else:
             await sanitize_worktree_state(worktree)
             # Resume path: ensure metadata is intact.
@@ -543,7 +661,12 @@ def build_dev_workflow(
         mr_url = ""
         mr_iid = None
 
-        # Save and commit OKF review audit document into worktree
+        # Save and commit OKF review audit document and spec contract into worktree
+        try:
+            await save_and_commit_spec_in_worktree(spec, worktree=worktree, run_id=run_id)
+        except Exception:
+            pass
+
         audit_file_rel = f".adk/audit/review_{run_id}.md"
         try:
             audit_file = worktree / ".adk" / "audit" / f"review_{run_id}.md"

@@ -101,10 +101,10 @@ class TestCore(unittest.TestCase):
         self.assertNotIn("src/pkg/util.py", report.impacted_production_files)
         self.assertIn("tests/test_core.py", report.impacted_test_files)
 
-        # Suggested allowed paths should contain core and consumer, but not test
+        # Suggested allowed paths must contain core, consumer, and affected test suites (N7 fix)
         self.assertIn("src/pkg/core.py", report.suggested_allowed_paths)
         self.assertIn("src/pkg/consumer.py", report.suggested_allowed_paths)
-        self.assertNotIn("tests/test_core.py", report.suggested_allowed_paths)
+        self.assertIn("tests/test_core.py", report.suggested_allowed_paths)
 
     def test_generate_skeleton_strips_body_and_preserves_signatures(self) -> None:
         code = """import os

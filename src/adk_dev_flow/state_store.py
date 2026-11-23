@@ -24,7 +24,6 @@ ACTIVE_STATUSES: tuple[str, ...] = (
     "RUNNING",
     "REPAIRING",
     "REVIEWING",
-    "ESCALATED",
 )
 
 IN_FLIGHT_STATUSES: tuple[str, ...] = (
@@ -65,6 +64,10 @@ class StateStore:
         self.db_path = self.adk_dir / "workflow.db"
         self.active_marker = self.adk_dir / "active_run.json"
         self._init_db()
+
+    @property
+    def marker_path(self) -> Path:
+        return self.active_marker
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -254,6 +257,16 @@ class StateStore:
     def is_run_active(self, run_id: str) -> bool:
         run = self.get_run(run_id)
         return bool(run and run.get("status") in ACTIVE_STATUSES)
+
+    def read_active_marker(self) -> dict[str, Any] | None:
+        """Safely read and parse the active marker file (.adk/active_run.json), if present."""
+        if not self.active_marker.is_file():
+            return None
+        try:
+            data = json.loads(self.active_marker.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
 
     def clear_active_run(self) -> None:
         if self.active_marker.exists():

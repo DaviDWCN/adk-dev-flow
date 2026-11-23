@@ -261,6 +261,25 @@ class CodeBuddyLlm(BaseLlm):
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]))
 
 
+_MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:/@-]+$")
+
+
+def validate_model_name(name: str | None) -> str | None:
+    """Validate and sanitize model name.
+
+    Returns None for default CLI models.
+    Raises ValueError for names containing invalid/dangerous characters.
+    """
+    if not name:
+        return None
+    trimmed = name.strip()
+    if not trimmed or trimmed in ("codebuddy-cli", "codebuddy", "default"):
+        return None
+    if not _MODEL_NAME_RE.match(trimmed):
+        raise ValueError(f"非法的 Worker 模型名称: {name!r}（包含非法字符或命令注入模式）")
+    return trimmed
+
+
 async def run_codebuddy_worker(
     worktree: Path,
     prompt: str,
@@ -305,8 +324,9 @@ async def run_codebuddy_worker(
         "--permission-mode",
         "bypassPermissions",
     ]
-    if worker_model and worker_model not in ("codebuddy-cli", "codebuddy"):
-        cmd.extend(["--model", worker_model])
+    valid_model = validate_model_name(worker_model)
+    if valid_model:
+        cmd.extend(["--model", valid_model])
 
     cmd.extend(
         [

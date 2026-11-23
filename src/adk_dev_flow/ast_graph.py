@@ -463,8 +463,8 @@ class CodeGraph:
             else:
                 production_files.append(f)
 
-        # Suggested allowed_paths: original targets + direct dependents (excluding tests)
-        suggested_allowed = sorted(list(matched_files | {f for f in direct_dependents if f in production_files}))
+        # Suggested allowed_paths: original targets + all impacted production files + all impacted test files
+        suggested_allowed = sorted(list(matched_files | set(production_files) | set(test_files)))
 
         summary = (
             f"目标路径包含 {len(matched_files)} 个核心文件与 {len(matched_symbols)} 个符号；"

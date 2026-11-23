@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -45,14 +46,30 @@ class FlowService:
         task.add_done_callback(_cleanup)
 
     async def flow_init(self, requirement: str, issue_iid: int | None = None) -> dict[str, Any]:
+        # Preflight checks
+        if not (self.repo_root / ".git").exists():
+            return {
+                "error": f"初始化失败：目录 `{self.repo_root}` 不是合法的 Git 仓库（未找到 .git 目录）。请在业务代码仓库根目录下运行。"
+            }
+        if not shutil.which("git"):
+            return {
+                "error": "初始化失败：系统中未检测到 git 命令，请先安装 Git 并配置到系统 PATH 中。"
+            }
+
         run_id = uuid.uuid4().hex[:12]
         issue_info: dict[str, Any] | None = None
         forge_warning: str | None = None
-        if issue_iid is not None and self.gl.enabled:
-            try:
-                issue_info = await asyncio.to_thread(self.gl.get_issue, issue_iid)
-            except Exception as exc:
-                forge_warning = f"拉取 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续初始化: {exc}"
+        if issue_iid is not None:
+            if self.gl.enabled:
+                try:
+                    issue_info = await asyncio.to_thread(self.gl.get_issue, issue_iid)
+                except Exception as exc:
+                    forge_warning = f"拉取 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续初始化: {exc}"
+            else:
+                forge_warning = (
+                    f"传入了 Issue #{issue_iid}，但未检测到有效启用的 Git 托管平台配置（未配置 GITLAB_URL / GITLAB_TOKEN / GITLAB_PROJECT_ID 或 GITHUB_TOKEN）。"
+                    f"已跳过自动拉取 Issue 详情，请手动结合需求起草 Spec。"
+                )
 
         self.store.create_run(run_id=run_id, issue_iid=issue_iid)
         result: dict[str, Any] = {
@@ -61,6 +78,8 @@ class FlowService:
             "requirement": requirement,
             "issue": issue_info,
             "gitlab_issue": issue_info,
+            "repo_root": str(self.repo_root),
+            "state_db_path": str(self.store.db_path),
             "next_step": (
                 "请结合仓库结构起草 SpecContract（含完整可运行的 pytest 验收测试源码），"
                 "向用户展示并获得明确确认后再调用 flow_lock_spec 或 flow_lock_spec_from_file。"
@@ -198,7 +217,10 @@ class FlowService:
         run = self.store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
-        return {
+        marker = self.store.read_active_marker()
+        active_run_id = marker.get("active_run_id") if marker else None
+        is_holding_lock = bool(marker and active_run_id == run_id)
+        res = {
             "run_id": run["run_id"],
             "status": run["status"],
             "issue_iid": run["issue_iid"],
@@ -211,7 +233,37 @@ class FlowService:
             "review": json.loads(run["review_json"]) if run["review_json"] else None,
             "human_hint": run.get("human_hint"),
             "last_error_log": (run["last_error_log"] or "")[-1500:],
+            "is_holding_lock": is_holding_lock,
+            "current_locked_run_id": active_run_id,
             "updated_at": run["updated_at"],
+        }
+        if run["status"] == "ESCALATED":
+            res["guidance"] = (
+                "流水线已熔断 (ESCALATED)。可通过 flow_resume 注入补充指令恢复，"
+                "或调用 flow_unlock / flow_abort 退出并解除主工作区锁定。"
+            )
+        return res
+
+    def flow_unlock(self, run_id: str | None = None, force: bool = False) -> dict[str, Any]:
+        """安全解除主工作区的只读锁定。清除 .adk/active_run.json 并同步运行状态。"""
+        marker = self.store.read_active_marker()
+        marker_run_id = (marker.get("run_id") or marker.get("active_run_id")) if marker else None
+        target_id = run_id or marker_run_id
+
+        if target_id:
+            run = self.store.get_run(target_id)
+            if run and run["status"] in ("SPEC_DRAFTING", "SPEC_LOCKED", "RUNNING", "REPAIRING", "REVIEWING"):
+                self.store.update_run(
+                    target_id,
+                    status="ESCALATED",
+                    last_error_log="\n[系统解锁] 用户调用 flow_unlock 解除工作区只读锁定。",
+                )
+
+        self.store.clear_active_run()
+        return {
+            "unlocked": True,
+            "cleared_marker_for": target_id,
+            "message": "已成功清除主工作区锁定标记 (.adk/active_run.json)，工作区已恢复可写状态。",
         }
 
     def flow_list(self, limit: int = 10) -> dict[str, Any]:
@@ -343,13 +395,41 @@ class FlowService:
         return {"aborted_runs": aborted, "count": len(aborted)}
 
 
+def resolve_repo_root(custom_root: Path | None = None) -> Path:
+    """Resolve the business repository root directory.
+
+    Priority: custom_root -> REPO_ROOT -> WORKSPACE_FOLDER -> CODEBUDDY_WORKSPACE_ROOT -> os.getcwd().
+    If candidate lacks .git, searches upwards for the nearest Git repository root.
+    """
+    if custom_root is not None:
+        return custom_root.resolve()
+
+    candidate = (
+        os.environ.get("REPO_ROOT")
+        or os.environ.get("WORKSPACE_FOLDER")
+        or os.environ.get("CODEBUDDY_WORKSPACE_ROOT")
+        or ""
+    ).strip()
+    if candidate:
+        p = Path(candidate)
+        return p.resolve() if p.is_absolute() else (Path.cwd() / p).resolve()
+
+    cwd = Path.cwd().resolve()
+    curr = cwd
+    while curr != curr.parent:
+        if (curr / ".git").is_dir():
+            return curr
+        curr = curr.parent
+    return cwd
+
+
 def create_mcp_server(
     repo_root: Path | None = None,
     store: StateStore | None = None,
     gl: BaseGitForge | None = None,
     forge: BaseGitForge | None = None,
 ) -> tuple[FastMCP, FlowService]:
-    resolved_root = (repo_root or Path(os.environ.get("REPO_ROOT", os.getcwd()))).resolve()
+    resolved_root = resolve_repo_root(repo_root)
     resolved_store = store or StateStore(resolved_root)
     resolved_forge = forge or gl or get_git_forge(resolved_root)
     service = FlowService(resolved_root, resolved_store, resolved_forge)
@@ -405,6 +485,11 @@ def create_mcp_server(
     async def flow_abort(run_id: str, remove_worktree: bool = False) -> dict[str, Any]:
         """中止当前受控开发流、终止后台子进程并解除主工作区防呆锁。"""
         return await service.flow_abort(run_id=run_id, remove_worktree=remove_worktree)
+
+    @mcp.tool()
+    def flow_unlock(run_id: str | None = None, force: bool = False) -> dict[str, Any]:
+        """安全解除主工作区的只读锁定，清除 active_run.json 锁标记。"""
+        return service.flow_unlock(run_id=run_id, force=force)
 
     @mcp.tool()
     def flow_active_runs() -> dict[str, Any]:

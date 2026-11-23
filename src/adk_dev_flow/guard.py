@@ -9,7 +9,10 @@ from typing import Sequence
 PROTECTED_PATHS: tuple[str, ...] = (
     ".gitlab-ci.yml",
     ".codebuddy",
-    ".adk",
+    ".adk/state.db",
+    ".adk/active_run.json",
+    ".adk/worktrees",
+    ".adk/locks",
     "mcp.json",
     "tools/adk_dev_flow",
     ".git",
@@ -22,6 +25,12 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "pyproject.toml",
     "setup.cfg",
     "setup.py",
+)
+
+OKF_WRITABLE_PATHS: tuple[str, ...] = (
+    ".adk/specs",
+    ".adk/knowledge",
+    ".adk/audit",
 )
 
 
@@ -62,6 +71,8 @@ def is_path_under(rel_path: str, prefix: str) -> bool:
 
 
 def is_protected_path(rel_path: str, protected: Sequence[str] = PROTECTED_PATHS) -> bool:
+    if any(is_path_under(rel_path, p) for p in OKF_WRITABLE_PATHS):
+        return False
     return any(is_path_under(rel_path, p) for p in protected)
 
 
@@ -82,11 +93,10 @@ def evaluate_file_edit(
     if not rel:
         return False, "禁止直接写入工作目录根路径"
 
-    if is_protected_path(rel):
-        return False, f"禁止修改受保护的门禁或框架文件: {rel}"
-
     worker_token = env_map.get("ADK_WORKER_TOKEN", "").strip()
     if worker_token:
+        if is_protected_path(rel):
+            return False, f"禁止修改受保护的门禁或框架文件: {rel}"
         try:
             locked_raw = json.loads(env_map.get("ADK_LOCKED_TESTS", "[]"))
             allowed_raw = json.loads(env_map.get("ADK_ALLOWED_PATHS", "[]"))
@@ -110,11 +120,36 @@ def evaluate_file_edit(
 
     marker = cwd / ".adk" / "active_run.json"
     if marker.exists():
+        marker_status = ""
+        try:
+            marker_data = json.loads(marker.read_text(encoding="utf-8"))
+            marker_status = str(marker_data.get("status", "")).strip().upper()
+        except Exception:
+            marker_status = ""
+
+        if marker_status == "SPEC_DRAFTING":
+            if is_protected_path(rel):
+                return False, f"禁止修改受保护的门禁或框架文件: {rel}"
+            if any(is_path_under(rel, p) for p in OKF_WRITABLE_PATHS):
+                return True, ""
+            return (
+                False,
+                "当前处于 SPEC_DRAFTING 阶段，仅允许起草或修改 .adk/specs/ 与 .adk/knowledge/ 规约文件；"
+                "严禁在主工作区修改业务代码，请在 Spec 确认后通过 flow_dispatch 调度至沙箱 Worktree 执行。",
+            )
+
+        if is_protected_path(rel):
+            return False, f"禁止修改受保护的门禁或框架文件: {rel}"
         return (
             False,
             "当前处于 ADK 受控研发流中，严禁在主工作区直接修改代码；"
-            "请通过 adk-dev-flow MCP 推进或调用 flow_abort 退出。",
+            "请通过 adk-dev-flow MCP 推进或调用 flow_abort / flow_unlock 退出。",
         )
+
+    # Outside active flow: developers are free to edit project files (pyproject.toml, etc.)
+    # Protect only raw internal database / runtime state if present
+    if any(is_path_under(rel, p) for p in (".adk/state.db", ".adk/active_run.json", ".adk/worktrees", ".git")):
+        return False, f"禁止直接修改系统内部运行状态文件: {rel}"
 
     return True, ""
 

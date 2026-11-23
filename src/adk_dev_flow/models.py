@@ -50,6 +50,14 @@ class SpecContract(BaseModel):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     target_branch: str = "main"
+    base_branch: str | None = Field(
+        default=None,
+        description="拉取施工 Worktree 的基线分支（用于 Stacked 分支；缺省使用 target_branch）",
+    )
+    branch: str | None = Field(
+        default=None,
+        description="自定义开发分支名（缺省使用系统生成的 adk/issue-* 分支）",
+    )
     allowed_paths: list[str] = Field(min_length=1, description="允许修改的目录或文件前缀白名单")
     acceptance_test_path: str = Field(
         description="锁定的验收测试文件相对路径，如 tests/test_issue_42.py"
@@ -113,6 +121,10 @@ class SpecContract(BaseModel):
             "acceptance_test_path": self.acceptance_test_path,
             "tasks": [t.model_dump() for t in self.tasks],
         }
+        if self.base_branch:
+            meta["base_branch"] = self.base_branch
+        if self.branch:
+            meta["branch"] = self.branch
         yaml_header = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
 
         tasks_md = "\n\n".join(
@@ -189,6 +201,8 @@ class SpecContract(BaseModel):
             title=meta.get("title") or "Untitled OKF Spec",
             summary=summary,
             target_branch=meta.get("target_branch", "main"),
+            base_branch=meta.get("base_branch"),
+            branch=meta.get("branch"),
             allowed_paths=meta.get("allowed_paths", []),
             acceptance_test_path=meta.get("acceptance_test_path", ""),
             acceptance_test_code=acceptance_test_code,
@@ -200,6 +214,7 @@ class SpecContract(BaseModel):
 
 class ReviewVerdict(BaseModel):
     approved: bool
+    confidence: float = Field(default=1.0, description="置信度评分 (0.0~1.0)")
     blocking_issues: list[str] = Field(default_factory=list)
     summary: str
 
