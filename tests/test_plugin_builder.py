@@ -64,6 +64,11 @@ class TestPluginBuilder(unittest.TestCase):
             self.assertEqual(server_cfg["command"], "python")
             self.assertEqual(server_cfg["args"], ["-m", "adk_dev_flow.mcp_server"])
 
+            # 2b. .mcp.json — CodeBuddy's plugin MCP discovery file
+            cb_mcp_file = target / ".mcp.json"
+            self.assertTrue(cb_mcp_file.is_file())
+            self.assertEqual(json.loads(cb_mcp_file.read_text(encoding="utf-8")), mcp_data)
+
             # 1b. .codebuddy-plugin/plugin.json (CodeBuddy manifest layout)
             cb_manifest_file = target / ".codebuddy-plugin" / "plugin.json"
             self.assertTrue(cb_manifest_file.is_file())

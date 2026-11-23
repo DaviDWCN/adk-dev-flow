@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "adk-dev-flow": {
+      "command": "python",
+      "args": [
+        "-m",
+        "adk_dev_flow.mcp_server"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

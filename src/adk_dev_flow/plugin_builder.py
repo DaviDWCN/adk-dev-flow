@@ -201,10 +201,11 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
             }
         }
     }
-    (target / "mcp_config.json").write_text(
-        json.dumps(mcp_config_data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    mcp_json_text = json.dumps(mcp_config_data, ensure_ascii=False, indent=2) + "\n"
+    (target / "mcp_config.json").write_text(mcp_json_text, encoding="utf-8")
+    # CodeBuddy discovers plugin MCP servers via `.mcp.json` at the plugin root;
+    # `mcp_config.json` is the Gemini CLI convention. Emit both from one config.
+    (target / ".mcp.json").write_text(mcp_json_text, encoding="utf-8")
 
     # 3. assets/logo.svg
     assets_dir = target / "assets"
@@ -255,6 +256,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
             "plugin.json",
             ".codebuddy-plugin/plugin.json",
             "mcp_config.json",
+            ".mcp.json",
             "assets/logo.svg",
             "skills/deterministic-dev/SKILL.md",
             "rules/AGENTS.md",
