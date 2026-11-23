@@ -94,11 +94,11 @@
     <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2.5">
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
-          <span id="live-indicator" class="w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+          <span id="live-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
           <span class="font-bold text-sm tracking-tight">ADK 确定性研发流水线 · 全景监控驾驶舱</span>
         </div>
-        <span id="state-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-amber-500/20 text-amber-500 border border-amber-500/30">
-          RUNNING (工兵隔离施工中)
+        <span id="state-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+          STANDBY (待命静止 · 无活跃任务)
         </span>
       </div>
 
@@ -166,7 +166,7 @@
         <path id="pipe-gate-work" d="M 245 130 L 315 130" stroke="#f59e0b" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
         <path id="pipe-work-test" d="M 405 130 L 475 130" stroke="#8b5cf6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
         <path id="pipe-test-critic" d="M 565 130 L 635 130" stroke="#06b6d4" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-critic-mr" d="M 725 130 L 795 130" stroke="#10b981" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-green)" />
+        <path id="pipe-critic-mr" d="M 725 130 L 795 130" stroke="#10b981" stroke-width="3" class="hidden" marker-end="url(#arrow-green)" />
 
         <!-- Feedback Loop 1 (Top): TDD Failure Loopback to Worker -->
         <path d="M 520 85 C 520 30, 360 30, 360 85" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
@@ -385,16 +385,16 @@
               <span>💻</span> 实时流水线事件终端 (Live Log)
             </span>
             <span id="log-attempt-badge" class="text-[10px] font-mono text-[var(--muted-foreground,#64748b)]">
-              修复轮次: 0/3 · 状态: RUNNING
+              状态: STANDBY (静止待命)
             </span>
           </div>
           
           <div class="mt-2 font-mono text-[11px] space-y-1">
-            <div id="log-line-primary" class="font-semibold text-amber-500 break-words">
-              [Worker] 🔨 正在安全沙箱中编写业务逻辑代码与测试...
+            <div id="log-line-primary" class="font-semibold text-slate-500 break-words">
+              [System] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务
             </div>
             <div id="log-line-secondary" class="text-[11px] text-[var(--muted-foreground,#64748b)] break-words">
-              正在执行原子隔离 Worktree 变更，确保主工作区干净无污染
+              各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方按钮演练
             </div>
           </div>
         </div>
@@ -416,6 +416,14 @@
 
   <script>
     const STAGE_CONFIG = {
+      IDLE: {
+        nodeId: null,
+        badge: 'STANDBY (待命静止 · 无活跃任务)',
+        badgeClass: 'bg-slate-100 text-slate-500 border-slate-200',
+        activePipes: [],
+        log: '[System] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务',
+        details: '各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方按钮演练'
+      },
       SPEC: {
         nodeId: 'node-spec',
         badge: 'SPEC_LOCKED (蓝图契约已锁定)',
@@ -450,8 +458,8 @@
       },
       MR: {
         nodeId: 'node-mr',
-        badge: 'MR_READY (已交付 Forge 发布)',
-        badgeClass: 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30',
+        badge: 'MR_READY (已交付 Forge 发布 · 任务完成)',
+        badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
         activePipes: ['pipe-critic-mr'],
         log: '[MR] 🚀 验收与审查全部通过！已向 GitLab/GitHub 提交 PR/MR 并移除 Draft 标记',
         details: '代码已生成标准化 OKF 审计证明文件，随时可合入主线分支'
@@ -466,14 +474,14 @@
       }
     };
 
-    let currentStage = 'WORK';
+    let currentStage = 'IDLE';
     let autoPlayTimer = null;
     let sseSource = null;
     let currentRunId = null;
 
     function setStage(stageKey, customLog = null, customDetails = null) {
       currentStage = stageKey;
-      const conf = STAGE_CONFIG[stageKey] || STAGE_CONFIG.WORK;
+      const conf = STAGE_CONFIG[stageKey] || STAGE_CONFIG.IDLE;
 
       // 1. Reset all node highlight styles
       ['node-spec', 'node-work', 'node-test', 'node-critic', 'node-mr', 'node-escalate'].forEach(id => {
@@ -488,15 +496,17 @@
         }
       });
 
-      // 2. Highlight active node
-      const activeNode = document.getElementById(conf.nodeId);
-      if (activeNode) {
-        activeNode.classList.add('node-active');
-        const activeShape = activeNode.querySelector('rect') || activeNode.querySelector('circle');
-        if (activeShape) {
-          const strokeColor = stageKey === 'WORK' ? '#f59e0b' : (stageKey === 'MR' ? '#10b981' : (stageKey === 'ESCALATE' ? '#ef4444' : '#3b82f6'));
-          activeShape.setAttribute('stroke', strokeColor);
-          activeShape.setAttribute('stroke-width', '2.5');
+      // 2. Highlight active node (if applicable)
+      if (conf.nodeId) {
+        const activeNode = document.getElementById(conf.nodeId);
+        if (activeNode) {
+          activeNode.classList.add('node-active');
+          const activeShape = activeNode.querySelector('rect') || activeNode.querySelector('circle');
+          if (activeShape) {
+            const strokeColor = stageKey === 'WORK' ? '#f59e0b' : (stageKey === 'MR' ? '#10b981' : (stageKey === 'ESCALATE' ? '#ef4444' : '#3b82f6'));
+            activeShape.setAttribute('stroke', strokeColor);
+            activeShape.setAttribute('stroke-width', '2.5');
+          }
         }
       }
 
@@ -505,7 +515,7 @@
         const pipe = document.getElementById(id);
         if (pipe) pipe.classList.add('hidden');
       });
-      conf.activePipes.forEach(id => {
+      (conf.activePipes || []).forEach(id => {
         const pipe = document.getElementById(id);
         if (pipe) pipe.classList.remove('hidden');
       });
@@ -525,13 +535,14 @@
       const scanBeam = document.getElementById('svg-scan-beam');
       if (scanBeam) scanBeam.className.baseVal = stageKey === 'CRITIC' ? 'animate-scan' : 'hidden';
 
+      // Truck rests parked when MR is completed (no endless vibration)
       const truck = document.getElementById('svg-truck');
-      if (truck) truck.className.baseVal = stageKey === 'MR' ? 'animate-truck-run' : '';
+      if (truck) truck.className.baseVal = (autoPlayTimer && stageKey === 'MR') ? 'animate-truck-run' : '';
 
       const sirenRays = document.getElementById('svg-siren-rays');
       if (sirenRays) sirenRays.className.baseVal = stageKey === 'ESCALATE' ? 'animate-alarm-spin' : 'hidden';
 
-      // 5. Update Cockpit Badge
+      // 5. Update Cockpit Badge & Indicator
       const badge = document.getElementById('state-badge');
       if (badge) {
         badge.textContent = conf.badge;
@@ -540,9 +551,15 @@
 
       const liveInd = document.getElementById('live-indicator');
       if (liveInd) {
-        liveInd.className = stageKey === 'ESCALATE' 
-          ? 'w-3 h-3 rounded-full bg-rose-500 animate-ping'
-          : (stageKey === 'MR' ? 'w-3 h-3 rounded-full bg-emerald-500' : 'w-3 h-3 rounded-full bg-amber-500 animate-ping');
+        if (stageKey === 'IDLE') {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+        } else if (stageKey === 'ESCALATE') {
+          liveInd.className = 'w-3 h-3 rounded-full bg-rose-500 animate-ping';
+        } else if (stageKey === 'MR') {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+        } else {
+          liveInd.className = 'w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping';
+        }
       }
 
       // 6. Update Terminal Logs
@@ -587,6 +604,10 @@
 
     function mapStatusToStage(status) {
       switch ((status || '').toUpperCase()) {
+        case 'IDLE':
+        case 'STANDBY':
+        case '':
+          return 'IDLE';
         case 'SPEC_DRAFTING':
         case 'SPEC_LOCKED':
           return 'SPEC';
@@ -606,7 +627,7 @@
         case 'ABORTED':
           return 'ESCALATE';
         default:
-          return 'WORK';
+          return 'IDLE';
       }
     }
 
@@ -665,11 +686,25 @@
             handleLiveUpdate(data);
           } catch (e) {}
         };
+        sseSource.onerror = () => {
+          const liveInd = document.getElementById('live-indicator');
+          if (liveInd) liveInd.className = 'w-2.5 h-2.5 rounded-full bg-slate-300';
+        };
       } catch (e) {}
     }
 
     function handleLiveUpdate(run) {
-      if (!run || !run.status) return;
+      if (!run) return;
+      if (!run.status || run.status === 'IDLE') {
+        setStage('IDLE');
+        if (run.repo_name) {
+          const repoEl = document.getElementById('forge-repo');
+          if (repoEl) repoEl.textContent = run.repo_name;
+        }
+        const attemptBadge = document.getElementById('log-attempt-badge');
+        if (attemptBadge) attemptBadge.textContent = '状态: STANDBY (静止待命)';
+        return;
+      }
       const stage = mapStatusToStage(run.status);
       const log = run.last_log || run.last_error_log || null;
       setStage(stage, log);
@@ -779,8 +814,8 @@
       }
     });
 
-    // Default start
-    setStage('WORK');
+    // Default start in calm IDLE state
+    setStage('IDLE');
     initLiveConnection();
   </script>
 </body>
