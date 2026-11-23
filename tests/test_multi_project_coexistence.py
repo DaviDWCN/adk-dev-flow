@@ -81,12 +81,13 @@ class TestMultiProjectCoexistence(unittest.TestCase):
         """find_available_port must automatically find next available port when start_port is busy."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(("127.0.0.1", 8080))
+            sock.bind(("127.0.0.1", 0))
             sock.listen(1)
-            # Port 8080 is now occupied
-            avail_port = find_available_port(host="127.0.0.1", start_port=8080)
-            self.assertNotEqual(avail_port, 8080)
-            self.assertGreater(avail_port, 8080)
+            busy_port = sock.getsockname()[1]
+            # Busy port is now occupied
+            avail_port = find_available_port(host="127.0.0.1", start_port=busy_port)
+            self.assertNotEqual(avail_port, busy_port)
+            self.assertGreater(avail_port, busy_port)
         finally:
             sock.close()
 

@@ -10,6 +10,7 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
 1. **初始化或找回上下文**：
    - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`（自动自适应 GitLab / GitHub 平台并拉取 Issue）。
    - 若跨会话找回任务或存在多任务并发：调用 `flow_active_runs()` 查看所有活跃流水线，或调用 `flow_list()` 检索历史记录。
+   - 若因异常中断导致主工作区处于只读锁定：调用 `flow_unlock()` 安全解除锁定。
 2. **架构设计与 AST 影响面推导（设计阶段）**：
    - 调用 `flow_analyze_impact(target_paths=[...], include_skeletons=True)` 自动推导目标文件的爆炸半径、关联生产文件、受影响测试集以及上游调用点（callers），提取目标文件类型骨架。
    - 梳理详细架构设计、接口契约变更（函数/Pydantic/类签名）、原子任务分解 `tasks` 与最小安全白名单 `allowed_paths`。
@@ -37,5 +38,6 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
    - 若进入 `ESCALATED`（熔断）：向用户反馈失败根因，请用户选择：
      - **补充指令继续自愈**：调用 `flow_resume(run_id=..., instruction=...)` 在原 Worktree 中恢复运行；
      - **终止退出**：调用 `flow_abort(run_id=..., remove_worktree=...)` 解锁并清理；
+     - **安全解锁工作区**：若需要强制复位工作区，可调用 `flow_unlock(force=True)`；
      - **全局紧急中止**：若多任务出现异常，可调用 `flow_abort_all()` 一键强杀所有活跃流水线。
    - 若进入 `MR_READY`：系统已自动将 OKF 审查报告提交至分支 `.adk/audit/review_{run_id}.md`，并生成 GitLab / GitHub PR/MR。向用户展示 PR/MR 链接与审查建议，询问是否调用 `flow_finalize(run_id=..., remove_worktree=True)` 移除 Draft 标记并清理隔离工作区。
