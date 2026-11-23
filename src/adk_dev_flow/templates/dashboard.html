@@ -95,10 +95,10 @@
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2">
           <span id="live-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-          <span class="font-bold text-sm tracking-tight">ADK 确定性研发流水线 · 全景监控驾驶舱</span>
+          <span class="font-bold text-sm tracking-tight">ADK 确定性研发流水线 · 控制台</span>
         </div>
         <span id="state-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-          STANDBY (待命静止 · 无活跃任务)
+          STANDBY · 待命
         </span>
       </div>
 
@@ -117,10 +117,10 @@
         </div>
         <div class="flex items-center gap-1.5">
           <select id="run-selector" onchange="switchRun(this.value)" class="text-[11px] bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] rounded px-2 py-0.5 text-[var(--foreground,#0f172a)] font-mono">
-            <option value="">当前任务 (活跃)</option>
+            <option value="">当前任务</option>
           </select>
           <button onclick="toggleAutoPlay()" id="btn-autoplay" class="px-2.5 py-1 rounded bg-[var(--primary,#2563eb)] text-[var(--primary-foreground,#ffffff)] text-[11px] font-medium hover:opacity-90 transition shadow-sm">
-            ▶ 自动演练流水线
+            ▶ 演练流水线
           </button>
         </div>
       </div>
@@ -130,7 +130,7 @@
     <div class="px-3 py-2 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2 text-[11px]">
       <div class="flex items-center gap-1.5 font-bold text-slate-700">
         <span class="text-xs">🛡️</span>
-        <span>核心门禁与人工把关关卡:</span>
+        <span>核心门禁与审批关卡:</span>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span id="hitl-spec-pill" title="人工签字确认 (方案与测试审核)" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/30 flex items-center gap-1 transition-all">
@@ -502,28 +502,28 @@
       <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm space-y-2">
         <div class="flex items-center justify-between pb-1.5 border-b border-[var(--border,rgba(0,0,0,0.06))]">
           <span class="font-bold text-[12px] flex items-center gap-1.5">
-            <span>📑</span> 业务方案与安全作业范围
+            <span>📑</span> 规约契约与沙箱边界
           </span>
           <span id="tdd-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold">
-            测试验证: 已生效 (通过)
+            TDD RED: 已验证
           </span>
         </div>
 
         <div class="space-y-1.5 text-[11px] font-mono">
           <div class="flex justify-between items-center">
-            <span class="text-[var(--muted-foreground,#64748b)]">交付基准版本:</span>
+            <span class="text-[var(--muted-foreground,#64748b)]">基准分支:</span>
             <span id="spec-target" class="font-semibold text-[var(--foreground,#0f172a)]">main</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">允许修改范围:</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">修改白名单:</span>
             <span id="spec-allowed" class="font-semibold text-blue-500 truncate max-w-xs md:max-w-sm text-right" title="">src/adk_dev_flow</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">核心验收测试:</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">验收测试:</span>
             <span id="spec-test" class="font-semibold text-purple-500 truncate max-w-xs md:max-w-sm text-right" title="">tests/test_forge.py</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">独立隔离工位:</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">隔离沙箱:</span>
             <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-xs md:max-w-sm text-right font-semibold" title="">.adk/worktrees/c33c932</span>
           </div>
         </div>
@@ -532,16 +532,16 @@
         <div id="critic-verdict-box" class="hidden p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono space-y-1">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-700 flex items-center gap-1">
-              <span>🧐</span> 独立把关审查结论:
+              <span>🧐</span> 质量把关结论:
             </span>
-            <span id="critic-verdict-badge" class="px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600">PASSED</span>
+            <span id="critic-verdict-badge" class="px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600">通过 / PASSED</span>
           </div>
           <div id="critic-verdict-summary" class="text-[11px] text-slate-600 break-words leading-relaxed"></div>
           <div id="critic-blocking-issues" class="hidden text-rose-600 space-y-0.5 pt-1 border-t border-rose-100"></div>
         </div>
 
         <div class="p-2 rounded bg-[var(--background,#f8fafc)] border border-[var(--border,rgba(0,0,0,0.05))] text-[11px] text-[var(--muted-foreground,#64748b)]">
-          🔒 <strong>作业安全</strong>：受修改白名单与测试防篡改审计双重保护，超范围修改实时拦截。
+          🔒 白名单与测试防篡改双重审计，超范围修改即时拦截。
         </div>
       </div>
 
@@ -550,26 +550,26 @@
         <div>
           <div class="flex items-center justify-between pb-1.5 border-b border-[var(--border,rgba(0,0,0,0.06))]">
             <span class="font-bold text-[12px] flex items-center gap-1.5">
-              <span>💻</span> 流水线实时事件终端 (Live Log)
+              <span>💻</span> 实时事件终端 (Live Log)
             </span>
             <span id="log-attempt-badge" class="text-[10px] font-mono text-[var(--muted-foreground,#64748b)]">
-              状态: STANDBY (静止待命)
+              状态: 待命
             </span>
           </div>
           
           <div class="mt-2 font-mono text-[11px] space-y-1">
             <div id="log-line-primary" class="font-semibold text-slate-500 break-words">
-              [系统] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务
+              [系统] ☕ 流水线待命中，无活跃执行任务
             </div>
             <div id="log-line-secondary" class="text-[11px] text-[var(--muted-foreground,#64748b)] break-words">
-              各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方演练按钮直观体验完整工作流
+              可通过 flow_dispatch 派发新任务，或点击下方按钮演练全流程
             </div>
           </div>
         </div>
 
         <!-- Interactive Stage Simulation Buttons -->
         <div class="grid grid-cols-6 gap-1 pt-2 border-t border-[var(--border,rgba(0,0,0,0.06))] text-[10px]">
-          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">① 方案/测试 📐🧪</button>
+          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">① 方案/测试 📐</button>
           <button onclick="setStage('WORK')" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">⑤ 编码施工 🔨</button>
           <button onclick="setStage('TEST')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑥ 自动化测试 ⚙️</button>
           <button onclick="setStage('CRITIC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑦ 质量把关 🧐</button>
@@ -586,59 +586,59 @@
     const STAGE_CONFIG = {
       IDLE: {
         nodeId: null,
-        badge: 'STANDBY (待命静止 · 无活跃任务)',
+        badge: 'STANDBY · 待命',
         badgeClass: 'bg-slate-100 text-slate-500 border-slate-200',
         activePipes: [],
-        log: '[系统] ☕ 当前流水线处于静止待命状态，双轨各工位角色就绪',
-        details: '可通过 flow_dispatch 发起任务，或点击下方演练按钮直观感受业务方案域与物理确定性门禁域的协同运作'
+        log: '[系统] ☕ 流水线待命中，无活跃执行任务',
+        details: '可通过 flow_dispatch 派发新任务，或点击下方按钮演练全流程'
       },
       SPEC: {
         nodeId: 'node-spec',
-        badge: '① 方案/测试 · 待人工审批',
+        badge: '① 方案/测试 · 待审批',
         badgeClass: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
         activePipes: ['pipe-spec-gate'],
-        log: '[方案/测试] 📐 架构师定蓝图方案，QA编写验收测试，待 [关卡-1 人工签字] 盖章锁定',
-        details: '锁定的用例进入门禁-1盲测，必须证明测试能捕获未实现方可准入'
+        log: '[方案/测试] 📐 蓝图契约完成，验收测试就绪，待人工审批',
+        details: '用例进入门禁-1盲测，必须证明能捕获未实现方可准入'
       },
       WORK: {
         nodeId: 'node-work',
-        badge: '⑤ 编码施工 · 目标用例全绿',
+        badge: '⑤ 编码施工 · 目标全绿',
         badgeClass: 'bg-amber-500/20 text-amber-500 border-amber-500/30',
         activePipes: ['pipe-gate-work'],
-        log: '[编码施工] 🔨 工兵在独立隔离沙箱编码，严格限制在修改范围白名单内',
-        details: '受安全作业边界监控，超范围修改立即拦截，测试文件绝对禁止改动'
+        log: '[编码施工] 🔨 工兵在独立沙箱编写代码，白名单监控中',
+        details: '超范围修改即时拦截，测试文件禁止改动'
       },
       TEST: {
         nodeId: 'node-test',
         badge: '⑥ 自动化测试 · 跑道执行',
         badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
         activePipes: ['pipe-work-test'],
-        log: '[自动化测试] ⚙️ 机械化真机跑测：防篡改核验 + 全量用例回归测试',
-        details: '100% 确定性机器执行（无人工偏好）：未过逆向退回工兵修复；全通放行送把关'
+        log: '[自动化测试] ⚙️ 防篡改审计核验 + 全量用例真机跑测',
+        details: '确定性执行：未过退回工兵修复；全通放行送审'
       },
       CRITIC: {
         nodeId: 'node-critic',
         badge: '⑦ 质量把关 · 独立审查',
         badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
         activePipes: ['pipe-test-critic'],
-        log: '[质量把关] 🧐 独立审查员第三视角审查，排查架构设计隐患与规范漏洞',
-        details: '发现隐患退回工兵整改；审查合格准予进入成果交付'
+        log: '[质量把关] 🧐 第三视角审查代码结构与规范，排查隐患',
+        details: '发现隐患退回整改；通过准予交付'
       },
       MR: {
         nodeId: 'node-mr',
         badge: '⑧ 成果交付 · 任务竣工',
         badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
         activePipes: ['pipe-critic-mr'],
-        log: '[成果交付] 🚀 成果正式存入企业代码库，向远程自动发起合并申请 (PR/MR)',
-        details: '附带全套测试存证凭据，符合所有交付门禁要求，随时可安全合入'
+        log: '[成果交付] 🚀 成果安全存入代码库，自动发起 PR/MR',
+        details: '全套测试存证完备，符合交付准入规范'
       },
       ESCALATE: {
         nodeId: 'node-escalate',
-        badge: '⑨ 异常跳闸 · 停机保护',
+        badge: '⑨ 异常跳闸 · 熔断保护',
         badgeClass: 'bg-rose-500/20 text-rose-500 border-rose-500/30',
         activePipes: ['pipe-branch-escalate'],
-        log: '[异常跳闸] 🚨 连续3次测试未通或发生严重故障，安全开关自动跳闸停机，保护工作现场',
-        details: '主干代码完全不受污染，等待人工介入排查后一键安全复位流水线'
+        log: '[异常跳闸] 🚨 重试超限自动熔断停机，保护工作现场',
+        details: '主干零污染，等待人工排障复位'
       }
     };
 
@@ -817,10 +817,10 @@
       if (autoPlayTimer) {
         clearInterval(autoPlayTimer);
         autoPlayTimer = null;
-        if (btn) btn.textContent = '▶ 自动演练流水线';
+        if (btn) btn.textContent = '▶ 演练流水线';
         return;
       }
-      if (btn) btn.textContent = '⏸ 暂停演练';
+      if (btn) btn.textContent = '⏸ 暂停';
       
       // Simulate realistic cycle: Spec (Architect + QA) -> Work -> Test (Runner fail) -> Work (Retry) -> Test (Runner pass) -> Critic -> MR
       const sequence = [
@@ -945,7 +945,7 @@
           if (repoEl) repoEl.textContent = run.repo_name;
         }
         const attemptBadge = document.getElementById('log-attempt-badge');
-        if (attemptBadge) attemptBadge.textContent = '状态: STANDBY (静止待命)';
+        if (attemptBadge) attemptBadge.textContent = '状态: 待命';
         return;
       }
       const stage = mapStatusToStage(run.status);
@@ -1004,7 +1004,7 @@
       // Attempt / State Badge
       const attemptBadge = document.getElementById('log-attempt-badge');
       if (attemptBadge) {
-        attemptBadge.textContent = `修复轮次: ${run.attempt || 0}/3 · 状态: ${run.status}`;
+        attemptBadge.textContent = `修复: ${run.attempt || 0}/3 · 状态: ${run.status}`;
       }
 
       // Critic Verdict Display
@@ -1015,7 +1015,7 @@
           const isAppr = run.review.approved;
           const badge = document.getElementById('critic-verdict-badge');
           if (badge) {
-            badge.textContent = isAppr ? 'PASSED / 审查通过' : 'BLOCKED / 存在阻塞项';
+            badge.textContent = isAppr ? '通过 / PASSED' : '阻断 / BLOCKED';
             badge.className = isAppr 
               ? 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600'
               : 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-rose-500/20 text-rose-600';
@@ -1037,11 +1037,11 @@
           criticBox.classList.remove('hidden');
           const badge = document.getElementById('critic-verdict-badge');
           if (badge) {
-            badge.textContent = 'PASSED / 审查通过';
+            badge.textContent = '通过 / PASSED';
             badge.className = 'px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600';
           }
           const sumEl = document.getElementById('critic-verdict-summary');
-          if (sumEl) sumEl.textContent = 'Critic 盲审确认白名单合规且用例通过，准予交付';
+          if (sumEl) sumEl.textContent = 'Critic 审查确认白名单合规且用例通过，准予交付';
         }
       }
     }
