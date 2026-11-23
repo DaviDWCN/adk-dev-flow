@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import SpecContract
-from adk_dev_flow.state_store import StateStore
+from adk_dev_flow.state_store import PRE_LOCK_STATUSES, StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
 
@@ -95,21 +95,18 @@ class FlowService:
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
-        valid_draft_statuses = (
-            "SPEC_DRAFTING",
-            "SPEC_DESIGNED",
-            "TEST_GENERATED",
-            "PRE_CRITIC_REVIEWED",
-        )
         ok = self.store.transition_run(
             run_id,
-            expected_statuses=valid_draft_statuses,
+            expected_statuses=PRE_LOCK_STATUSES,
             new_status="SPEC_LOCKED",
             spec_json=spec.model_dump_json(),
         )
         if not ok:
             return {
-                "error": f"当前状态不可锁定 Spec（需处于起草或前置审查阶段 {valid_draft_statuses}，实际为 {run['status']}）"
+                "error": (
+                    "当前状态不可锁定 Spec"
+                    f"（需处于起草或前置审查阶段 {PRE_LOCK_STATUSES}，实际为 {run['status']}）"
+                )
             }
 
         ast_impact: dict[str, Any] | None = None
@@ -148,6 +145,30 @@ class FlowService:
             return cg.get_test_generation_context(target_paths)
         report = cg.analyze_impact(target_paths)
         return report.to_dict()
+
+    def _record_preflight_status(self, run_id: str) -> dict[str, Any]:
+        """Move a drafting run to TEST_GENERATED. Leave any later status untouched."""
+        run = self.store.get_run(run_id)
+        if not run:
+            return {
+                "status_updated": False,
+                "status_error": f"未知 run_id: {run_id}",
+            }
+        moved = self.store.transition_run(
+            run_id,
+            expected_statuses=PRE_LOCK_STATUSES,
+            new_status="TEST_GENERATED",
+        )
+        if moved:
+            return {"status_updated": True, "status": "TEST_GENERATED"}
+        return {
+            "status_updated": False,
+            "status": run["status"],
+            "status_error": (
+                f"预检通过，但运行处于 {run['status']}，未改写状态。"
+                "TEST_GENERATED 只允许从起草阶段进入。"
+            ),
+        }
 
     def flow_preflight_test(
         self, test_path: str, test_code: str, run_id: str | None = None
@@ -216,7 +237,7 @@ class FlowService:
                     "command": " ".join(cmd),
                 }
                 if run_id:
-                    self.store.update_run(run_id, status="TEST_GENERATED")
+                    evidence.update(self._record_preflight_status(run_id))
                 return evidence
             except RuntimeError as err:
                 return {

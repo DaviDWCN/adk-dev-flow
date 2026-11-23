@@ -40,6 +40,15 @@ LIFECYCLE_STEP: dict[RunStatus, int] = {
     "ABORTED": 0,
 }
 
+# Drafting statuses. Lock and the red preflight may enter from these.
+# A run that has left this set keeps its status.
+PRE_LOCK_STATUSES: tuple[RunStatus, ...] = (
+    "SPEC_DRAFTING",
+    "SPEC_DESIGNED",
+    "TEST_GENERATED",
+    "PRE_CRITIC_REVIEWED",
+)
+
 ACTIVE_STATUSES: tuple[str, ...] = (
     "SPEC_DRAFTING",
     "SPEC_DESIGNED",

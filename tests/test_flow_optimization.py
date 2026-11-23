@@ -171,6 +171,48 @@ def test_process_order():
         self.assertFalse(res_syntax["ok"])
         self.assertIn("语法", res_syntax["error"])
 
+    def test_preflight_does_not_rewrite_status_after_draft(self) -> None:
+        red_code = "def test_should_fail():\n    assert False\n"
+        path = "tests/test_status_red.py"
+
+        self.store.create_run("run-red")
+        drafted = self.service.flow_preflight_test(
+            test_path=path, test_code=red_code, run_id="run-red"
+        )
+        self.assertTrue(drafted["ok"])
+        self.assertTrue(drafted["status_updated"])
+        self.assertEqual(self.store.get_run("run-red")["status"], "TEST_GENERATED")
+
+        again = self.service.flow_preflight_test(
+            test_path=path, test_code=red_code, run_id="run-red"
+        )
+        self.assertTrue(again["status_updated"])
+        self.assertEqual(self.store.get_run("run-red")["status"], "TEST_GENERATED")
+
+        self.store.update_run("run-red", status="RUNNING")
+        busy = self.service.flow_preflight_test(
+            test_path=path, test_code=red_code, run_id="run-red"
+        )
+        self.assertTrue(busy["ok"])
+        self.assertFalse(busy["status_updated"])
+        self.assertEqual(busy["status"], "RUNNING")
+        self.assertEqual(self.store.get_run("run-red")["status"], "RUNNING")
+
+        self.store.update_run("run-red", status="SPEC_LOCKED")
+        locked = self.service.flow_preflight_test(
+            test_path=path, test_code=red_code, run_id="run-red"
+        )
+        self.assertTrue(locked["ok"])
+        self.assertFalse(locked["status_updated"])
+        self.assertEqual(self.store.get_run("run-red")["status"], "SPEC_LOCKED")
+
+        missing = self.service.flow_preflight_test(
+            test_path=path, test_code=red_code, run_id="missing-run"
+        )
+        self.assertTrue(missing["ok"])
+        self.assertFalse(missing["status_updated"])
+        self.assertIn("未知 run_id", missing["status_error"])
+
     def test_step8_deterministic_override_on_ast_violation(self) -> None:
         """Requirement 5: Deterministic fail-closed override: Critic AI cannot approve breaking AST changes."""
         from adk_dev_flow.workflow import enforce_deterministic_verdict_guard
