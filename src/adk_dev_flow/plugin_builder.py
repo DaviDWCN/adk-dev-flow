@@ -13,6 +13,43 @@ def get_default_gemini_plugins_dir() -> Path:
     return user_home / ".gemini" / "config" / "plugins"
 
 
+def get_codebuddy_marketplace_manifest_path(repo_root: Path) -> Path:
+    """Path of the local CodeBuddy marketplace manifest inside the repo."""
+    return repo_root.resolve() / ".codebuddy-plugin" / "marketplace.json"
+
+
+def write_codebuddy_marketplace_manifest(repo_root: Path, version: str) -> Path:
+    """Emit a local CodeBuddy marketplace manifest so `codebuddy plugin` can discover adk-dev-flow.
+
+    Mirrors the manifest format used by agent-harness-main:
+    .codebuddy-plugin/marketplace.json declaring the plugin bundle at ./plugin/adk-dev-flow.
+    """
+    root = repo_root.resolve()
+    manifest_path = get_codebuddy_marketplace_manifest_path(root)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "name": "adk-dev-flow-local",
+        "owner": {
+            "name": "David"
+        },
+        "description": "Local marketplace for the ADK Deterministic Dev Flow plugin",
+        "plugins": [
+            {
+                "name": "adk-dev-flow",
+                "source": "./plugin/adk-dev-flow",
+                "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 13 工具、AST 代码图谱影响面分析、TDD 红灯契约门禁、Git Worktree 隔离施工、独立 Critic 盲审与像素工坊实时看板。",
+                "version": version,
+            }
+        ],
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 def generate_logo_svg() -> str:
     """Generate a clean, modern SVG logo for adk-dev-flow plugin."""
     return """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
@@ -136,6 +173,15 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
 
+    # 1b. .codebuddy-plugin/plugin.json — CodeBuddy expects the manifest under
+    #     the .codebuddy-plugin/ subdirectory (mirrors agent-harness layout).
+    cb_manifest_dir = target / ".codebuddy-plugin"
+    cb_manifest_dir.mkdir(parents=True, exist_ok=True)
+    (cb_manifest_dir / "plugin.json").write_text(
+        json.dumps(plugin_json_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     # 2. mcp_config.json
     # Portable runner: use uv run with --directory pointing to the local repo root
     # or fallback to direct binary invocation if globally installed.
@@ -208,6 +254,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
         "version": version,
         "files_generated": [
             "plugin.json",
+            ".codebuddy-plugin/plugin.json",
             "mcp_config.json",
             "assets/logo.svg",
             "skills/deterministic-dev/SKILL.md",
@@ -218,10 +265,12 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
 
 
 def sync_plugin_all(repo_root: Path, install_global: bool = True) -> dict[str, Any]:
-    """Synchronize plugin files into the repo's plugin/ directory and ~/.gemini/config/plugins/adk-dev-flow."""
+    """Synchronize plugin files into the repo's plugin/ directory, ~/.gemini/config/plugins/adk-dev-flow, and the repo's CodeBuddy local marketplace manifest."""
     root = repo_root.resolve()
     repo_plugin_dir = root / "plugin" / "adk-dev-flow"
     repo_res = build_plugin_bundle(root, repo_plugin_dir)
+
+    manifest_path = write_codebuddy_marketplace_manifest(root, repo_res["version"])
 
     global_res = None
     if install_global:
@@ -231,6 +280,7 @@ def sync_plugin_all(repo_root: Path, install_global: bool = True) -> dict[str, A
     return {
         "repo_plugin": repo_res,
         "global_plugin": global_res,
+        "codebuddy_manifest": str(manifest_path),
     }
 
 
@@ -239,7 +289,7 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="adk-dev-flow-sync-plugin",
-        description="Build and synchronize adk-dev-flow plugin to repo and global ~/.gemini/config/plugins.",
+        description="Build and synchronize adk-dev-flow plugin to repo, global ~/.gemini/config/plugins, and the repo's CodeBuddy local marketplace.",
     )
     parser.add_argument(
         "--repo-root",
@@ -262,6 +312,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     print(f"📦 仓库内置插件路径: {res['repo_plugin']['target_dir']}")
     if res['global_plugin']:
         print(f"🌐 全局 Agent 插件路径: {res['global_plugin']['target_dir']}")
+    print(f"🧩 CodeBuddy marketplace 清单: {res['codebuddy_manifest']}")
+    print(f"   安装: codebuddy plugin marketplace add <repo-root> && codebuddy plugin install adk-dev-flow@adk-dev-flow-local")
     print(f"🏷️  版本: v{res['repo_plugin']['version']}")
     print("📑 生成组件:")
     for f in res['repo_plugin']['files_generated']:

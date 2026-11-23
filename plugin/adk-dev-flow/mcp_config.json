@@ -5,7 +5,7 @@
       "args": [
         "run",
         "--directory",
-        "D:/workspace/adk-dev-flow",
+        "D:/workbench/AgentHarness/adk-dev-flow",
         "adk-dev-flow"
       ],
       "env": {
