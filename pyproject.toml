@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "adk-dev-flow"
-version = "0.2.0"
+version = "0.2.1"
 description = "Deterministic AI-assisted Python development workflow powered by Google ADK, FastMCP, Git Worktrees, and GitLab."
 readme = "README.md"
 requires-python = ">=3.11"

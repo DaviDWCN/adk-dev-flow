@@ -183,18 +183,17 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     )
 
     # 2. mcp_config.json
-    # Portable runner: use uv run with --directory pointing to the local repo root
-    # or fallback to direct binary invocation if globally installed.
-    repo_posix = root.as_posix()
+    # Runner: `python -m adk_dev_flow.mcp_server` with the repo installed via
+    # `pip install -e <repo-root>`. This works with any system Python >= 3.11.
+    # (uv run was previously used, but is blocked by App Control policy on
+    # some machines - os error 4551 - so the plain interpreter is preferred.)
     mcp_config_data = {
         "mcpServers": {
             "adk-dev-flow": {
-                "command": "uv",
+                "command": "python",
                 "args": [
-                    "run",
-                    "--directory",
-                    repo_posix,
-                    "adk-dev-flow"
+                    "-m",
+                    "adk_dev_flow.mcp_server"
                 ],
                 "env": {
                     "PYTHONUNBUFFERED": "1"

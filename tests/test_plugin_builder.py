@@ -61,8 +61,14 @@ class TestPluginBuilder(unittest.TestCase):
             mcp_data = json.loads(mcp_json_file.read_text(encoding="utf-8"))
             self.assertIn("adk-dev-flow", mcp_data["mcpServers"])
             server_cfg = mcp_data["mcpServers"]["adk-dev-flow"]
-            self.assertEqual(server_cfg["command"], "uv")
-            self.assertIn("adk-dev-flow", server_cfg["args"])
+            self.assertEqual(server_cfg["command"], "python")
+            self.assertEqual(server_cfg["args"], ["-m", "adk_dev_flow.mcp_server"])
+
+            # 1b. .codebuddy-plugin/plugin.json (CodeBuddy manifest layout)
+            cb_manifest_file = target / ".codebuddy-plugin" / "plugin.json"
+            self.assertTrue(cb_manifest_file.is_file())
+            cb_data = json.loads(cb_manifest_file.read_text(encoding="utf-8"))
+            self.assertEqual(cb_data["name"], "adk-dev-flow")
 
             # 3. assets/logo.svg
             logo_file = target / "assets" / "logo.svg"
