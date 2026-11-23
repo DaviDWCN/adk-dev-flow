@@ -126,27 +126,27 @@
       </div>
     </div>
 
-    <!-- Determinism & HITL Security Guardrail Indicators -->
+    <!-- Determinism & Security Guardrail Indicators -->
     <div class="px-3 py-2 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm flex flex-wrap items-center justify-between gap-2 text-[11px]">
       <div class="flex items-center gap-1.5 font-bold text-slate-700">
         <span class="text-xs">🛡️</span>
-        <span>确定性物理门禁与人在回路 (HITL) 护栏:</span>
+        <span>工作流核心门禁与人工把关关卡:</span>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span id="hitl-spec-pill" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/30 flex items-center gap-1 transition-all">
-          <span>👤 HITL-1</span> <span>契约与用例签署确认</span>
+          <span>👤 关卡-1</span> <span>人工签字确认 (方案与考题审核)</span>
         </span>
         <span id="gate-tdd-pill" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/30 flex items-center gap-1 transition-all">
-          <span>🔒 门禁-1</span> <span>TDD真红灯物理阻断</span>
+          <span>🔒 门禁-1</span> <span>验证考题有效 (必须报错防假需求)</span>
         </span>
         <span id="gate-sandbox-pill" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/30 flex items-center gap-1 transition-all">
-          <span>🔒 门禁-2</span> <span>Worktree沙箱+OS白名单</span>
+          <span>🔒 门禁-2</span> <span>划分独立工位 (改动范围锁定防污染)</span>
         </span>
         <span id="gate-verify-pill" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-purple-500/10 text-purple-600 border border-purple-500/30 flex items-center gap-1 transition-all">
-          <span>🔒 门禁-3</span> <span>自动化验收跑道(纯机器)</span>
+          <span>🔒 门禁-3</span> <span>机器自动考评 (全套真题自动阅卷)</span>
         </span>
         <span id="hitl-escalate-pill" class="px-2 py-0.5 rounded-full font-mono text-[10px] bg-rose-500/10 text-rose-600 border border-rose-500/30 flex items-center gap-1 transition-all">
-          <span>👤 HITL-2</span> <span>熔断人工接管复位</span>
+          <span>👤 关卡-2</span> <span>异常跳闸保护 (人工介入排障复位)</span>
         </span>
       </div>
     </div>
@@ -154,78 +154,134 @@
     <!-- Center: Interactive Flowchart Canvas with Integrated Cartoon Workers -->
     <div class="relative w-full bg-gradient-to-b from-[var(--card,#ffffff)] to-[var(--background,#f8fafc)] rounded-xl border border-[var(--card-border,rgba(0,0,0,0.1))] p-3 shadow-inner overflow-hidden">
       
-      <!-- Flowchart SVG Topology Layer: Dual-Track (Upper: AI Probabilistic / Lower: Deterministic Physical Gates) -->
+      <!-- Flowchart SVG Topology Layer: Dual-Track (Upper: Business & Cognitive / Lower: Physical & Deterministic Gates) -->
       <svg id="topology-svg" viewBox="0 0 960 380" class="w-full h-auto select-none">
         <defs>
           <!-- Arrow Markers -->
-          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-blue-500" />
+          <marker id="arrow-gray" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#94a3b8" />
           </marker>
-          <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-emerald-500" />
+          <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#3b82f6" />
           </marker>
-          <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-amber-500" />
+          <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#10b981" />
           </marker>
-          <marker id="arrow-rose" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-rose-500" />
+          <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#f59e0b" />
           </marker>
-          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 8 5 L 0 9 z" fill="currentColor" class="text-cyan-500" />
+          <marker id="arrow-rose" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#ef4444" />
+          </marker>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#06b6d4" />
           </marker>
         </defs>
 
-        <!-- ================= TRACK 1: UPPER TRACK · AI PROBABILISTIC DOMAIN ================= -->
+        <!-- ================= TRACK 1: UPPER TRACK · 业务与方案域 ================= -->
         <rect x="15" y="24" width="930" height="134" rx="12" fill="var(--card,#ffffff)" stroke="#818cf8" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.95" />
         <!-- Track 1 Title Badge -->
-        <rect x="30" y="16" width="330" height="18" rx="9" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
-        <text x="195" y="28.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#3730a3">🤖 上轨 · AI 概率生成域 (思维起草 · 业务编码实现 · 语义盲审)</text>
+        <rect x="30" y="16" width="310" height="18" rx="9" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+        <text x="185" y="28.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#3730a3">🤖 上轨 · 业务与方案域 (动脑起草 · 业务编码 · 客观把关)</text>
 
-        <!-- Base Conduit Lines between Upper & Lower Tracks -->
-        <!-- Conduit 1: Spec (Architect & QA) -> HITL-1 -> Gate 1 -->
-        <path d="M 115 147 L 115 163 M 115 185 C 115 200, 100 200, 100 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <!-- Conduit 2: Gate 1/2 -> Work -->
-        <path d="M 175 288 L 190 288 M 272 218 C 272 170, 420 185, 420 147" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <!-- Conduit 3: Work -> Test Gate 3 -->
-        <path d="M 477 147 L 477 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <!-- Conduit 4: Test Gate 3 -> Critic -->
-        <path d="M 545 218 C 545 175, 740 185, 740 147" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <!-- Conduit 5: Critic -> Forge MR -->
-        <path d="M 787 147 C 787 185, 690 185, 690 218" stroke="currentColor" stroke-width="2.5" class="text-[var(--border,rgba(0,0,0,0.15))]" />
+        <!-- ================= TRACK 2: LOWER TRACK · 物理与确定性域 ================= -->
+        <rect x="15" y="198" width="930" height="168" rx="12" fill="var(--card,#ffffff)" stroke="#059669" stroke-width="1.5" />
+        <!-- Track 2 Title Badge -->
+        <rect x="30" y="189" width="375" height="18" rx="9" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+        <text x="217" y="201.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#065f46">🔒 下轨 · 物理与确定性域 (真机运行 · 独立工位 · 自动考评 · 正式交付)</text>
 
-        <!-- Dynamic Animated Forward Conduits -->
-        <path id="pipe-spec-gate" d="M 115 147 L 115 163 M 115 185 C 115 200, 100 200, 100 218" stroke="#3b82f6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-gate-work" d="M 272 218 C 272 170, 420 185, 420 147" stroke="#f59e0b" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
-        <path id="pipe-work-test" d="M 477 147 L 477 218" stroke="#8b5cf6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
-        <path id="pipe-test-critic" d="M 545 218 C 545 175, 740 185, 740 147" stroke="#06b6d4" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-cyan)" />
-        <path id="pipe-critic-mr" d="M 787 147 C 787 185, 690 185, 690 218" stroke="#10b981" stroke-width="3" class="hidden" marker-end="url(#arrow-green)" />
+        <!-- ================= WORKFLOW ORDERED CONDUITS (全部有序连线，无交叉无遮挡) ================= -->
+        <g id="flow-conduits">
+          <!-- 连线 1: ① 方案设计 -> ② 人工签字 (垂直直通下行) -->
+          <path d="M 115 147 L 115 161" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          
+          <!-- 连线 2: ② 人工签字 -> ③ 验证考题有效 (垂直直通入轨) -->
+          <path d="M 115 187 L 115 213" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-spec-gate" d="M 115 147 L 115 161 M 115 187 L 115 213" fill="none" stroke="#3b82f6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
 
-        <!-- Feedback Loop 1: TDD Failure Loopback (Gate 3 -> Worker) -->
-        <path d="M 435 218 C 405 180, 405 180, 435 147" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-loop-tdd" d="M 435 218 C 405 180, 405 180, 435 147" fill="none" stroke="#f59e0b" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" />
-        <text x="445" y="183" text-anchor="middle" font-size="8" font-weight="bold" fill="#f59e0b">
-          ↺ Pytest 报错堆栈逆向注入 · 自动自愈 (上限 3 轮)
-        </text>
+          <!-- 连线 3: ③ 验证有效 -> ④ 划分独立工位 (横向推进) -->
+          <path d="M 175 286 L 188 286" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          
+          <!-- 连线 4: ④ 划分独立工位 -> ⑤ 进场编码施工 (平滑上行入场) -->
+          <path d="M 265 215 C 265 170, 380 185, 380 149" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-gate-work" d="M 175 286 L 188 286 M 265 215 C 265 170, 380 185, 380 149" fill="none" stroke="#f59e0b" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-amber)" />
 
-        <!-- Feedback Loop 2: Critic Blocking Loopback (Critic -> Worker) -->
-        <path d="M 715 95 L 535 95" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-loop-critic" d="M 715 95 L 535 95" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-cyan)" />
-        <text x="625" y="88" text-anchor="middle" font-size="8" font-weight="bold" fill="#0891b2">
-          ↺ 盲审 Blocking 阻断 · 定向回退整改
-        </text>
+          <!-- 连线 5: ⑤ 进场施工 -> ⑥ 机器全自动考评 (成果送检垂直下行) -->
+          <path d="M 410 147 L 410 213" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-work-test" d="M 410 147 L 410 213" fill="none" stroke="#8b5cf6" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow)" />
 
-        <!-- Circuit Breaker Escalation Branch: Gate 3 -> Siren -->
-        <path d="M 585 288 L 795 288" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,4" class="text-[var(--border,rgba(0,0,0,0.15))]" />
-        <path id="pipe-branch-escalate" d="M 585 288 L 795 288" fill="none" stroke="#ef4444" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
-        <text x="690" y="280" text-anchor="middle" font-size="8" font-weight="bold" fill="#ef4444">
-          🚨 熔断硬停机 (超限/破坏性故障)
-        </text>
+          <!-- 回路 1 (失败退回): ⑥ 考评未做对 -> ⑤ 工兵重新修改 (平行垂直上行，限3次) -->
+          <path d="M 490 215 L 490 149" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-amber)" />
+          <path id="pipe-loop-tdd" d="M 490 215 L 490 149" fill="none" stroke="#f59e0b" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" />
 
-        <!-- Node 1: 蓝图与验收用例起草 (Architect & QA Tester) -->
+          <!-- 紧急跳闸支线: ⑥ 连续卡死/破坏 -> ⑨ 异常跳闸保护 (独立通道横向直连) -->
+          <path d="M 545 286 L 578 286" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="4,4" marker-end="url(#arrow-rose)" />
+          <path id="pipe-branch-escalate" d="M 545 286 L 578 286" fill="none" stroke="#ef4444" stroke-width="2.5" class="pipe-active hidden" marker-end="url(#arrow-rose)" />
+
+          <!-- 连线 6: ⑥ 考题全对 -> ⑦ 独立质量把关 (放行上行) -->
+          <path d="M 530 215 C 530 168, 770 185, 770 149" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-test-critic" d="M 530 215 C 530 168, 770 185, 770 149" fill="none" stroke="#06b6d4" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-cyan)" />
+
+          <!-- 回路 2 (把关退回): ⑦ 发现设计隐患 -> ⑤ 退回工兵整改 (上轨水平直连) -->
+          <path d="M 755 94 L 542 94" fill="none" stroke="#06b6d4" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-cyan)" />
+          <path id="pipe-loop-critic" d="M 755 94 L 542 94" fill="none" stroke="#06b6d4" stroke-width="2.5" class="pipe-loopback hidden" marker-end="url(#arrow-cyan)" />
+
+          <!-- 连线 7: ⑦ 把关合格 -> ⑧ 成果正式交付 (终点垂直直通下行) -->
+          <path d="M 845 147 L 845 213" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-critic-mr" d="M 845 147 L 845 213" fill="none" stroke="#10b981" stroke-width="3" class="hidden" marker-end="url(#arrow-green)" />
+        </g>
+
+        <!-- ================= FLOATING CONDUIT PILL BADGES (防文字遮挡背景徽章) ================= -->
+        <g id="conduit-badges">
+          <!-- 徽章: ④ -> ⑤ 工位就绪 -->
+          <g transform="translate(270, 171)">
+            <rect x="0" y="0" width="105" height="15" rx="7.5" fill="#ffffff" stroke="#f59e0b" stroke-width="0.8" opacity="0.95"/>
+            <text x="52.5" y="10.5" text-anchor="middle" font-size="7" font-weight="bold" fill="#d97706">工位就绪 · 进场施工 ➔</text>
+          </g>
+
+          <!-- 徽章: ⑤ -> ⑥ 送检 -->
+          <g transform="translate(391, 172)">
+            <rect x="0" y="0" width="38" height="15" rx="7.5" fill="#ffffff" stroke="#8b5cf6" stroke-width="0.8" opacity="0.95"/>
+            <text x="19" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#6d28d9">送检 ↓</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑤ 未过退回 -->
+          <g transform="translate(445, 172)">
+            <rect x="0" y="0" width="90" height="15" rx="7.5" fill="#ffffff" stroke="#f59e0b" stroke-width="0.8" opacity="0.95"/>
+            <text x="45" y="10.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#d97706">↺ 未全对退回 (限3次)</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑨ 紧急跳闸 -->
+          <g transform="translate(544, 268)">
+            <rect x="0" y="0" width="35" height="14" rx="7" fill="#fff1f2" stroke="#ef4444" stroke-width="0.8" opacity="0.95"/>
+            <text x="17.5" y="9.5" text-anchor="middle" font-size="6.5" font-weight="bold" fill="#ef4444">🚨 跳闸</text>
+          </g>
+
+          <!-- 徽章: ⑥ -> ⑦ 考题全对 -->
+          <g transform="translate(586, 170)">
+            <rect x="0" y="0" width="128" height="16" rx="8" fill="#ffffff" stroke="#06b6d4" stroke-width="0.8" opacity="0.95"/>
+            <text x="64" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#0891b2">✅ 考题全对 · 放行送把关 ➔</text>
+          </g>
+
+          <!-- 徽章: ⑦ -> ⑤ 发现隐患退回 -->
+          <g transform="translate(586, 86)">
+            <rect x="0" y="0" width="125" height="16" rx="8" fill="#ffffff" stroke="#06b6d4" stroke-width="0.8" opacity="0.95"/>
+            <text x="62.5" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#0891b2">↺ 发现设计隐患 · 退回工兵整改</text>
+          </g>
+
+          <!-- 徽章: ⑦ -> ⑧ 正式交付 -->
+          <g transform="translate(795, 172)">
+            <rect x="0" y="0" width="100" height="15" rx="7.5" fill="#ffffff" stroke="#10b981" stroke-width="0.8" opacity="0.95"/>
+            <text x="50" y="10.5" text-anchor="middle" font-size="7" font-weight="bold" fill="#059669">✅ 把关通过 · 正式交付 ↓</text>
+          </g>
+        </g>
+
+        <!-- ================= STAGES / MODULES (模块与工位) ================= -->
+        <!-- 模块 1: 方案设计与命题 (架构师 + QA 质检) -->
         <g id="node-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
           <rect x="25" y="42" width="180" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-blue-400" />
-          <text x="115" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#4f46e5">1. 蓝图与用例起草</text>
-          <text x="115" y="70" text-anchor="middle" font-size="7.5" fill="#64748b">契约规约制定 · QA 验收用例编写</text>
+          <text x="115" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#4f46e5">① 方案设计与命题</text>
+          <text x="115" y="70" text-anchor="middle" font-size="7.5" fill="#64748b">定业务方案 · 出验收考题</text>
           <!-- Architect Avatar (Left) -->
           <g transform="translate(48, 72)">
             <g id="svg-architect" class="">
@@ -238,7 +294,7 @@
               <rect x="23" y="24" width="4" height="12" rx="1" fill="#e0f2fe" transform="rotate(25 23 24)"/>
             </g>
           </g>
-          <!-- QA Tester Avatar (Right) - Shifted-Left QA Authoring Acceptance Tests -->
+          <!-- QA Tester Avatar (Right) -->
           <g transform="translate(132, 72)">
             <g id="svg-tester">
               <ellipse cx="20" cy="10" rx="8" ry="4" fill="#10b981"/>
@@ -251,22 +307,22 @@
               </g>
             </g>
           </g>
-          <text x="115" y="137" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4f46e5">蓝图架构师 📐 + QA 质检员 🧪</text>
+          <text x="115" y="137" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4f46e5">架构设计 📐 + 验收命题 🧪</text>
         </g>
 
-        <!-- Inter-Track Checkpoint: HITL-1 契约与用例签署确认 -->
+        <!-- 关卡 2: 人工签字确认 -->
         <g id="badge-hitl-spec" class="cursor-pointer transition-all duration-300" onclick="setStage('SPEC')">
-          <rect x="30" y="163" width="170" height="22" rx="11" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" filter="drop-shadow(0 1px 2px rgba(245,158,11,0.2))"/>
-          <text x="115" y="177" text-anchor="middle" font-size="8" font-weight="bold" fill="#b45309">👤 HITL-1 契约与用例签署确认 ✍️</text>
+          <rect x="25" y="163" width="180" height="24" rx="12" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" filter="drop-shadow(0 1px 2px rgba(245,158,11,0.2))"/>
+          <text x="115" y="178.5" text-anchor="middle" font-size="8" font-weight="bold" fill="#b45309">② 人工签字确认 ✍️ (方案与考题审核)</text>
         </g>
 
-        <!-- Node 2: AI 施工工兵 (Worker Builder) -->
+        <!-- 模块 5: 进场编码施工 (施工工兵) -->
         <g id="node-work" class="cursor-pointer transition-all duration-300" onclick="setStage('WORK')">
-          <rect x="375" y="42" width="160" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="#f59e0b" stroke-width="1.5" class="shadow-sm hover:stroke-amber-400" />
-          <text x="455" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#d97706">2. AI 施工工兵</text>
-          <text x="455" y="70" text-anchor="middle" font-size="8" fill="#64748b">白名单编码 · 堆栈自愈</text>
+          <rect x="365" y="42" width="175" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="#f59e0b" stroke-width="1.5" class="shadow-sm hover:stroke-amber-400" />
+          <text x="452" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#d97706">⑤ 进场编码施工</text>
+          <text x="452" y="70" text-anchor="middle" font-size="8" fill="#64748b">在工位写代码 · 设法解出考题</text>
           <!-- Builder Avatar -->
-          <g transform="translate(433, 72)">
+          <g transform="translate(430, 72)">
             <g id="svg-builder">
               <ellipse cx="22" cy="10" rx="9" ry="4" fill="#fbbf24"/>
               <path d="M14 10 Q22 4 30 10" fill="#f59e0b"/>
@@ -287,16 +343,16 @@
               <rect x="32" y="27" width="10" height="9" rx="1.5" fill="#38bdf8" opacity="0.9"/>
             </g>
           </g>
-          <text x="455" y="137" text-anchor="middle" font-size="9" font-weight="bold" fill="#d97706">施工工兵 🔨</text>
+          <text x="452" y="137" text-anchor="middle" font-size="9" font-weight="bold" fill="#d97706">施工工兵 🔨 (目标:考题全对)</text>
         </g>
 
-        <!-- Node 4: AI 独立 Critic (Critic) -->
+        <!-- 模块 7: 独立质量把关 (客观把关人) -->
         <g id="node-critic" class="cursor-pointer transition-all duration-300" onclick="setStage('CRITIC')">
-          <rect x="715" y="42" width="145" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-cyan-400" />
-          <text x="787" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#0891b2">4. AI 独立盲审</text>
-          <text x="787" y="70" text-anchor="middle" font-size="8" fill="#64748b">Fail-Closed 架构规范</text>
+          <rect x="755" y="42" width="180" height="105" rx="10" fill="var(--background,#f8fafc)" stroke="var(--card-border,rgba(0,0,0,0.1))" stroke-width="1.5" class="shadow-sm hover:stroke-cyan-400" />
+          <text x="845" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="#0891b2">⑦ 独立质量把关</text>
+          <text x="845" y="70" text-anchor="middle" font-size="8" fill="#64748b">第三视角盲审 · 严查设计隐患</text>
           <!-- Critic Avatar -->
-          <g transform="translate(767, 72)">
+          <g transform="translate(825, 72)">
             <g id="svg-critic">
               <ellipse cx="20" cy="9" rx="10" ry="3" fill="#475569"/>
               <rect x="14" y="5" width="12" height="5" fill="#334155"/>
@@ -314,111 +370,78 @@
               <line id="svg-scan-beam" x1="23" y1="20" x2="33" y2="30" stroke="#06b6d4" stroke-width="1.5" class="hidden animate-scan" />
             </g>
           </g>
-          <text x="787" y="137" text-anchor="middle" font-size="9" font-weight="600" fill="#0891b2">审查 Critic 🧐</text>
+          <text x="845" y="137" text-anchor="middle" font-size="9" font-weight="600" fill="#0891b2">独立把关人 🧐 (一票否决权)</text>
         </g>
 
-        <!-- ================= TRACK 2: LOWER TRACK · 100% DETERMINISTIC GATES ================= -->
-        <rect x="15" y="200" width="930" height="168" rx="12" fill="var(--card,#ffffff)" stroke="#059669" stroke-width="1.5" />
-        <!-- Track 2 Title Badge -->
-        <rect x="30" y="191" width="375" height="18" rx="9" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
-        <text x="217" y="203.5" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#065f46">🔒 下轨 · 100% 物理确定性门禁域 (真实退出码 · 物理沙箱 · SHA-256防篡改 · 真实Git发布)</text>
-
-        <!-- Gate 1: TDD 真实红灯门禁 (Physical Interception) -->
+        <!-- 门禁 3: 验证考题真实有效 -->
         <g id="gate-tdd-box" class="transition-all duration-300">
-          <rect x="25" y="218" width="150" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#3b82f6" stroke-width="1.5" class="shadow-sm" />
+          <rect x="25" y="215" width="150" height="142" rx="10" fill="var(--background,#f8fafc)" stroke="#3b82f6" stroke-width="1.5" class="shadow-sm" />
           <g id="badge-gate-tdd">
-            <rect x="32" y="226" width="136" height="16" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
-            <text x="100" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#1d4ed8">🔒 门禁 1: TDD 真实红灯预检</text>
+            <rect x="32" y="223" width="136" height="16" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
+            <text x="100" y="234.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#1d4ed8">🔒 ③ 验证考题有效</text>
           </g>
-          <text x="100" y="258" text-anchor="middle" font-size="8" font-mono font-semibold fill="#334155">pytest [locked_test]</text>
-          <text x="100" y="274" text-anchor="middle" font-size="8" font-semibold fill="#dc2626">真实退出码 Exit ≠ 0</text>
-          <path d="M 85 285 L 115 285 M 100 280 L 100 295" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>
-          <text x="100" y="308" text-anchor="middle" font-size="7.5" fill="#ef4444">物理阻断：全绿则熔断拒绝</text>
-          <text x="100" y="322" text-anchor="middle" font-size="7.5" fill="#64748b">严防无意义/伪需求测试</text>
-          <text x="100" y="345" text-anchor="middle" font-size="8" font-weight="bold" fill="#2563eb">100% 机器硬性阻断生效</text>
+          <text x="100" y="255" text-anchor="middle" font-size="8" font-semibold fill="#334155">开工前预跑验收考题</text>
+          <text x="100" y="271" text-anchor="middle" font-size="8" font-semibold fill="#dc2626">当前必须报错不通过</text>
+          <path d="M 85 282 L 115 282 M 100 277 L 100 292" stroke="#dc2626" stroke-width="2" stroke-linecap="round"/>
+          <text x="100" y="305" text-anchor="middle" font-size="7.5" fill="#ef4444">物理拦截：杜绝假需求空题</text>
+          <text x="100" y="319" text-anchor="middle" font-size="7.5" fill="#64748b">必须证明考题能抓出未实现</text>
+          <text x="100" y="342" text-anchor="middle" font-size="8" font-weight="bold" fill="#2563eb">100% 确定性准入门槛</text>
         </g>
 
-        <!-- Gate 2: Worktree 物理沙箱 & Guard Hook -->
+        <!-- 门禁 4: 划分独立工位 -->
         <g id="node-gate" class="transition-all duration-300">
-          <rect x="190" y="218" width="165" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#6366f1" stroke-width="1.5" class="shadow-sm" />
+          <rect x="190" y="215" width="150" height="142" rx="10" fill="var(--background,#f8fafc)" stroke="#6366f1" stroke-width="1.5" class="shadow-sm" />
           <g id="badge-gate-sandbox">
-            <rect x="200" y="226" width="145" height="16" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
-            <text x="272" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#4338ca">🔒 门禁 2: Worktree 物理隔离</text>
+            <rect x="198" y="223" width="134" height="16" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1"/>
+            <text x="265" y="234.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#4338ca">🔒 ④ 划分独立工位</text>
           </g>
           <!-- Git Branch & Security Lock Graphic -->
-          <circle cx="272" cy="268" r="18" fill="var(--card,#ffffff)" stroke="#6366f1" stroke-width="1.2"/>
-          <path d="M 268 258 L 268 276 M 268 263 C 273 263, 280 263, 280 271" stroke="#6366f1" stroke-width="2.2" fill="none" stroke-linecap="round" />
-          <circle cx="268" cy="258" r="2.5" fill="#6366f1" />
-          <circle cx="268" cy="276" r="2.5" fill="#6366f1" />
-          <circle cx="280" cy="271" r="2.5" fill="#10b981" />
-          <text x="272" y="300" text-anchor="middle" font-size="8" font-medium fill="#475569">CodeBuddy Guard Hook</text>
-          <text x="272" y="315" text-anchor="middle" font-size="8" font-semibold fill="#b45309">白名单外写操作 403 阻断</text>
-          <text x="272" y="330" text-anchor="middle" font-size="7.5" fill="#64748b">独立沙箱分支 · 零主干污染</text>
-          <text x="272" y="347" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4338ca">OS 白名单物理锁死</text>
+          <circle cx="265" cy="265" r="17" fill="var(--card,#ffffff)" stroke="#6366f1" stroke-width="1.2"/>
+          <path d="M 261 255 L 261 273 M 261 260 C 266 260, 273 260, 273 268" stroke="#6366f1" stroke-width="2.2" fill="none" stroke-linecap="round" />
+          <circle cx="261" cy="255" r="2.5" fill="#6366f1" />
+          <circle cx="261" cy="273" r="2.5" fill="#6366f1" />
+          <circle cx="273" cy="268" r="2.5" fill="#10b981" />
+          <text x="265" y="297" text-anchor="middle" font-size="8" font-medium fill="#475569">划定允许改动的文件范围</text>
+          <text x="265" y="312" text-anchor="middle" font-size="8" font-semibold fill="#b45309">超范围修改直接权限拦截</text>
+          <text x="265" y="327" text-anchor="middle" font-size="7.5" fill="#64748b">专属独立开发区 · 绝不污染主干</text>
+          <text x="265" y="344" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#4338ca">安全作业边界锁定</text>
         </g>
 
-        <!-- Gate 3: 自动化验收跑道 (Automated Verification Runner) - Pure Machine, No QA/AI inside -->
+        <!-- 门禁 6: 机器全自动考评跑道 -->
         <g id="node-test" class="cursor-pointer transition-all duration-300" onclick="setStage('TEST')">
-          <rect x="370" y="218" width="215" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#8b5cf6" stroke-width="1.5" class="shadow-sm hover:stroke-purple-400" />
+          <rect x="355" y="215" width="190" height="142" rx="10" fill="var(--background,#f8fafc)" stroke="#8b5cf6" stroke-width="1.5" class="shadow-sm hover:stroke-purple-400" />
           <g id="badge-gate-verify">
-            <rect x="382" y="226" width="190" height="16" rx="8" fill="#faf5ff" stroke="#8b5cf6" stroke-width="1"/>
-            <text x="477" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#6d28d9">🔒 门禁 3: 自动化验收跑道</text>
+            <rect x="365" y="223" width="170" height="16" rx="8" fill="#faf5ff" stroke="#8b5cf6" stroke-width="1"/>
+            <text x="450" y="234.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#6d28d9">🔒 ⑥ 机器全自动考评</text>
           </g>
-          <!-- Automated Test Console / Runner Graphic -->
-          <g transform="translate(382, 252)">
-            <!-- Terminal Console Box -->
-            <rect x="0" y="0" width="72" height="54" rx="4" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+          <!-- Automated Test Console Graphic -->
+          <g transform="translate(362, 248)">
+            <rect x="0" y="0" width="62" height="52" rx="4" fill="#1e293b" stroke="#334155" stroke-width="1"/>
             <circle cx="6" cy="6" r="2" fill="#ef4444"/>
             <circle cx="12" cy="6" r="2" fill="#f59e0b"/>
             <circle cx="18" cy="6" r="2" fill="#10b981"/>
-            <!-- Terminal Text -->
-            <text x="6" y="18" font-size="5.5" font-mono fill="#94a3b8">$ pytest</text>
-            <text x="6" y="27" font-size="5.5" font-mono fill="#38bdf8">-q tests</text>
-            <!-- Status Badge on Screen -->
-            <rect x="4" y="33" width="64" height="15" rx="2" fill="#0f172a"/>
-            <text x="8" y="44" font-size="6" font-mono font-bold fill="#10b981">✓ EXIT: 0</text>
-            <!-- Animated Runner Gear or Status Wave -->
-            <g id="svg-runner-gears" transform="translate(58, 41)" class="">
+            <text x="6" y="17" font-size="5.5" font-mono fill="#94a3b8">$ 自动阅卷</text>
+            <text x="6" y="26" font-size="5.5" font-mono fill="#38bdf8">- 全套验收题</text>
+            <rect x="4" y="32" width="54" height="15" rx="2" fill="#0f172a"/>
+            <text x="7" y="43" font-size="6" font-mono font-bold fill="#10b981">✓ 全对通过</text>
+            <g id="svg-runner-gears" transform="translate(48, 40)" class="">
               <circle cx="0" cy="0" r="4" stroke="#8b5cf6" stroke-width="1.5" fill="none" stroke-dasharray="2,2"/>
               <circle cx="0" cy="0" r="1.5" fill="#8b5cf6"/>
             </g>
           </g>
-          <text x="466" y="258" font-size="7.5" font-mono font-semibold fill="#334155">① SHA-256 校验 (用例防篡改)</text>
-          <text x="466" y="272" font-size="7.5" fill="#475569">② AST 语法树无破坏检查</text>
-          <text x="466" y="286" font-size="7.5" font-semibold fill="#10b981">③ pytest 进程执行 QA 用例</text>
-          <text x="466" y="304" font-size="7" fill="#ef4444" font-weight="bold">❌ 未过: 逆向注入 Traceback</text>
-          <text x="466" y="318" font-size="7" fill="#10b981" font-weight="bold">✅ 全绿: 100% 物理放行盲审</text>
-          <text x="477" y="347" text-anchor="middle" font-size="8" font-weight="bold" fill="#8b5cf6">自动化验收跑道 ⚙️ (无感纯机器运行 · 无人值守)</text>
+          <text x="432" y="256" font-size="7.5" font-semibold fill="#334155">① 核验考卷未被修改 (防作弊)</text>
+          <text x="432" y="270" font-size="7.5" fill="#475569">② 检查未破坏既有老功能</text>
+          <text x="432" y="284" font-size="7.5" font-semibold fill="#10b981">③ 全套题目真机全自动测试</text>
+          <text x="432" y="302" font-size="7" fill="#ef4444" font-weight="bold">❌ 未做对: 逆向退回工兵重做</text>
+          <text x="432" y="316" font-size="7" fill="#10b981" font-weight="bold">✅ 全部做对: 放行送交独立把关</text>
+          <text x="450" y="344" text-anchor="middle" font-size="8" font-weight="bold" fill="#8b5cf6">全自动考评跑道 ⚙️ (无人工/无AI)</text>
         </g>
 
-        <!-- Gate 4: Forge 物理交付站 (Truck) -->
-        <g id="node-mr" class="cursor-pointer transition-all duration-300" onclick="setStage('MR')">
-          <rect x="600" y="218" width="180" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#10b981" stroke-width="1.5" class="shadow-sm hover:stroke-emerald-400" />
-          <g id="badge-gate-evidence">
-            <rect x="612" y="226" width="156" height="16" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
-            <text x="690" y="237.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">🔒 门禁 4: Forge 真实交付</text>
-          </g>
-          <!-- Truck Avatar -->
-          <g transform="translate(665, 252)">
-            <g id="svg-truck" class="">
-              <rect x="6" y="14" width="16" height="16" rx="2" fill="#6366f1"/>
-              <rect x="8" y="16" width="6" height="6" rx="1" fill="#c7d2fe"/>
-              <rect x="22" y="19" width="20" height="11" rx="1" fill="#4338ca"/>
-              <rect x="25" y="10" width="14" height="10" rx="1.5" fill="#fbbf24" stroke="#d97706" stroke-width="1"/>
-              <circle cx="12" cy="30" r="4" fill="#1e293b"/>
-              <circle cx="36" cy="30" r="4" fill="#1e293b"/>
-            </g>
-          </g>
-          <text x="690" y="306" text-anchor="middle" font-size="8" fill="#475569">真实 Git Commit & Push 远程库</text>
-          <text x="690" y="320" text-anchor="middle" font-size="8" fill="#475569">GitLab / GitHub MR 证据存证发布</text>
-          <text x="690" y="347" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#10b981">Forge 交付站 🚀 (任务竣工发布)</text>
-        </g>
-
-        <!-- Gate 5: 物理断路器与人类介入操纵台 (Siren & HITL-2) -->
+        <!-- 门禁 9: 异常跳闸与人工接管 (直连跳闸支线) -->
         <g id="node-escalate" class="cursor-pointer transition-all duration-300" onclick="setStage('ESCALATE')">
-          <rect x="795" y="218" width="145" height="140" rx="10" fill="var(--background,#f8fafc)" stroke="#ef4444" stroke-width="1.5" class="shadow-sm hover:stroke-rose-400" />
+          <rect x="580" y="215" width="145" height="142" rx="10" fill="var(--background,#f8fafc)" stroke="#ef4444" stroke-width="1.5" class="shadow-sm hover:stroke-rose-400" />
           <!-- Siren Icon -->
-          <g id="svg-siren" transform="translate(845, 232)">
+          <g id="svg-siren" transform="translate(632, 228)">
             <rect x="12" y="24" width="16" height="8" rx="2" fill="#475569"/>
             <path d="M14 24 C14 15, 26 15, 26 24 Z" fill="#ef4444" id="svg-siren-dome"/>
             <g transform="translate(20, 18)">
@@ -429,48 +452,71 @@
               </g>
             </g>
           </g>
-          <text x="867" y="278" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ef4444">🚨 物理断路器停机</text>
-          <text x="867" y="292" text-anchor="middle" font-size="7.5" fill="#64748b">超出 3 轮 / 破坏性故障</text>
+          <text x="652" y="274" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ef4444">🚨 ⑨ 异常跳闸保护</text>
+          <text x="652" y="288" text-anchor="middle" font-size="7.5" fill="#64748b">3次未过/严重故障跳闸</text>
           <!-- HITL-2 Manual Recovery Badge next to Siren -->
           <g id="badge-hitl-escalate" class="transition-all duration-300">
-            <rect x="805" y="306" width="125" height="20" rx="10" fill="#fff1f2" stroke="#ef4444" stroke-width="1.2"/>
-            <text x="867" y="319.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#be123c">👤 HITL-2 人类接管台</text>
+            <rect x="588" y="302" width="128" height="20" rx="10" fill="#fff1f2" stroke="#ef4444" stroke-width="1.2"/>
+            <text x="652" y="315.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#be123c">👤 人工接管恢复台</text>
           </g>
-          <text x="867" y="347" text-anchor="middle" font-size="7.5" font-mono font-bold fill="#ef4444">flow_resume(instruction=...)</text>
+          <text x="652" y="344" text-anchor="middle" font-size="7.5" font-mono font-bold fill="#ef4444">一键安全复位流水线</text>
+        </g>
+
+        <!-- 门禁 8: 成果正式归档交付 (位于 ⑦ 正下方，垂直交付) -->
+        <g id="node-mr" class="cursor-pointer transition-all duration-300" onclick="setStage('MR')">
+          <rect x="755" y="215" width="180" height="142" rx="10" fill="var(--background,#f8fafc)" stroke="#10b981" stroke-width="1.5" class="shadow-sm hover:stroke-emerald-400" />
+          <g id="badge-gate-evidence">
+            <rect x="767" y="223" width="156" height="16" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+            <text x="845" y="234.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">🔒 ⑧ 成果正式交付</text>
+          </g>
+          <!-- Truck Avatar -->
+          <g transform="translate(820, 248)">
+            <g id="svg-truck" class="">
+              <rect x="6" y="14" width="16" height="16" rx="2" fill="#6366f1"/>
+              <rect x="8" y="16" width="6" height="6" rx="1" fill="#c7d2fe"/>
+              <rect x="22" y="19" width="20" height="11" rx="1" fill="#4338ca"/>
+              <rect x="25" y="10" width="14" height="10" rx="1.5" fill="#fbbf24" stroke="#d97706" stroke-width="1"/>
+              <circle cx="12" cy="30" r="4" fill="#1e293b"/>
+              <circle cx="36" cy="30" r="4" fill="#1e293b"/>
+            </g>
+          </g>
+          <text x="845" y="302" text-anchor="middle" font-size="8" fill="#475569">成果正式存入企业代码库</text>
+          <text x="845" y="316" text-anchor="middle" font-size="8" fill="#475569">自动发起合并申请 (PR/MR)</text>
+          <text x="845" y="344" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#10b981">交付发布 🚀 (任务竣工归档)</text>
         </g>
 
       </svg>
     </div>
 
-    <!-- Bottom Split: Spec Contract & Boundary Whitelist + Real-time Terminal Log Stream -->
+    <!-- Bottom Split: Business Contract & Boundary Whitelist + Real-time Terminal Log Stream -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
       
-      <!-- Panel Left: OKF Spec Contract & Worktree Boundary Status -->
+      <!-- Panel Left: Business Spec Contract & Worktree Boundary Status -->
       <div class="p-3 rounded-xl bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] shadow-sm space-y-2">
         <div class="flex items-center justify-between pb-1.5 border-b border-[var(--border,rgba(0,0,0,0.06))]">
           <span class="font-bold text-[12px] flex items-center gap-1.5">
-            <span>📑</span> OKF 契约与安全隔离边界
+            <span>📑</span> 业务方案与安全作业范围
           </span>
           <span id="tdd-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-600 font-semibold">
-            TDD RED: PASSED
+            考题验证: 已生效 (通过)
           </span>
         </div>
 
         <div class="space-y-1.5 text-[11px] font-mono">
           <div class="flex justify-between items-center">
-            <span class="text-[var(--muted-foreground,#64748b)]">目标基准分支:</span>
+            <span class="text-[var(--muted-foreground,#64748b)]">交付基准版本:</span>
             <span id="spec-target" class="font-semibold text-[var(--foreground,#0f172a)]">main</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">白名单 (allowed_paths):</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">允许修改范围:</span>
             <span id="spec-allowed" class="font-semibold text-blue-500 truncate max-w-xs md:max-w-sm text-right" title="">src/adk_dev_flow</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">验收测试 (locked_test):</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">核心验收考题:</span>
             <span id="spec-test" class="font-semibold text-purple-500 truncate max-w-xs md:max-w-sm text-right" title="">tests/test_forge.py</span>
           </div>
           <div class="flex justify-between items-center gap-2">
-            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">物理隔离沙箱 (worktree):</span>
+            <span class="text-[var(--muted-foreground,#64748b)] whitespace-nowrap">独立隔离工位:</span>
             <span id="spec-worktree" class="text-[var(--muted-foreground,#64748b)] truncate max-w-xs md:max-w-sm text-right font-semibold" title="">.adk/worktrees/c33c932</span>
           </div>
         </div>
@@ -479,7 +525,7 @@
         <div id="critic-verdict-box" class="hidden p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono space-y-1">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-700 flex items-center gap-1">
-              <span>🧐</span> Critic 审查结论:
+              <span>🧐</span> 独立把关审查结论:
             </span>
             <span id="critic-verdict-badge" class="px-1.5 py-0.5 rounded font-semibold text-[10px] bg-emerald-500/20 text-emerald-600">PASSED</span>
           </div>
@@ -488,7 +534,7 @@
         </div>
 
         <div class="p-2 rounded bg-[var(--background,#f8fafc)] border border-[var(--border,rgba(0,0,0,0.05))] text-[11px] text-[var(--muted-foreground,#64748b)]">
-          🔒 <strong>不可绕过防御</strong>：工作区受 CodeBuddy Guard Hook 与物理 SHA-256 审计双重防护，任何尝试篡改测试或跳出白名单的写操作均会被瞬时熔断。
+          🔒 <strong>严密防线</strong>：作业区受修改范围白名单与考题防篡改审计双重保护，任何超范围修改或改动考题的操作均会被实时拦截。
         </div>
       </div>
 
@@ -506,22 +552,22 @@
           
           <div class="mt-2 font-mono text-[11px] space-y-1">
             <div id="log-line-primary" class="font-semibold text-slate-500 break-words">
-              [System] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务
+              [系统] ☕ 当前流水线处于静止待命状态，无正在执行的工单任务
             </div>
             <div id="log-line-secondary" class="text-[11px] text-[var(--muted-foreground,#64748b)] break-words">
-              各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方按钮演练
+              各工位角色就绪，可通过 flow_dispatch 发起新的功能规约交付，或点击下方演练按钮直观体验完整工作流
             </div>
           </div>
         </div>
 
         <!-- Interactive Stage Simulation Buttons -->
         <div class="grid grid-cols-6 gap-1 pt-2 border-t border-[var(--border,rgba(0,0,0,0.06))] text-[10px]">
-          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">1. 蓝图/用例起草 📐🧪</button>
-          <button onclick="setStage('WORK')" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">2. 工兵编码 🔨</button>
-          <button onclick="setStage('TEST')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">3. 自动化验收 ⚙️</button>
-          <button onclick="setStage('CRITIC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">4. 审查质检 🧐</button>
-          <button onclick="setStage('MR')" class="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 transition text-center truncate font-medium">5. MR 交付 🚀</button>
-          <button onclick="setStage('ESCALATE')" class="p-1 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">6. 熔断警报 🚨</button>
+          <button onclick="setStage('SPEC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">① 方案与命题 📐🧪</button>
+          <button onclick="setStage('WORK')" class="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 transition text-center truncate font-medium">⑤ 进场施工 🔨</button>
+          <button onclick="setStage('TEST')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑥ 机器考评 ⚙️</button>
+          <button onclick="setStage('CRITIC')" class="p-1 rounded bg-[var(--card,#ffffff)] border border-[var(--card-border,rgba(0,0,0,0.1))] hover:bg-[var(--border,rgba(0,0,0,0.05))] transition text-center truncate">⑦ 质量把关 🧐</button>
+          <button onclick="setStage('MR')" class="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/20 transition text-center truncate font-medium">⑧ 成果交付 🚀</button>
+          <button onclick="setStage('ESCALATE')" class="p-1 rounded bg-rose-500/10 border border-rose-500/30 text-rose-500 hover:bg-rose-500/20 transition text-center truncate font-medium">⑨ 异常跳闸 🚨</button>
         </div>
       </div>
 
@@ -536,56 +582,56 @@
         badge: 'STANDBY (待命静止 · 无活跃任务)',
         badgeClass: 'bg-slate-100 text-slate-500 border-slate-200',
         activePipes: [],
-        log: '[System] ☕ 当前流水线处于静止待命状态，双轨架构各角色就绪',
-        details: '可通过 flow_dispatch 发起任务，或点击下方演练按钮直观感受 AI 生成域与物理确定性门禁域的协同运作'
+        log: '[系统] ☕ 当前流水线处于静止待命状态，双轨各工位角色就绪',
+        details: '可通过 flow_dispatch 发起任务，或点击下方演练按钮直观感受业务方案域与物理确定性门禁域的协同运作'
       },
       SPEC: {
         nodeId: 'node-spec',
-        badge: 'SPEC_DRAFTING (蓝图与用例协同起草中 · 待确认)',
+        badge: '① 方案设计与命题中 · 待签字确认',
         badgeClass: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
         activePipes: ['pipe-spec-gate'],
-        log: '[Architect & QA] 📐 架构师与 QA 质检员协同起草：制定接口契约并编写验收测试集，经 [👤 HITL-1 契约签署确认] 冻结',
-        details: '锁定的用例将进入下轨门禁 1 执行真实红灯预检，必须 Exit Code != 0 方可放行'
+        log: '[方案与命题] 📐 架构师定业务方案，质检员编写验收考卷，等待 [关卡-1 人工签字确认] 盖章锁定',
+        details: '锁定的考卷进入门禁-1执行真实有效性盲测，必须证明考题能抓出未实现方可准入'
       },
       WORK: {
         nodeId: 'node-work',
-        badge: 'RUNNING (AI 工兵沙箱施工中...)',
+        badge: '⑤ 进场编码施工中 · 设法解题',
         badgeClass: 'bg-amber-500/20 text-amber-500 border-amber-500/30',
         activePipes: ['pipe-gate-work'],
-        log: '[Worker] 🔨 AI 工兵在 Worktree 物理隔离沙箱内编写业务代码，严格受限于白名单',
-        details: '受操作系统级 Guard Hook 物理监控，越界写入直接 403 阻断，测试文件禁止篡改'
+        log: '[工兵施工] 🔨 施工工兵在专属独立工位编写代码，严格限制在指定改动范围白名单内',
+        details: '受安全作业边界监控，超范围修改立即拦截，考卷文件绝对禁止改动'
       },
       TEST: {
         nodeId: 'node-test',
-        badge: 'VERIFYING (纯机器自动化跑道检验中)',
+        badge: '⑥ 机器全自动考评中 · 自动阅卷',
         badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
         activePipes: ['pipe-work-test'],
-        log: '[Runner] ⚙️ 自动化验收跑道机械化执行：SHA-256 校验用例未改 + 原生 pytest 执行 QA 锁定的用例',
-        details: '100% 物理确定性机器执行（无QA/AI介入）：失败则将 Traceback 逆向抛回工兵自愈；全绿通过则放行至独立盲审'
+        log: '[机器考评] ⚙️ 考评跑道纯机械化执行：核验考卷未被修改 + 全套验收考题真机自动化测试',
+        details: '100% 确定性机器执行（无人工/无AI偏好）：未全对则逆向退回工兵重做；全对放行送交独立把关'
       },
       CRITIC: {
         nodeId: 'node-critic',
-        badge: 'REVIEWING (AI 独立 Critic 架构盲审)',
+        badge: '⑦ 独立质量把关中 · 第三视角审查',
         badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
         activePipes: ['pipe-test-critic'],
-        log: '[Critic] 🧐 AI 独立审查员在干净沙箱进行 Fail-Closed 盲审，扫描潜在坏味道与越界',
-        details: '若发现阻塞性缺陷则沿回路退回上轨工兵针对性修改；无异议则批准进入交付'
+        log: '[质量把关] 🧐 独立审查员以第三方视角审视成果，排查设计隐患与规范漏洞',
+        details: '若发现隐患则退回工兵针对性整改；审查合格则批准进入最终成果交付'
       },
       MR: {
         nodeId: 'node-mr',
-        badge: 'MR_READY (已交付 Forge 真实发布)',
+        badge: '⑧ 成果正式交付 · 任务竣工',
         badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
         activePipes: ['pipe-critic-mr'],
-        log: '[MR] 🚀 物理交付站执行 Git 真实 Commit/Push，向远程 GitLab/GitHub 发布存证 MR',
-        details: '已附带完整的 OKF 证明，经所有物理确定性门禁加锁验证，随时可安全合入'
+        log: '[成果交付] 🚀 成果正式存入企业代码库，向远程自动发起合并申请 (PR/MR)',
+        details: '已附带全套考评合格凭据与防伪存证，符合所有交付门禁要求，随时可安全合入'
       },
       ESCALATE: {
         nodeId: 'node-escalate',
-        badge: 'ESCALATED (触发物理断路器硬熔断)',
+        badge: '⑨ 异常跳闸保护 · 停机待命',
         badgeClass: 'bg-rose-500/20 text-rose-500 border-rose-500/30',
         activePipes: ['pipe-branch-escalate'],
-        log: '[Alert] 🚨 触发最大重试轮次(>3轮)或高危破坏，物理断路器硬熔断停机，保护现场',
-        details: '主干代码零污染，请人类工程师在 [👤 HITL-2 人类接管台] 审查后调用 flow_resume 恢复'
+        log: '[异常跳闸] 🚨 连续3次未做对或发生严重故障，安全开关自动跳闸停机，保护工作现场',
+        details: '主干代码完全不受污染，等待人工介入排查后一键安全复位流水线'
       }
     };
 
@@ -771,13 +817,13 @@
       
       // Simulate realistic cycle: Spec (Architect + QA) -> Work -> Test (Runner fail) -> Work (Retry) -> Test (Runner pass) -> Critic -> MR
       const sequence = [
-        { stage: 'SPEC', log: '[Architect & QA] 📐 架构师定契约，QA 质检员编写验收用例集，经 [👤 HITL-1] 签署锁定' },
-        { stage: 'WORK', log: '[Worker] 🔨 AI 工兵在 Worktree 物理沙箱内编写代码，白名单外写入实时拦截' },
-        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[Runner] ⚙️ 自动化验收跑道执行 pytest 失败，逆向将报错堆栈注入上轨工兵自愈...' },
-        { stage: 'WORK', log: '[Worker] 🔨 AI 工兵基于报错堆栈针对性重构业务代码，提交修复补丁...' },
-        { stage: 'TEST', log: '[Runner] ⚙️ SHA-256 指纹通过 + AST 无破坏 + pytest 进程退出码 Exit=0 全绿通过！' },
-        { stage: 'CRITIC', log: '[Critic] 🧐 AI 独立审查员在干净沙箱进行 Fail-Closed 盲审，扫描潜在坏味道与越界...' },
-        { stage: 'MR', log: '[MR] 🚀 物理交付站完成 Git 真实 Commit/Push，向远程发布附带 OKF 存证的 MR！' }
+        { stage: 'SPEC', log: '[方案与命题] 📐 架构师定业务方案，质检员编写全套验收考卷，经 [关卡-1 人工签字确认] 盖章锁定' },
+        { stage: 'WORK', log: '[工兵施工] 🔨 施工工兵在专属独立工位编写业务代码，超范围修改实时拦截' },
+        { stage: 'TEST', pipe: 'pipe-loop-tdd', log: '[机器考评] ⚙️ 全自动考评发现考题未全对，逆向将报错信息退回工兵工位针对性修改...' },
+        { stage: 'WORK', log: '[工兵施工] 🔨 施工工兵分析未通过考题，重构业务代码设法解出考卷，提交修改补丁...' },
+        { stage: 'TEST', log: '[机器考评] ⚙️ 考卷防篡改校验通过 + 老功能未破坏 + 全套考题真机测试全对通过！' },
+        { stage: 'CRITIC', log: '[质量把关] 🧐 独立审查员以第三方视角审查代码结构与规范，排查潜在设计隐患...' },
+        { stage: 'MR', log: '[成果交付] 🚀 成果正式存入企业代码库，向远程自动发起附带考评凭据的合并申请 (PR/MR)！' }
       ];
       let idx = 0;
       setStage(sequence[0].stage);
