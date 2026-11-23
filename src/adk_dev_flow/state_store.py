@@ -14,12 +14,31 @@ RunStatus = Literal[
     "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
     "RUNNING",
+    "VERIFYING",
     "REPAIRING",
     "REVIEWING",
     "MR_READY",
     "ESCALATED",
     "ABORTED",
 ]
+
+# Eight painted steps, plus 9 for the siren and 0 for a terminal abort.
+# REVIEWING shares step 6 with VERIFYING; the board lights the Critic from
+# highlight_critic, because this review happens after implementation.
+LIFECYCLE_STEP: dict[RunStatus, int] = {
+    "SPEC_DRAFTING": 1,
+    "SPEC_DESIGNED": 1,
+    "TEST_GENERATED": 2,
+    "PRE_CRITIC_REVIEWED": 3,
+    "SPEC_LOCKED": 4,
+    "RUNNING": 5,
+    "VERIFYING": 6,
+    "REVIEWING": 6,
+    "REPAIRING": 7,
+    "MR_READY": 8,
+    "ESCALATED": 9,
+    "ABORTED": 0,
+}
 
 ACTIVE_STATUSES: tuple[str, ...] = (
     "SPEC_DRAFTING",
@@ -28,15 +47,30 @@ ACTIVE_STATUSES: tuple[str, ...] = (
     "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
     "RUNNING",
+    "VERIFYING",
     "REPAIRING",
     "REVIEWING",
 )
 
 IN_FLIGHT_STATUSES: tuple[str, ...] = (
     "RUNNING",
+    "VERIFYING",
     "REPAIRING",
     "REVIEWING",
 )
+
+def lifecycle_step(status: str) -> int:
+    """Return the painted step for a stored run status. Unknown statuses raise."""
+    try:
+        return LIFECYCLE_STEP[status]  # type: ignore[index]
+    except KeyError as exc:
+        raise KeyError(f"runs.status {status!r} 不在生命周期表中") from exc
+
+
+def lifecycle_highlight_critic(status: str) -> bool:
+    """Post-implementation review stays on step 6 and lights the Critic station."""
+    return status == "REVIEWING"
+
 
 ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(
     {

@@ -861,7 +861,7 @@
       });
     }
 
-    function setStep(num, customLog = null, customDetails = null) {
+    function setStep(num, customLog = null, customDetails = null, options = null) {
       currentStep = num;
       for (let i = 1; i <= 8; i++) {
         const pill = document.getElementById(`step-pill-${i}`);
@@ -963,6 +963,10 @@
           activateSvgNode('node-test', '#7c3aed');
           highlightAvatar(null, null);
           showPipe('pipe-6-8');
+          if (options && options.highlightCritic) {
+            activateSvgNode('node-critic', '#0891b2');
+            highlightAvatar('svg-critic', '#06b6d4');
+          }
           break;
         case 7:
           setStage('WORK', customLog || '[7. 自愈打回] 🔄 测试未通过，提取错误指纹打回开发工兵定向修复', customDetails || 'AST 影响点与异常回溯自愈，重试计数累计 (≤3次)');
@@ -984,7 +988,7 @@
           showPipe('pipe-branch-escalate');
           break;
         default:
-          setStage('IDLE');
+          setStage('IDLE', customLog, customDetails);
           highlightAvatar(null, null);
           break;
       }
@@ -1202,26 +1206,10 @@
         attemptBadge.textContent = `轮次: ${att}/${maxAtt}`;
       }
 
-      if (data.status) {
-        const stageMap = {
-          'SPEC_DESIGN': { step: 1, stage: 'SPEC' },
-          'RED_TEST': { step: 2, stage: 'SPEC' },
-          'PRE_CRITIC': { step: 3, stage: 'CRITIC' },
-          'HITL_LOCKED': { step: 4, stage: 'SPEC' },
-          'RUNNING': { step: 5, stage: 'WORK' },
-          'BUILDING': { step: 5, stage: 'WORK' },
-          'VERIFYING': { step: 6, stage: 'TEST' },
-          'RETRYING': { step: 7, stage: 'WORK' },
-          'COMPLETED': { step: 8, stage: 'MR' },
-          'ESCALATED': { step: 9, stage: 'ESCALATE' },
-          'IDLE': { step: 0, stage: 'IDLE' }
-        };
-        const info = stageMap[data.status] || { step: 0, stage: 'IDLE' };
-        if (info.step > 0 && info.step <= 8) {
-          setStep(info.step, data.last_log, data.details);
-        } else {
-          setStage(info.stage, data.last_log, data.details);
-        }
+      if (typeof data.step === "number") {
+        setStep(data.step, data.last_log || data.message, data.details, {
+          highlightCritic: !!data.highlight_critic,
+        });
       }
 
       // Critic review box display
