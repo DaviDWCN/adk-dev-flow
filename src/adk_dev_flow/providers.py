@@ -40,7 +40,7 @@ class CodeBuddyWorkerProvider(BaseWorkerProvider):
         allowed_paths: list[str],
         locked_tests: list[str],
         max_turns: int = 15,
-        timeout_sec: int = 300,
+        timeout_sec: int | None = None,
     ) -> dict[str, Any]:
         from adk_dev_flow.codebuddy_bridge import run_codebuddy_worker
 

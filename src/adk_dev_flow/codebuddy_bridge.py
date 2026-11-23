@@ -269,6 +269,18 @@ class CodeBuddyLlm(BaseLlm):
 _MODEL_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:/@-]+$")
 
 
+def _worker_timeout(default: int = 300) -> int:
+    """Worker timeout in seconds, overridable per project via ADK_WORKER_TIMEOUT."""
+    raw = os.environ.get("ADK_WORKER_TIMEOUT", "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def _free_port() -> int:
     """Return a currently free localhost TCP port for the CLI's HTTP server."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -313,10 +325,12 @@ async def run_codebuddy_worker(
     allowed_paths: list[str],
     locked_tests: list[str],
     max_turns: int = 15,
-    timeout_sec: int = 300,
+    timeout_sec: int | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
     """Spawn an isolated, stateless Headless CodeBuddy worker inside a Git Worktree."""
+    if timeout_sec is None:
+        timeout_sec = _worker_timeout()
     schema = json.dumps(
         {
             "type": "object",
