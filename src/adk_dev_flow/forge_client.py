@@ -160,6 +160,7 @@ class GitLabClient(BaseGitForge):
         ca_bundle: str | None = None,
         ssl_verify: bool | None = None,
         timeout: float | None = None,
+        repo_root: Path | None = None,
     ) -> None:
         self.url = (
             url
@@ -171,11 +172,15 @@ class GitLabClient(BaseGitForge):
             or os.environ.get("GITLAB_TOKEN", "")
             or os.environ.get("CI_JOB_TOKEN", "")
         ).strip()
-        self.project_id = (
+        raw_project = (
             project_id
             or os.environ.get("GITLAB_PROJECT_ID", "")
             or os.environ.get("CI_PROJECT_ID", "")
         ).strip()
+        if not raw_project:
+            remote_url = get_git_remote_url(repo_root)
+            raw_project = parse_repo_from_remote(remote_url) or ""
+        self.project_id = raw_project
         self.ca_bundle = (ca_bundle or os.environ.get("GITLAB_CA_BUNDLE", "")).strip()
         self.ssl_verify_flag = (
             ssl_verify
@@ -463,7 +468,7 @@ def get_git_forge(repo_root: Path | None = None) -> BaseGitForge:
     if override == "github":
         return GitHubClient(repo_root=repo_root)
     if override == "gitlab":
-        return GitLabClient()
+        return GitLabClient(repo_root=repo_root)
     if override in ("none", "null", "local"):
         return NullGitForge()
 
@@ -476,7 +481,7 @@ def get_git_forge(repo_root: Path | None = None) -> BaseGitForge:
             if gh_client.enabled or gh_client.token:
                 return gh_client
         if "gitlab" in lower_remote:
-            gl_client = GitLabClient()
+            gl_client = GitLabClient(repo_root=repo_root)
             if gl_client.enabled or gl_client.token:
                 return gl_client
         configured_gl = os.environ.get("GITLAB_URL", "") or os.environ.get("CI_SERVER_URL", "")
@@ -484,13 +489,13 @@ def get_git_forge(repo_root: Path | None = None) -> BaseGitForge:
             from urllib.parse import urlparse
             gl_host = urlparse(configured_gl).netloc.lower()
             if gl_host and gl_host in lower_remote:
-                gl_client = GitLabClient()
+                gl_client = GitLabClient(repo_root=repo_root)
                 if gl_client.enabled or gl_client.token:
                     return gl_client
 
     # 3. Environment heuristic inspection
     gh_candidate = GitHubClient(repo_root=repo_root)
-    gl_candidate = GitLabClient()
+    gl_candidate = GitLabClient(repo_root=repo_root)
 
     if gh_candidate.enabled and not gl_candidate.enabled:
         return gh_candidate

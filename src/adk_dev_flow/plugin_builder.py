@@ -182,11 +182,29 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
 
-    # 2. mcp_config.json
+    # 2. mcp_config.json & .mcp.json
     # Runner: `python -m adk_dev_flow.mcp_server` with the repo installed via
     # `pip install -e <repo-root>`. This works with any system Python >= 3.11.
-    # (uv run was previously used, but is blocked by App Control policy on
-    # some machines - os error 4551 - so the plain interpreter is preferred.)
+    # Preserve existing user-defined environment variables if previously present.
+    existing_env: dict[str, str] = {}
+    for existing_file in (target / "mcp_config.json", target / ".mcp.json"):
+        if existing_file.is_file():
+            try:
+                prev_data = json.loads(existing_file.read_text(encoding="utf-8"))
+                prev_env = prev_data.get("mcpServers", {}).get("adk-dev-flow", {}).get("env", {})
+                if isinstance(prev_env, dict):
+                    existing_env.update(prev_env)
+            except Exception:
+                pass
+
+    merged_env: dict[str, str] = {
+        "PYTHONUNBUFFERED": "1",
+        "REPO_ROOT": ".",
+    }
+    merged_env.update(existing_env)
+    merged_env["PYTHONUNBUFFERED"] = "1"
+    merged_env["REPO_ROOT"] = "."
+
     mcp_config_data = {
         "mcpServers": {
             "adk-dev-flow": {
@@ -195,10 +213,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
                     "-m",
                     "adk_dev_flow.mcp_server"
                 ],
-                "env": {
-                    "PYTHONUNBUFFERED": "1",
-                    "REPO_ROOT": "."
-                }
+                "env": merged_env,
             }
         }
     }

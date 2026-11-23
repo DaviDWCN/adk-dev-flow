@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import socket
 import sys
 import webbrowser
 from importlib import resources
@@ -166,22 +167,41 @@ def create_dashboard_app(
     return Starlette(routes=routes)
 
 
+def find_available_port(host: str = "127.0.0.1", start_port: int = 8080, max_attempts: int = 50) -> int:
+    """Find the first available TCP port starting from start_port."""
+    for p in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, p))
+                return p
+            except OSError:
+                continue
+    return start_port
+
+
 def run_dashboard_server(
     repo_root: Path | None = None,
     host: str = "127.0.0.1",
     port: int = 8080,
     open_browser: bool = False,
-) -> None:
-    """Run the dashboard HTTP & SSE server with uvicorn."""
+    auto_port: bool = True,
+) -> int:
+    """Run the dashboard HTTP & SSE server with uvicorn, auto-resolving ports if occupied."""
     import uvicorn
 
+    actual_port = find_available_port(host=host, start_port=port) if auto_port else port
     app = create_dashboard_app(repo_root=repo_root)
 
     if open_browser:
-        target_url = f"http://{host}:{port}/"
+        target_url = f"http://{host}:{actual_port}/"
         asyncio.get_event_loop().call_later(0.5, lambda: webbrowser.open(target_url))
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    if actual_port != port:
+        print(f"⚠️ 端口 {port} 已被占用，已自动切换至空闲端口: http://{host}:{actual_port}/")
+
+    uvicorn.run(app, host=host, port=actual_port, log_level="info")
+    return actual_port
 
 
 def main(argv: list[str] | None = None) -> int:

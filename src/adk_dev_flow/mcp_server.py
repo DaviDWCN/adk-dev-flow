@@ -424,6 +424,77 @@ def resolve_repo_root(custom_root: Path | None = None) -> Path:
     return cwd
 
 
+def load_project_config(repo_root: Path, apply_to_env: bool = True) -> dict[str, str]:
+    """Load project-local configuration from .adk/config.json, .adk/config.local.json, and .env.
+
+    Enables multiple projects to configure different GitLab projects, models, and test commands
+    without modifying the global plugin bundle or polluting global environment variables.
+    """
+    root = repo_root.resolve()
+    merged: dict[str, str] = {}
+
+    KEY_MAP = {
+        "gitlab_url": "GITLAB_URL",
+        "gitlab_token": "GITLAB_TOKEN",
+        "gitlab_project_id": "GITLAB_PROJECT_ID",
+        "gitlab_ca_bundle": "GITLAB_CA_BUNDLE",
+        "gitlab_ssl_verify": "GITLAB_SSL_VERIFY",
+        "github_token": "GITHUB_TOKEN",
+        "github_repository": "GITHUB_REPOSITORY",
+        "github_api_url": "GITHUB_API_URL",
+        "test_cmd": "ADK_TEST_CMD",
+        "tdd_red_cmd": "ADK_TDD_RED_CMD",
+        "lint_cmd": "ADK_LINT_CMD",
+        "regression_cmd": "ADK_REGRESSION_CMD",
+        "worker_model": "ADK_WORKER_MODEL",
+        "critic_model": "ADK_CRITIC_MODEL",
+        "worker_provider": "ADK_WORKER_PROVIDER",
+        "codebuddy_worker_extra_args": "CODEBUDDY_WORKER_EXTRA_ARGS",
+    }
+
+    # 1. Read .env if present
+    env_file = root / ".env"
+    if env_file.is_file():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    merged[k.strip()] = v.strip().strip("'\"")
+        except Exception:
+            pass
+
+    # 2. Read .adk/config.json and .adk/config.local.json
+    for cfg_name in ("config.json", "config.local.json"):
+        cfg_path = root / ".adk" / cfg_name
+        if cfg_path.is_file():
+            try:
+                data = json.loads(cfg_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    env_sub = data.get("env")
+                    if isinstance(env_sub, dict):
+                        for k, v in env_sub.items():
+                            merged[str(k)] = str(v)
+                    for k, v in data.items():
+                        if k == "env":
+                            continue
+                        mapped_k = KEY_MAP.get(k.lower())
+                        if mapped_k:
+                            val_str = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+                            merged[mapped_k] = val_str
+                        elif k.isupper():
+                            val_str = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+                            merged[k] = val_str
+            except Exception:
+                pass
+
+    if apply_to_env:
+        for k, v in merged.items():
+            os.environ[k] = v
+
+    return merged
+
+
 def create_mcp_server(
     repo_root: Path | None = None,
     store: StateStore | None = None,
@@ -431,6 +502,7 @@ def create_mcp_server(
     forge: BaseGitForge | None = None,
 ) -> tuple[FastMCP, FlowService]:
     resolved_root = resolve_repo_root(repo_root)
+    load_project_config(resolved_root, apply_to_env=True)
     resolved_store = store or StateStore(resolved_root)
     resolved_forge = forge or gl or get_git_forge(resolved_root)
     service = FlowService(resolved_root, resolved_store, resolved_forge)

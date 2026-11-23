@@ -306,6 +306,9 @@ async def run_codebuddy_worker(
     env["ADK_ALLOWED_PATHS"] = json.dumps(allowed_paths, ensure_ascii=False)
     env["ADK_LOCKED_TESTS"] = json.dumps(locked_tests, ensure_ascii=False)
     env["CODEBUDDY_IS_SANDBOX"] = "1"
+    # Prevent EADDRINUSE by unsetting inherited parent listening ports
+    env.pop("PORT", None)
+    env.pop("CODEBUDDY_PORT", None)
 
     binary_name = os.environ.get("CODEBUDDY_BIN", "codebuddy")
     resolved_bin = shutil.which(binary_name) or binary_name
@@ -327,6 +330,12 @@ async def run_codebuddy_worker(
     valid_model = validate_model_name(worker_model)
     if valid_model:
         cmd.extend(["--model", valid_model])
+
+    has_port_arg = any(
+        arg == "--port" or arg.startswith("--port=") for arg in extra_args
+    )
+    if not has_port_arg:
+        cmd.extend(["--port", "0"])
 
     cmd.extend(
         [
