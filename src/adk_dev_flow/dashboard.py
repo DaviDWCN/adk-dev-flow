@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from adk_dev_flow.state_store import StateStore
+from adk_dev_flow.state_store import StateStore, lifecycle_highlight_critic, lifecycle_step
 
 
 def get_dashboard_html(initial_run_id: str | None = None) -> str:
@@ -33,7 +33,13 @@ def get_dashboard_html(initial_run_id: str | None = None) -> str:
 
 def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[str, Any]:
     if not run_data:
-        return {"status": "IDLE", "message": "暂无活跃任务", "repo_name": repo_name}
+        return {
+            "status": "IDLE",
+            "step": 0,
+            "highlight_critic": False,
+            "message": "暂无活跃任务",
+            "repo_name": repo_name,
+        }
 
     spec: dict[str, Any] = {}
     if run_data.get("spec_json"):
@@ -49,9 +55,12 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         except Exception:
             review = None
 
+    status = str(run_data["status"])
     return {
         "run_id": run_data["run_id"],
-        "status": run_data["status"],
+        "status": status,
+        "step": lifecycle_step(status),
+        "highlight_critic": lifecycle_highlight_critic(status),
         "issue_iid": run_data.get("issue_iid"),
         "branch": run_data.get("branch") or (f"adk/issue-{run_data.get('issue_iid')}" if run_data.get("issue_iid") else "main"),
         "worktree_path": run_data.get("worktree_path") or "",

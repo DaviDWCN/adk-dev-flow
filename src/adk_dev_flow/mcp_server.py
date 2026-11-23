@@ -366,7 +366,14 @@ class FlowService:
 
         if target_id:
             run = self.store.get_run(target_id)
-            if run and run["status"] in ("SPEC_DRAFTING", "SPEC_LOCKED", "RUNNING", "REPAIRING", "REVIEWING"):
+            if run and run["status"] in (
+                "SPEC_DRAFTING",
+                "SPEC_LOCKED",
+                "RUNNING",
+                "VERIFYING",
+                "REPAIRING",
+                "REVIEWING",
+            ):
                 self.store.update_run(
                     target_id,
                     status="ESCALATED",

@@ -76,6 +76,8 @@ class TestDashboardSuite(unittest.TestCase):
         data = resp_status2.json()
         self.assertEqual(data["run_id"], "run_abc_1")
         self.assertEqual(data["status"], "RUNNING")
+        self.assertEqual(data["step"], 5)
+        self.assertFalse(data["highlight_critic"])
         self.assertEqual(data["attempt"], 1)
         self.assertIn("正在编辑代码", data["last_log"])
         self.assertEqual(data["design_doc"], "# Architecture Design")
