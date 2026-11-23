@@ -90,7 +90,7 @@ def _format_mr_description(
     if lint_cmd:
         verif_lines.append(f"- **代码风格与规范检查**: `{lint_cmd}` (exit={lint_exit} clean)")
     else:
-        verif_lines.append("- **代码风格与规范检查**: `ruff check .` (通过)")
+        verif_lines.append("- **代码风格与规范检查**: `skipped (未配置 lint 命令)`")
 
     verif_lines.extend(
         [
