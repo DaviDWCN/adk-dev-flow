@@ -57,7 +57,7 @@ VALID_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     "PRE_CRITIC_REVIEWED": frozenset({"SPEC_LOCKED", "ABORTED", "ESCALATED"}),
     "SPEC_LOCKED": frozenset({"RUNNING", "ABORTED", "ESCALATED"}),
     "RUNNING": frozenset({"VERIFYING", "REPAIRING", "ABORTED", "ESCALATED"}),
-    "VERIFYING": frozenset({"REVIEWING", "REPAIRING", "ESCALATED", "ABORTED"}),
+    "VERIFYING": frozenset({"MR_READY", "REVIEWING", "REPAIRING", "ESCALATED", "ABORTED"}),
     "REPAIRING": frozenset({"VERIFYING", "ESCALATED", "ABORTED"}),
     "REVIEWING": frozenset({"MR_READY", "ESCALATED", "REPAIRING", "ABORTED"}),
     "MR_READY": frozenset({"ABORTED"}),
@@ -103,8 +103,8 @@ def lifecycle_step(status: str) -> int:
 
 
 def lifecycle_highlight_critic(status: str) -> bool:
-    """Post-implementation review stays on step 6 and lights the Critic station."""
-    return status == "REVIEWING"
+    """Highlight the Critic station during pre-lock contract review (step 3) or legacy reviewing."""
+    return status in ("PRE_CRITIC_REVIEWED", "REVIEWING")
 
 
 ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(

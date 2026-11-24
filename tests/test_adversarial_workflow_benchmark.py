@@ -98,6 +98,10 @@ class TestAdversarialWorkflowBenchmark(unittest.IsolatedAsyncioTestCase):
                     for sub in item:
                         if callable(sub) and sub.__name__ == "publish_mr_node":
                             publish_mr_node = sub
+                elif isinstance(item, dict):
+                    for sub in item.values():
+                        if callable(sub) and sub.__name__ == "publish_mr_node":
+                            publish_mr_node = sub
 
         self.assertIsNotNone(publish_mr_node, "publish_mr_node must exist in workflow")
 
