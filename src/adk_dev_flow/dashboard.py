@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import socket
+import subprocess
 import sys
 import webbrowser
 from importlib import resources
@@ -217,6 +218,39 @@ def run_dashboard_server(
     return actual_port
 
 
+def spawn_detached_server(
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    repo_root: Path | None = None,
+) -> None:
+    """Spawn the dashboard server as a detached process that survives the caller's exit."""
+    resolved = (repo_root or Path(os.environ.get("REPO_ROOT", os.getcwd()))).resolve()
+    cmd = [
+        sys.executable,
+        "-m",
+        "adk_dev_flow.dashboard",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--repo",
+        str(resolved),
+    ]
+    kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(cmd, **kwargs)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="adk-dev-flow-dashboard",
@@ -250,9 +284,19 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional initial run_id to monitor",
     )
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Spawn the dashboard server as a detached background process and exit immediately",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.repo).resolve()
+    if args.detach:
+        spawn_detached_server(host=args.host, port=args.port, repo_root=root)
+        print(f"🛰️ 已后台启动看板服务: http://{args.host}:{args.port}/")
+        return 0
+
     print(f"🚀 启动 ADK 像素工坊实时监控看板: http://{args.host}:{args.port}/")
     try:
         run_dashboard_server(

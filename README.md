@@ -175,6 +175,9 @@ def test_lock_acquire_and_release():
 
   # 指定端口与特定运行轮次
   adk-dev-flow-dashboard --port 8888 --run-id <run_id>
+
+  # 后台常驻启动后立即返回（Web UI 大屏模组按此方式拉起看板服务）
+  adk-dev-flow-dashboard --detach
   ```
 - **IDE 内嵌与侧边栏（Antigravity / CodeBuddy）**：
   在对话中调用 `flow_dashboard(run_id=...)`，系统自动利用 `ui://adk-dev-flow/dashboard.html` 将动态看板渲染在 Aux Pane 侧边栏或对话内嵌流中（参见 `docs/dashboard-webui-integration-assessment.md`）。CodeBuddy Web UI 另提供原生整页大屏模组 `mod/pixel-forge-screen`，数据直接取自独立看板服务的 `/api/*` 端点。

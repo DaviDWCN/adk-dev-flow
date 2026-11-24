@@ -3,9 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from starlette.testclient import TestClient
 
+from adk_dev_flow import dashboard
 from adk_dev_flow.dashboard import create_dashboard_app, get_dashboard_html
 from adk_dev_flow.mcp_server import create_mcp_server
 from adk_dev_flow.state_store import StateStore
@@ -113,6 +115,17 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertEqual(res_active["structuredContent"]["run_id"], "run_mcp_demo")
         self.assertEqual(res_active["structuredContent"]["status"], "VERIFYING")
         self.assertEqual(res_active["structuredContent"]["attempt"], 2)
+
+    def test_dashboard_detach_spawns_server_without_blocking(self) -> None:
+        with mock.patch.object(dashboard.subprocess, "Popen") as popen:
+            code = dashboard.main(["--detach", "--port", "8099", "--repo", str(self.repo_root)])
+
+        self.assertEqual(code, 0)
+        cmd = popen.call_args.args[0]
+        self.assertEqual(cmd[1:3], ["-m", "adk_dev_flow.dashboard"])
+        self.assertEqual(cmd[cmd.index("--port") + 1], "8099")
+        self.assertEqual(Path(cmd[cmd.index("--repo") + 1]), self.repo_root)
+        popen.assert_called_once()
 
 
 if __name__ == "__main__":
