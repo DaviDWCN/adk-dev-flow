@@ -221,6 +221,178 @@ class TestOKFIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertIn("02_testing", loaded_rules)
             self.assertIn("Enforce TDD Red check.", loaded_rules)
 
+    def test_load_okf_rules_selective_routing(self) -> None:
+        """Verify that rules are selectively routed based on allowed_paths, tags, and status."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            rules_dir = repo_root / ".adk" / "knowledge" / "rules"
+            rules_dir.mkdir(parents=True, exist_ok=True)
+
+            (rules_dir / "universal.md").write_text(
+                "---\n"
+                "type: EngineeringRule\n"
+                "title: Universal Standards\n"
+                "status: active\n"
+                "---\n"
+                "Always write clean code.\n",
+                encoding="utf-8",
+            )
+            (rules_dir / "db_rules.md").write_text(
+                "---\n"
+                "type: EngineeringRule\n"
+                "title: DB Rules\n"
+                "status: active\n"
+                "paths:\n"
+                "  - 'src/db/**'\n"
+                "  - 'src/models/*'\n"
+                "tags:\n"
+                "  - database\n"
+                "---\n"
+                "Explicitly close database connections.\n",
+                encoding="utf-8",
+            )
+            (rules_dir / "api_rules.md").write_text(
+                "---\n"
+                "type: EngineeringRule\n"
+                "title: API Rules\n"
+                "status: active\n"
+                "paths:\n"
+                "  - 'src/api/**'\n"
+                "---\n"
+                "Always validate request payload schema.\n",
+                encoding="utf-8",
+            )
+            (rules_dir / "deprecated_rule.md").write_text(
+                "---\n"
+                "type: EngineeringRule\n"
+                "title: Old Advice\n"
+                "status: deprecated\n"
+                "---\n"
+                "This advice should never be injected.\n",
+                encoding="utf-8",
+            )
+
+            # 1. Routing for DB change: should match universal + db, but NOT api or deprecated
+            db_rules = _load_okf_rules(
+                repo_root,
+                repo_root,
+                allowed_paths=["src/db/engine.py"],
+            )
+            self.assertIn("Universal Standards", db_rules)
+            self.assertIn("Always write clean code.", db_rules)
+            self.assertIn("DB Rules", db_rules)
+            self.assertIn("Explicitly close database connections.", db_rules)
+            self.assertNotIn("API Rules", db_rules)
+            self.assertNotIn("Old Advice", db_rules)
+
+            # 2. Routing for API change: should match universal + api, but NOT db or deprecated
+            api_rules = _load_okf_rules(
+                repo_root,
+                repo_root,
+                allowed_paths=["src/api/routes.py"],
+            )
+            self.assertIn("Universal Standards", api_rules)
+            self.assertIn("API Rules", api_rules)
+            self.assertNotIn("DB Rules", api_rules)
+            self.assertNotIn("Old Advice", api_rules)
+
+    def test_atomic_task_target_symbols_okf_roundtrip_and_traceability(self) -> None:
+        """P1-2: Verify target_symbols in AtomicTask serializes to OKF and validates alignment."""
+        spec = SpecContract(
+            issue_iid=99,
+            title="feat: add payment gateway",
+            summary="Payment gateway integration.",
+            target_branch="main",
+            allowed_paths=["src/payment"],
+            acceptance_test_path="tests/test_payment.py",
+            acceptance_test_code="def test_pay(): assert True\n",
+            tasks=[
+                AtomicTask(
+                    id="T1",
+                    title="Implement StripeGateway",
+                    description="Core gateway logic",
+                    target_files=["src/payment/stripe.py"],
+                    target_symbols=["StripeGateway.charge", "StripeGateway.refund"],
+                ),
+            ],
+        )
+
+        okf_md = spec.to_okf_markdown()
+        self.assertIn("target_symbols:", okf_md)
+        self.assertIn("StripeGateway.charge", okf_md)
+
+        # Parse back
+        loaded = SpecContract.from_okf_markdown(okf_md)
+        self.assertEqual(loaded.tasks[0].target_symbols, ["StripeGateway.charge", "StripeGateway.refund"])
+
+        # Check alignment helper
+        from adk_dev_flow.workflow import audit_symbol_alignment
+
+        # Case 1: definitions contain all declared symbols
+        definitions = {
+            "src/payment/stripe.py": ["StripeGateway.charge", "StripeGateway.refund", "StripeGateway.__init__"]
+        }
+        missing = audit_symbol_alignment(loaded.tasks, definitions)
+        self.assertEqual(missing, [])
+
+        # Case 2: definitions miss one symbol
+        partial_defs = {
+            "src/payment/stripe.py": ["StripeGateway.charge"]
+        }
+        missing2 = audit_symbol_alignment(loaded.tasks, partial_defs)
+        self.assertEqual(len(missing2), 1)
+        self.assertIn("StripeGateway.refund", missing2[0])
+
+    def test_distill_knowledge_from_run_lifecycle(self) -> None:
+        """P2: Verify experience distillation creates valid OKF rules that feed back into routing."""
+        from adk_dev_flow.workflow import distill_knowledge_from_run
+
+        verdict = ReviewVerdict(
+            approved=True,
+            confidence=0.95,
+            summary="Fixed Redis lock TTL expiration issue after handling connection timeout.",
+            blocking_issues=[],
+        )
+
+        # 1. Attempt 0 straightforward pass should return None (no noisy rule needed)
+        no_rule = distill_knowledge_from_run(
+            spec=self.sample_spec,
+            run_id="run-pass-fast",
+            verdict=verdict,
+            attempt=0,
+        )
+        self.assertIsNone(no_rule)
+
+        # 2. Attempt 2 with repair experience generates an OKF EngineeringRule
+        rule_md = distill_knowledge_from_run(
+            spec=self.sample_spec,
+            run_id="run-fixed-hard",
+            verdict=verdict,
+            attempt=2,
+            last_error_log="ConnectionTimeoutError: redis host unreachable on port 6379",
+        )
+        self.assertIsNotNone(rule_md)
+        self.assertIn("type: EngineeringRule", rule_md)
+        self.assertIn("Learned Rule: feat: add distributed lock", rule_md)
+        self.assertIn("ConnectionTimeoutError", rule_md)
+        self.assertIn("src/lock", rule_md)
+
+        # 3. Verify it is routable by _load_okf_rules
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            rules_dir = repo_root / ".adk" / "knowledge" / "rules"
+            rules_dir.mkdir(parents=True, exist_ok=True)
+            (rules_dir / "learned_run1234.md").write_text(rule_md, encoding="utf-8")
+
+            # Match on allowed_paths
+            matched = _load_okf_rules(repo_root, repo_root, allowed_paths=["src/lock/client.py"])
+            self.assertIn("Learned Rule", matched)
+            self.assertIn("ConnectionTimeoutError", matched)
+
+            # Do not match on unrelated paths
+            unrelated = _load_okf_rules(repo_root, repo_root, allowed_paths=["src/frontend/app.js"])
+            self.assertNotIn("Learned Rule", unrelated)
+
 
 if __name__ == "__main__":
     unittest.main()

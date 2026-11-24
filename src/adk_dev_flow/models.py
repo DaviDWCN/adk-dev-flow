@@ -43,6 +43,10 @@ class AtomicTask(BaseModel):
     title: str
     description: str
     target_files: list[str] = Field(min_length=1, description="允许修改的相对路径列表")
+    target_symbols: list[str] = Field(
+        default_factory=list,
+        description="任务涉及修改或实现的类/函数符号全称列表（如 ['StripeGateway.charge']）",
+    )
 
 
 class SpecContract(BaseModel):
@@ -143,10 +147,17 @@ class SpecContract(BaseModel):
             meta["branch"] = self.branch
         yaml_header = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
 
-        tasks_md = "\n\n".join(
-            f"### Task {t.id}: {t.title}\n{t.description}\n- **Target Files**: {', '.join(t.target_files)}"
-            for t in self.tasks
-        )
+        def _format_task(t: AtomicTask) -> str:
+            lines = [
+                f"### Task {t.id}: {t.title}",
+                t.description,
+                f"- **Target Files**: {', '.join(t.target_files)}",
+            ]
+            if t.target_symbols:
+                lines.append(f"- **Target Symbols**: {', '.join(t.target_symbols)}")
+            return "\n".join(lines)
+
+        tasks_md = "\n\n".join(_format_task(t) for t in self.tasks)
 
         content = (
             f"---\n"

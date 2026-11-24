@@ -225,6 +225,31 @@ def advanced_exploit():
         self.assertTrue(any("globals" in d or "__builtins__" in d for d in diff.dangerous_nodes))
         self.assertTrue(any("混淆还原敏感凭据" in d for d in diff.dangerous_nodes))
 
+    def test_audit_ast_diff_supports_noqa_and_allowed_dangerous_calls(self) -> None:
+        """P1-1: Verify # noqa: adk-ast suppresses dangerous nodes or breaking changes."""
+        code = """
+import os
+import subprocess
+
+def legitimate_tool():
+    subprocess.run(["git", "status"])  # noqa: adk-ast
+    os.system("echo ok")  # noqa: adk-ast
+    eval("1 + 1")  # unsuppressed
+"""
+        diff = audit_ast_diff("", code)
+        self.assertTrue(any("eval" in d for d in diff.dangerous_nodes))
+        self.assertFalse(any("subprocess.run" in d for d in diff.dangerous_nodes))
+        self.assertFalse(any("os.system" in d for d in diff.dangerous_nodes))
+
+        # Test allowed_dangerous_calls parameter
+        code2 = """
+import subprocess
+def run_git():
+    subprocess.run(["git", "status"])
+"""
+        diff2 = audit_ast_diff("", code2, allowed_dangerous_calls={"subprocess.run"})
+        self.assertFalse(any("subprocess.run" in d for d in diff2.dangerous_nodes))
+
     def test_generate_skeleton_preserves_nested_functions(self) -> None:
         code = """
 def factory(base_val: int):

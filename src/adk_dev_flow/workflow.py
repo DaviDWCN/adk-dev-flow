@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
+import fnmatch
 import json
 import os
 from pathlib import Path
 import re
 from typing import Any, Sequence
+
+import yaml
 
 from google.adk import Agent, Event, Runner, Workflow
 from google.adk.sessions import InMemorySessionService
@@ -244,24 +248,247 @@ async def save_and_commit_spec_in_worktree(
     return False, spec_file
 
 
-def _load_okf_rules(worktree: Path, repo_root: Path) -> str:
+def distill_knowledge_from_run(
+    spec: SpecContract,
+    run_id: str,
+    verdict: ReviewVerdict,
+    attempt: int = 0,
+    last_error_log: str = "",
+) -> str | None:
+    """Distill learned engineering invariants/rules from a completed run into an OKF EngineeringRule."""
+    if attempt <= 0 and verdict.approved:
+        return None
+
+    title = f"Learned Rule: {spec.title}"
+    meta = {
+        "type": "EngineeringRule",
+        "title": title,
+        "status": "active",
+        "source_run_id": run_id,
+        "paths": spec.allowed_paths,
+        "tags": ["learned", "auto-distilled"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    header = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
+
+    body = [
+        f"# {title}",
+        "",
+        "## Summary & Context",
+        spec.summary,
+        "",
+        "## Resolution & Key Gotchas",
+        f"- **Verdict Summary**: {verdict.summary}",
+    ]
+
+    if last_error_log.strip():
+        err_snippet = last_error_log.strip()[-500:]
+        body.append(f"- **Resolved Failure Fingerprint**:\n```\n{err_snippet}\n```")
+
+    if verdict.blocking_issues:
+        body.append("- **Resolved Blocking Issues**:")
+        for iss in verdict.blocking_issues:
+            body.append(f"  - {iss}")
+
+    return f"---\n{header}\n---\n\n" + "\n".join(body) + "\n"
+
+
+async def save_distilled_knowledge(
+    spec: SpecContract,
+    worktree: Path,
+    run_id: str,
+    verdict: ReviewVerdict,
+    attempt: int,
+    last_error_log: str = "",
+) -> Path | None:
+    content = distill_knowledge_from_run(
+        spec=spec,
+        run_id=run_id,
+        verdict=verdict,
+        attempt=attempt,
+        last_error_log=last_error_log,
+    )
+    if not content:
+        return None
+
+    rules_dir = worktree / ".adk" / "knowledge" / "rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    rule_file = rules_dir / f"learned_{run_id[:8]}.md"
+    rule_file.write_text(content, encoding="utf-8")
+
+    rel_path = f".adk/knowledge/rules/{rule_file.name}"
+    await _git(["add", "-f", "--", rel_path], worktree)
+    await _git(
+        ["commit", "-m", f"docs(knowledge): distill learned OKF rule from run {run_id[:8]}"],
+        worktree,
+    )
+    return rule_file
+
+
+def _match_path_pattern(path: str, pattern: str) -> bool:
+    norm_path = path.strip().replace("\\", "/").strip("/")
+    norm_pattern = pattern.strip().replace("\\", "/").strip("/")
+    if fnmatch.fnmatch(norm_path, norm_pattern):
+        return True
+    if norm_pattern.endswith("/**"):
+        prefix = norm_pattern[:-3]
+        if norm_path == prefix or norm_path.startswith(prefix + "/"):
+            return True
+    if norm_pattern.endswith("/*"):
+        prefix = norm_pattern[:-2]
+        if norm_path.startswith(prefix + "/"):
+            return True
+    if norm_path == norm_pattern or norm_path.startswith(norm_pattern + "/"):
+        return True
+    return False
+
+
+def _load_okf_rules(
+    worktree: Path,
+    repo_root: Path,
+    allowed_paths: list[str] | None = None,
+    tags: list[str] | None = None,
+) -> str:
     rules_text: list[str] = []
     seen: set[str] = set()
+    norm_allowed = (
+        [p.strip().replace("\\", "/").strip("/") for p in allowed_paths]
+        if allowed_paths
+        else []
+    )
+    target_tags = set(tags or [])
+
     for base in (worktree, repo_root):
         rules_dir = base / ".adk" / "knowledge" / "rules"
         if rules_dir.is_dir():
             for rule_file in sorted(rules_dir.glob("*.md")):
-                if rule_file.name not in seen:
-                    seen.add(rule_file.name)
-                    try:
-                        content = rule_file.read_text(encoding="utf-8").strip()
-                        if content:
-                            rules_text.append(f"### {rule_file.stem}\n{content}")
-                    except Exception:
-                        pass
+                if rule_file.name in seen:
+                    continue
+                seen.add(rule_file.name)
+                try:
+                    raw_content = rule_file.read_text(encoding="utf-8").strip()
+                    if not raw_content:
+                        continue
+
+                    # Parse optional YAML frontmatter
+                    meta: dict[str, Any] = {}
+                    body = raw_content
+                    fm_match = re.match(
+                        r"^---\s*\n(.*?)\n---\s*(?:\n|$)(.*)$",
+                        raw_content,
+                        re.DOTALL,
+                    )
+                    if fm_match:
+                        try:
+                            parsed_meta = yaml.safe_load(fm_match.group(1))
+                            if isinstance(parsed_meta, dict):
+                                meta = parsed_meta
+                            body = fm_match.group(2).strip()
+                        except Exception:
+                            meta = {}
+
+                    # Skip deprecated/disabled rules
+                    status = str(meta.get("status", "active")).lower()
+                    if status in ("deprecated", "disabled", "inactive"):
+                        continue
+
+                    # Apply selective routing when filtering criteria are passed
+                    if allowed_paths is not None or tags is not None:
+                        rule_paths = (
+                            meta.get("paths")
+                            or meta.get("match", {}).get("paths")
+                            or []
+                        )
+                        rule_tags = (
+                            meta.get("tags")
+                            or meta.get("match", {}).get("tags")
+                            or []
+                        )
+
+                        is_universal = not rule_paths and not rule_tags
+
+                        path_matched = False
+                        if rule_paths:
+                            if any(p in ("*", "all") for p in rule_paths):
+                                path_matched = True
+                            elif norm_allowed:
+                                path_matched = any(
+                                    _match_path_pattern(ap, rp)
+                                    for ap in norm_allowed
+                                    for rp in rule_paths
+                                )
+
+                        tag_matched = False
+                        if rule_tags and target_tags:
+                            tag_matched = bool(set(rule_tags) & target_tags)
+
+                        if not is_universal:
+                            if rule_paths and not path_matched and not tag_matched:
+                                continue
+                            if rule_tags and not rule_paths and not tag_matched:
+                                continue
+
+                    title = meta.get("title") or rule_file.stem
+                    rules_text.append(f"### {title}\n{body}")
+                except Exception:
+                    pass
+
     if not rules_text:
         return ""
     return "\n\n项目工程规约 (OKF Rules):\n" + "\n\n".join(rules_text)
+
+
+def _build_ast_context(repo_or_worktree: Path, allowed_paths: list[str]) -> str:
+    """Extract AST skeletons and caller signatures to ground worker agent in physical code reality."""
+    try:
+        from adk_dev_flow.ast_graph import CodeGraph
+
+        cg = CodeGraph(repo_or_worktree)
+        ctx = cg.get_test_generation_context(allowed_paths)
+        skeletons = ctx.get("target_skeletons") or {}
+        callers = ctx.get("impacted_caller_skeletons") or {}
+
+        if not skeletons and not callers:
+            return ""
+
+        parts = ["\n\n### 代码结构与现有签名上下文 (AST Skeletons & Callers):"]
+        if skeletons:
+            parts.append("以下是目标修改文件的现有类/函数签名骨架（请严格维持现有公共接口兼容性）：")
+            for fpath, skel in skeletons.items():
+                parts.append(f"#### 文件: `{fpath}`\n```python\n{skel.strip()}\n```")
+        if callers:
+            parts.append("以下是调用这些目标符号的关键上游调用方签名（修改时切勿破坏其调用约定）：")
+            for sym, sig in list(callers.items())[:12]:
+                parts.append(f"- `{sig}` (调用 `{sym}`)")
+        return "\n\n".join(parts)
+    except Exception:
+        return ""
+
+
+def audit_symbol_alignment(
+    tasks: list[AtomicTask],
+    definitions_by_file: dict[str, list[str]],
+) -> list[str]:
+    """Verify that declared target_symbols in OKF tasks are present in changed files' AST definitions."""
+    all_defs: set[str] = set()
+    for syms in definitions_by_file.values():
+        all_defs.update(syms)
+
+    missing: list[str] = []
+    for t in tasks:
+        for sym in getattr(t, "target_symbols", []):
+            clean_sym = sym.strip()
+            if not clean_sym:
+                continue
+            matched = any(
+                d == clean_sym or d.endswith(f".{clean_sym}") or clean_sym.endswith(f".{d}")
+                for d in all_defs
+            )
+            if not matched:
+                missing.append(
+                    f"任务 {t.id} 声明的目标符号 `{clean_sym}` 未在提交代码的 AST 符号表中定义"
+                )
+    return missing
 
 
 def _validate_tdd_red_outcome(
@@ -536,7 +763,18 @@ def build_dev_workflow(
                 f"失败日志:\n```\n{str(node_input.get('last_error_log', ''))[-3000:]}\n```"
             )
 
-        okf_rules = _load_okf_rules(worktree, repo_root)
+        if spec.design_doc:
+            prompt += f"\n\n### 架构设计方案 (Architecture Design):\n{spec.design_doc.strip()}\n"
+
+        ast_ctx = _build_ast_context(worktree, spec.allowed_paths)
+        if ast_ctx:
+            prompt += ast_ctx
+
+        okf_rules = _load_okf_rules(
+            worktree,
+            repo_root,
+            allowed_paths=spec.allowed_paths,
+        )
         if okf_rules:
             prompt += okf_rules
 
@@ -725,8 +963,9 @@ def build_dev_workflow(
 
         diff_text, diff_truncated, truncated_files = assemble_diff_blocks(file_diffs)
 
-        # 3. 执行 AST 静态语义审计（语法树解析、破坏性接口变更、高危调用）
+        # 3. 执行 AST 静态语义审计（语法树解析、破坏性接口变更、高危调用与符号对齐）
         ast_findings: list[dict[str, Any]] = []
+        definitions_by_file: dict[str, list[str]] = {}
         for f in changed_files:
             if not f.endswith(".py"):
                 continue
@@ -743,13 +982,32 @@ def build_dev_workflow(
                     new_code = ""
 
             try:
-                from adk_dev_flow.ast_graph import audit_ast_diff
+                from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
+
+                if new_code.strip():
+                    try:
+                        tree = ast.parse(new_code, filename=f)
+                        vis = SymbolVisitor(new_code.splitlines())
+                        vis.visit(tree)
+                        definitions_by_file[f] = list(vis.definitions.keys())
+                    except Exception:
+                        pass
 
                 report = audit_ast_diff(base_code, new_code, file_path=f)
                 if report.has_issues:
                     ast_findings.append(report.to_dict())
             except Exception:
                 pass
+
+        # 4. OKF 符号级任务契约对齐校验
+        missing_symbols = audit_symbol_alignment(spec.tasks, definitions_by_file)
+        if missing_symbols:
+            ast_findings.append({
+                "file_path": "spec.tasks",
+                "breaking_issues": missing_symbols,
+                "syntax_ok": True,
+                "has_issues": True,
+            })
 
         # Save ast_findings into verification_state so publish_mr_node can deterministically enforce it.
         verification_state["ast_findings"] = ast_findings
@@ -840,6 +1098,19 @@ def build_dev_workflow(
                 )
         except Exception:
             # Audit file committing failure should not fail the overall pipeline
+            pass
+
+        # Distill and commit learned engineering knowledge if run had repair iterations
+        try:
+            await save_distilled_knowledge(
+                spec=spec,
+                worktree=worktree,
+                run_id=run_id,
+                verdict=verdict,
+                attempt=attempt,
+                last_error_log=run.get("last_error_log") or "",
+            )
+        except Exception:
             pass
 
         if gl.enabled:

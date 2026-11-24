@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import os
+from pathlib import Path
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -876,7 +878,12 @@ def generate_skeleton(code: str, file_path: str = "") -> str:
         return code
 
 
-def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDiffReport:
+def audit_ast_diff(
+    base_code: str,
+    new_code: str,
+    file_path: str = "",
+    allowed_dangerous_calls: set[str] | Sequence[str] | None = None,
+) -> AstDiffReport:
     """Perform deterministic AST-level semantic audit between base code and modified code."""
     # 1. Syntax check on new code
     try:
@@ -887,6 +894,16 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
             syntax_ok=False,
             syntax_error=f"SyntaxError at line {e.lineno}: {e.msg}",
         )
+
+    # Collect line suppression tags (# noqa: adk-ast / # noqa)
+    suppressed_lines: set[int] = set()
+    for idx, line in enumerate(new_code.splitlines(), 1):
+        if re.search(r"#\s*noqa(?::\s*adk(?:-ast)?)?", line, re.IGNORECASE):
+            suppressed_lines.add(idx)
+            if line.strip().startswith("#"):
+                suppressed_lines.add(idx + 1)
+
+    allowed_calls = set(allowed_dangerous_calls or [])
 
     # 2. Syntax check on base code (if empty, treat as new file)
     base_tree: ast.AST | None = None
@@ -909,9 +926,18 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
         "__import__",
     }
 
+    def _is_node_suppressed(node: ast.AST) -> bool:
+        lineno = getattr(node, "lineno", -1)
+        return lineno in suppressed_lines
+
     for node in ast.walk(new_tree):
+        if _is_node_suppressed(node):
+            continue
+
         if isinstance(node, ast.Call):
             call_name = _get_call_name(node.func) or ""
+            if call_name in allowed_calls:
+                continue
             if call_name in dangerous_calls or any(
                 f"[{d!r}]" in call_name for d in ("eval", "exec", "system", "popen")
             ):
@@ -986,6 +1012,8 @@ def audit_ast_diff(base_code: str, new_code: str, file_path: str = "") -> AstDif
                 curr = queue.pop(0)
                 for edge in adj.get(curr, []):
                     nxt = edge.target_var
+                    if edge.target_line in suppressed_lines:
+                        continue
                     if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):
                         report.dangerous_nodes.append(
                             f"检测到污点变量 `{p}` 流入危险函数 `{nxt}` (line {edge.target_line})"

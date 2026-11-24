@@ -238,6 +238,16 @@ def test_process_order():
         self.assertTrue(len(guarded["blocking_issues"]) >= 2)
         self.assertIn("AST 静态契约门禁一票否决", guarded["summary"])
 
+    def test_ast_preflight_context_building(self) -> None:
+        """P0-2: Verify AST skeletons and caller context are extracted for target files."""
+        from adk_dev_flow.workflow import _build_ast_context
+
+        ast_ctx = _build_ast_context(self.repo, ["src/pkg/math_service.py"])
+        self.assertIn("代码结构与现有签名上下文", ast_ctx)
+        self.assertIn("calculate_tax", ast_ctx)
+        self.assertIn("math_service.py", ast_ctx)
+        self.assertIn("order_handler.py", ast_ctx)
+
 
 if __name__ == "__main__":
     unittest.main()
