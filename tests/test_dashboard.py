@@ -44,6 +44,12 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertIn("step-pill-8", html)
         self.assertIn("active-step-badge", html)
         self.assertIn("setStep", html)
+        self.assertIn("live-stage-banner", html)
+        self.assertIn("banner-stage-pill", html)
+        self.assertIn("banner-actor-pill", html)
+        self.assertIn("banner-action-text", html)
+        self.assertIn("banner-waiting-for", html)
+        self.assertIn("banner-station-pos", html)
 
         # Test run_id injection
         injected = get_dashboard_html(initial_run_id="run_custom_999")
@@ -62,7 +68,11 @@ class TestDashboardSuite(unittest.TestCase):
         # 2. Status route without any runs
         resp_status = client.get("/api/status")
         self.assertEqual(resp_status.status_code, 200)
-        self.assertEqual(resp_status.json()["status"], "IDLE")
+        idle_data = resp_status.json()
+        self.assertEqual(idle_data["status"], "IDLE")
+        self.assertEqual(idle_data["active_actor"], "系统调度器")
+        self.assertIn("node_info", idle_data)
+        self.assertEqual(idle_data["node_info"]["actor_role"], "系统调度器")
 
         # 3. Create a run and test status
         self.store.create_run("run_abc_1", issue_iid=42)
@@ -83,6 +93,10 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertEqual(data["step"], 5)
         self.assertFalse(data["highlight_critic"])
         self.assertEqual(data["attempt"], 1)
+        self.assertEqual(data["active_actor"], "开发工兵 Agent (Worker Agent)")
+        self.assertIn("开发工兵 Agent", data["current_action"])
+        self.assertIn("等待工兵编码完成提交", data["waiting_for"])
+        self.assertEqual(data["node_info"]["station_id"], 5)
         self.assertIn("正在编辑代码", data["last_log"])
         self.assertEqual(data["design_doc"], "# Architecture Design")
         self.assertEqual(data["red_evidence"]["verdict"], "PASSED_RED")

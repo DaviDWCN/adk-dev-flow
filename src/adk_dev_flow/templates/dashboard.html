@@ -160,6 +160,40 @@
       </div>
     </header>
 
+    <!-- Real-time Flow Stage Banner (High Visibility on Big Screen) -->
+    <div id="live-stage-banner" class="px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-50/95 via-indigo-50/90 to-purple-50/95 border border-blue-200/90 shadow-[0_4px_16px_-4px_rgba(59,130,246,0.12)] flex flex-wrap items-center justify-between gap-3 text-xs transition-all">
+      <div class="flex items-center gap-3">
+        <div class="relative flex items-center justify-center">
+          <span id="banner-pulse-dot" class="w-3.5 h-3.5 rounded-full bg-blue-500 animate-ping absolute opacity-75"></span>
+          <span id="banner-status-dot" class="w-3.5 h-3.5 rounded-full bg-blue-600 relative shadow-sm"></span>
+        </div>
+        <div class="space-y-0.5">
+          <div class="flex items-center flex-wrap gap-2">
+            <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">当前流程节点</span>
+            <span id="banner-stage-pill" class="font-mono text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-blue-100/90 text-blue-800 border border-blue-300 shadow-2xs">
+              ⚡ 待命中 · STANDBY
+            </span>
+            <span id="banner-actor-pill" class="font-mono text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 shadow-2xs">
+              执行角色: 系统调度器
+            </span>
+          </div>
+          <div id="banner-action-text" class="text-[12px] font-semibold text-slate-800 break-words flex items-center gap-1.5">
+            <span>流水线空闲待命中，无活跃执行任务。可派发新任务或点击单步仿真。</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 font-mono text-[11px]">
+        <div class="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/90 border border-slate-200 shadow-2xs">
+          <span class="text-slate-400 font-sans">当前等待:</span>
+          <span id="banner-waiting-for" class="font-bold text-amber-600">等待新任务派发</span>
+        </div>
+        <div class="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/90 border border-slate-200 shadow-2xs">
+          <span class="text-slate-400 font-sans">工位定位:</span>
+          <span id="banner-station-pos" class="font-bold text-indigo-600">工位 0 · 待命区</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Determinism & Security Guardrail Indicators Bar -->
     <div class="px-3.5 py-2.5 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200/80 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.05)] flex flex-wrap items-center justify-between gap-2.5 text-[11px]">
       <div class="flex items-center gap-2 font-bold text-slate-800">
@@ -211,56 +245,56 @@
             <span class="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[9px] flex items-center justify-center font-bold">1</span>
             <span>设计AI 📐</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">方案/拆分</span>
+          <span id="step-sub-1" class="text-[9px] text-slate-500 mt-0.5">方案/拆分</span>
         </div>
         <div id="step-pill-2" onclick="setStep(2)" title="2. 测试AI根据设计出红色测试用例，并执行变异测试击杀率门禁 (>=85%)" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-emerald-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-emerald-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] flex items-center justify-center font-bold">2</span>
             <span>测试AI 🧪</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">红灯/变异门禁</span>
+          <span id="step-sub-2" class="text-[9px] text-slate-500 mt-0.5">红灯/变异门禁</span>
         </div>
         <div id="step-pill-3" onclick="setStep(3)" title="3. Critic AI前置双审设计与测试一致性及架构规范" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-cyan-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-cyan-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-cyan-100 text-cyan-700 text-[9px] flex items-center justify-center font-bold">3</span>
             <span>Critic 🧐</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">规范前审</span>
+          <span id="step-sub-3" class="text-[9px] text-slate-500 mt-0.5">规范前审</span>
         </div>
         <div id="step-pill-4" onclick="setStep(4)" title="4. 关键HITL确认任务和测试cases并锁定" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-amber-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-amber-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 text-[9px] flex items-center justify-center font-bold">4</span>
             <span>HITL ✍️</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">签字锁定</span>
+          <span id="step-sub-4" class="text-[9px] text-slate-500 mt-0.5">签字锁定</span>
         </div>
         <div id="step-pill-5" onclick="setStep(5)" title="5. 开发AI在受限沙箱开始编码" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-amber-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-amber-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 text-[9px] flex items-center justify-center font-bold">5</span>
             <span>开发AI 🔨</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">沙箱施工</span>
+          <span id="step-sub-5" class="text-[9px] text-slate-500 mt-0.5">沙箱施工</span>
         </div>
         <div id="step-pill-6" onclick="setStep(6)" title="6. 对开发结果自动化测试跑道真机验证" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-purple-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-purple-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-purple-100 text-purple-700 text-[9px] flex items-center justify-center font-bold">6</span>
             <span>自动测试 ⚙️</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">真机跑测</span>
+          <span id="step-sub-6" class="text-[9px] text-slate-500 mt-0.5">真机跑测</span>
         </div>
         <div id="step-pill-7" onclick="setStep(7)" title="7. 测试不通过打回开发AI定向自愈重试" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-orange-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-orange-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-orange-100 text-orange-700 text-[9px] flex items-center justify-center font-bold">7</span>
             <span>自愈打回 🔄</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">指纹修复</span>
+          <span id="step-sub-7" class="text-[9px] text-slate-500 mt-0.5">指纹修复</span>
         </div>
         <div id="step-pill-8" onclick="setStep(8)" title="8. AST硬门禁防线 + 交付主干仓库" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-emerald-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-emerald-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] flex items-center justify-center font-bold">8</span>
             <span>仓库交付 🚀</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">硬门禁入库</span>
+          <span id="step-sub-8" class="text-[9px] text-slate-500 mt-0.5">硬门禁入库</span>
         </div>
       </div>
     </div>
@@ -871,6 +905,142 @@
     let sseSource = null;
     let currentRunId = null;
 
+    const STEP_BANNER_INFO = {
+      0: {
+        badge_text: '⚡ 待命中 · STANDBY',
+        badge_style: 'bg-slate-100 text-slate-600 border-slate-300',
+        actor_role: '系统调度器',
+        current_action: '流水线空闲待命中，无活跃执行任务。可派发新任务或点击单步仿真。',
+        waiting_for: '等待新任务派发',
+        station_name: '工位 0 · 待命区',
+        tone: 'slate'
+      },
+      1: {
+        badge_text: '📐 架构师方案设计中',
+        badge_style: 'bg-blue-50 text-blue-700 border-blue-300',
+        actor_role: '架构师 AI (Architect Agent)',
+        current_action: '架构师 AI 正在分析代码依赖与 AST 影响面，起草设计文档与原子任务清单',
+        waiting_for: '等待架构设计文档生成',
+        station_name: '工位 1 · 架构设计工位',
+        tone: 'blue'
+      },
+      2: {
+        badge_text: '🧪 验收测试编写与变异验真',
+        badge_style: 'bg-emerald-50 text-emerald-700 border-emerald-300',
+        actor_role: '测试工程师 AI (QA Tester Agent)',
+        current_action: '测试 AI 正在编写验收用例，执行真实红灯预检与 AST 变异测试击杀分析 (要求 ≥85%)',
+        waiting_for: '等待测试编写与变异门禁判定',
+        station_name: '工位 2 · 验收测试实验室',
+        tone: 'green'
+      },
+      3: {
+        badge_text: '🧐 前置规范审查中',
+        badge_style: 'bg-cyan-50 text-cyan-700 border-cyan-300',
+        actor_role: '独立审查专家 (Critic Agent)',
+        current_action: '第三视角审查员正在双审设计与用例一致性，校验架构规范与签名兼容性',
+        waiting_for: '等待前置双审放行',
+        station_name: '工位 3 · 前置双审台',
+        tone: 'blue'
+      },
+      4: {
+        badge_text: '✍️ 契约已锁定 · 等待派发',
+        badge_style: 'bg-amber-50 text-amber-700 border-amber-300 ring-2 ring-amber-400/40 animate-pulse',
+        actor_role: '人工审核员 / 调度器 (HITL)',
+        current_action: '任务契约与测试用例已锁定签名，环境准备就绪，等待派发沙箱编码施工',
+        waiting_for: '等待调用 flow_dispatch 启动工兵沙箱开发',
+        station_name: '工位 4 · 签字锁定期',
+        tone: 'amber'
+      },
+      5: {
+        badge_text: '🔨 开发工兵沙箱编码施工中',
+        badge_style: 'bg-amber-50 text-amber-800 border-amber-300 ring-2 ring-amber-400/30',
+        actor_role: '开发工兵 Agent (Worker Agent)',
+        current_action: '开发工兵 Agent 正在独立沙箱 Worktree 中受限编码施工，目标全量跑通验收测试',
+        waiting_for: '等待工兵编码完成提交',
+        station_name: '工位 5 · 沙箱编码施工区',
+        tone: 'amber'
+      },
+      6: {
+        badge_text: '⚙️ 自动化测试真机跑测中',
+        badge_style: 'bg-purple-50 text-purple-700 border-purple-300 ring-2 ring-purple-400/30',
+        actor_role: '自动化测试跑道引擎 (Test Runner)',
+        current_action: '机械跑道正在执行测试防篡改审计、Ruff 规范静态扫描与全量 Pytest 真机跑测',
+        waiting_for: '等待自动化测试全绿通过',
+        station_name: '工位 6 · 自动化测试跑道',
+        tone: 'purple'
+      },
+      7: {
+        badge_text: '🔄 错误指纹定向自愈修复中',
+        badge_style: 'bg-orange-50 text-orange-700 border-orange-300 ring-2 ring-orange-400/40',
+        actor_role: '自愈修复工兵 (Self-Healing Worker)',
+        current_action: '测试未通过，系统已提取错误指纹回路送回工兵工位进行定向修复 (≤3轮)',
+        waiting_for: '等待工兵修复并重新送测',
+        station_name: '工位 7 · 自愈回流环',
+        tone: 'orange'
+      },
+      8: {
+        badge_text: '🎉 成果交付就绪 · 等待合并评审',
+        badge_style: 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-400/40',
+        actor_role: '代码仓库评审人 (Code Reviewer)',
+        current_action: '全套测试验证通过，代码已安全存入仓库，已生成 PR/MR 并附带全套存证，等待人工合并评审',
+        waiting_for: '等待人工在 GitLab/GitHub 上评审并合并 PR/MR',
+        station_name: '工位 8 · 成果交付代码库',
+        tone: 'green'
+      },
+      9: {
+        badge_text: '🚨 异常跳闸 · 等待人工排障',
+        badge_style: 'bg-rose-50 text-rose-700 border-rose-300 ring-2 ring-rose-500/50 animate-pulse',
+        actor_role: '物理熔断保护器 (Circuit Breaker)',
+        current_action: '自愈重试超限或出现严重异常，触发物理熔断机制强制停机，保护工作现场未受污染',
+        waiting_for: '等待人工排障复位 (调用 flow_resume 或 flow_abort)',
+        station_name: '工位 9 · 异常熔断安全区',
+        tone: 'rose'
+      }
+    };
+
+    function updateStageBanner(info) {
+      if (!info) return;
+      const stagePill = document.getElementById('banner-stage-pill');
+      const actorPill = document.getElementById('banner-actor-pill');
+      const actionText = document.getElementById('banner-action-text');
+      const waitingFor = document.getElementById('banner-waiting-for');
+      const stationPos = document.getElementById('banner-station-pos');
+      const pulseDot = document.getElementById('banner-pulse-dot');
+      const statusDot = document.getElementById('banner-status-dot');
+
+      if (stagePill && info.badge_text) {
+        stagePill.textContent = info.badge_text;
+        if (info.badge_style) stagePill.className = `font-mono text-[11px] font-extrabold px-2.5 py-0.5 rounded-full shadow-2xs ${info.badge_style}`;
+      }
+      if (actorPill && info.actor_role) {
+        actorPill.textContent = `执行角色: ${info.actor_role}`;
+      }
+      if (actionText && info.current_action) {
+        actionText.innerHTML = `<span>${info.current_action}</span>`;
+      }
+      if (waitingFor && info.waiting_for) {
+        waitingFor.textContent = info.waiting_for;
+      }
+      if (stationPos && (info.station_name || info.station_id !== undefined)) {
+        stationPos.textContent = info.station_name || (info.station_id ? `工位 ${info.station_id}` : '待命区');
+      }
+      if (pulseDot && statusDot) {
+        const dotColors = {
+          blue: ['bg-blue-500', 'bg-blue-600'],
+          green: ['bg-emerald-500', 'bg-emerald-600'],
+          amber: ['bg-amber-500', 'bg-amber-600'],
+          purple: ['bg-purple-500', 'bg-purple-600'],
+          orange: ['bg-orange-500', 'bg-orange-600'],
+          rose: ['bg-rose-500', 'bg-rose-600'],
+          slate: ['bg-slate-400', 'bg-slate-500']
+        };
+        const colorKey = info.tone || (info.node_key === 'WORK' ? 'amber' : (info.node_key === 'TEST' ? 'purple' : (info.node_key === 'MR' ? 'green' : (info.node_key === 'ESCALATE' ? 'rose' : (info.node_key === 'CRITIC' ? 'blue' : 'blue')))));
+        const pair = dotColors[colorKey] || dotColors.blue;
+        pulseDot.className = `w-3.5 h-3.5 rounded-full ${pair[0]} animate-ping absolute opacity-75`;
+        statusDot.className = `w-3.5 h-3.5 rounded-full ${pair[1]} relative shadow-sm`;
+      }
+    }
+
     function highlightAvatar(avatarId, color) {
       ['svg-architect', 'svg-tester', 'svg-builder', 'svg-critic'].forEach(id => {
         const el = document.getElementById(id);
@@ -901,6 +1071,42 @@
         }
       }
 
+      const activePillSubTexts = {
+        1: '📐 起草方案',
+        2: '🧪 编写/变异',
+        3: '🧐 前置双审',
+        4: '✍️ 契约待发',
+        5: '🔨 正在编码',
+        6: '⚙️ 正在跑测',
+        7: '🔄 自愈修复',
+        8: '🚀 交付就绪'
+      };
+      const defaultPillSubTexts = {
+        1: '方案/拆分',
+        2: '红灯/变异门禁',
+        3: '设计/用例双审',
+        4: '人工签字锁定',
+        5: '沙箱受限施工',
+        6: '真机跑测扫描',
+        7: '错误指纹修复',
+        8: '代码库提交/MR'
+      };
+      for (let i = 1; i <= 8; i++) {
+        const sub = document.getElementById(`step-sub-${i}`);
+        if (sub) {
+          if (i === num) {
+            sub.textContent = activePillSubTexts[i] || '执行中';
+            sub.className = 'text-[9px] font-bold text-blue-700 mt-0.5 animate-pulse';
+          } else if (i < num) {
+            sub.textContent = '已完成 ✓';
+            sub.className = 'text-[9px] font-semibold text-emerald-600 mt-0.5';
+          } else {
+            sub.textContent = defaultPillSubTexts[i];
+            sub.className = 'text-[9px] text-slate-500 mt-0.5';
+          }
+        }
+      }
+
       const activeBadge = document.getElementById('active-step-badge');
       const stepTitles = [
         '待命 · STANDBY',
@@ -915,7 +1121,17 @@
         '🚨 异常跳闸熔断 (物理保护停机等待排障)'
       ];
       if (activeBadge) {
-        activeBadge.textContent = stepTitles[num] || `步骤 ${num}/8`;
+        if (options && options.node_info && options.node_info.stage_name) {
+          activeBadge.textContent = options.node_info.stage_name;
+        } else {
+          activeBadge.textContent = stepTitles[num] || `步骤 ${num}/8`;
+        }
+      }
+
+      if (options && options.node_info) {
+        updateStageBanner(options.node_info);
+      } else if (STEP_BANNER_INFO[num]) {
+        updateStageBanner(STEP_BANNER_INFO[num]);
       }
 
       // Reset all SVG node highlights
@@ -1254,10 +1470,26 @@
         setStage('ABORT', data.last_log || data.message);
         const activeBadge = document.getElementById('active-step-badge');
         if (activeBadge) activeBadge.textContent = '⛔ 任务已中止';
+        if (data.node_info) updateStageBanner(data.node_info);
       } else if (typeof data.step === "number") {
         setStep(data.step, data.last_log || data.message, data.details, {
           highlightCritic: !!data.highlight_critic,
+          node_info: data.node_info,
         });
+      }
+
+      if (data.node_info) {
+        updateStageBanner(data.node_info);
+      }
+
+      if (data.badge_text) {
+        const stateBadge = document.getElementById('state-badge');
+        if (stateBadge) {
+          stateBadge.textContent = data.badge_text;
+          if (data.badge_style) {
+            stateBadge.className = `px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold border transition-all ${data.badge_style}`;
+          }
+        }
       }
 
       // Critic review box display

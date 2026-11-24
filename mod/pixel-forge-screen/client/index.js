@@ -5,8 +5,8 @@ return {slotContract:'strict',inject:['slots','locale'],apply(ctx){
 const ns='pixel-forge-screen';
 const h=React.createElement;
 ctx.locale.register(ns,{
-zh:{title:'像素工坊大屏',sub:'确定性研发流水线监控台',synced:'已连接看板服务',offline:'看板服务未连接',loading:'正在连接看板服务…',noResponse:'无响应（服务未启动）',badHttp:'响应异常',opened:'已请求在浏览器打开：',starting:'正在后台拉起看板服务…',currentRun:'当前任务',refresh:'刷新',openFull:'在浏览器打开完整看板',startServer:'启动看板服务',autoPlay:'▶ 演练流水线',stopAuto:'⏹ 停止演练',backLive:'回到实时',simOn:'演练模式：当前显示的是模拟步骤，不是任务的实时状态。',gates:'核心门禁与审批关卡',lifecycle:'8 步确定性研发全生命周期流水线',contract:'任务契约',terminal:'流水线日志',simDock:'交互式单步仿真控制台',simDockHint:'点击按钮演练各工位流动',attempt:'轮次',noRun:'暂无活跃任务',run:'任务',updated:'更新时间',target:'目标分支',allowed:'白名单',lockedTest:'验收测试',worktree:'施工工位',design:'设计文档',red:'红灯证据',mutation:'变异门禁',preCritic:'前置审查',impact:'AST 影响面',verdict:'质量把关结论',passed:'通过 / PASSED',blocked:'驳回 / BLOCKED',lockNote:'🔒 白名单与测试防篡改双重审计，超范围修改由底层 Git Hook 即时阻断。',art:'像素工坊流水线拓扑图'},
-en:{title:'Pixel Forge Screen',sub:'Deterministic R&D pipeline monitor',synced:'Dashboard service connected',offline:'Dashboard service is not connected',loading:'Connecting to the dashboard service…',noResponse:'no response (service not started)',badHttp:'unexpected response',opened:'Requested to open in browser: ',starting:'Starting the dashboard service in the background…',currentRun:'Current task',refresh:'Refresh',openFull:'Open full dashboard in browser',startServer:'Start dashboard service',autoPlay:'▶ Run walkthrough',stopAuto:'⏹ Stop walkthrough',backLive:'Back to live',simOn:'Walkthrough mode: showing simulated steps, not the live task state.',gates:'Core gates and approvals',lifecycle:'8-step deterministic lifecycle',contract:'Task contract',terminal:'Pipeline log',simDock:'Interactive step simulator',simDockHint:'Click a step to walk through the stations',attempt:'Attempt',noRun:'No active task',run:'Task',updated:'Updated',target:'Target branch',allowed:'Allowed paths',lockedTest:'Locked test',worktree:'Worktree',design:'Design doc',red:'Red evidence',mutation:'Mutation gate',preCritic:'Pre-critic',impact:'AST impact',verdict:'Critic verdict',passed:'PASSED',blocked:'BLOCKED',lockNote:'🔒 The allowlist and tamper-proof tests are audited; out-of-scope edits are blocked by the Git hook.',art:'Pixel Forge pipeline topology'}});
+zh:{title:'像素工坊大屏',sub:'确定性研发流水线监控台',synced:'已连接看板服务',offline:'看板服务未连接',loading:'正在连接看板服务…',noResponse:'无响应（服务未启动）',badHttp:'响应异常',opened:'已请求在浏览器打开：',starting:'正在后台拉起看板服务…',currentRun:'当前任务',refresh:'刷新',openFull:'在浏览器打开完整看板',startServer:'启动看板服务',autoPlay:'▶ 演练流水线',stopAuto:'⏹ 停止演练',backLive:'回到实时',simOn:'演练模式：当前显示的是模拟步骤，不是任务的实时状态。',gates:'核心门禁与审批关卡',lifecycle:'8 步确定性研发全生命周期流水线',contract:'任务契约',terminal:'流水线日志',simDock:'交互式单步仿真控制台',simDockHint:'点击按钮演练各工位流动',attempt:'轮次',noRun:'暂无活跃任务',run:'任务',updated:'更新时间',target:'目标分支',allowed:'白名单',lockedTest:'验收测试',worktree:'施工工位',design:'设计文档',red:'红灯证据',mutation:'变异门禁',preCritic:'前置审查',impact:'AST 影响面',verdict:'质量把关结论',passed:'通过 / PASSED',blocked:'驳回 / BLOCKED',lockNote:'🔒 白名单与测试防篡改双重审计，超范围修改由底层 Git Hook 即时阻断。',art:'像素工坊流水线拓扑图',currentNode:'当前流程节点',activeActor:'执行角色',waitingFor:'当前等待',stationPos:'工位定位'},
+en:{title:'Pixel Forge Screen',sub:'Deterministic R&D pipeline monitor',synced:'Dashboard service connected',offline:'Dashboard service is not connected',loading:'Connecting to the dashboard service…',noResponse:'no response (service not started)',badHttp:'unexpected response',opened:'Requested to open in browser: ',starting:'Starting the dashboard service in the background…',currentRun:'Current task',refresh:'Refresh',openFull:'Open full dashboard in browser',startServer:'Start dashboard service',autoPlay:'▶ Run walkthrough',stopAuto:'⏹ Stop walkthrough',backLive:'Back to live',simOn:'Walkthrough mode: showing simulated steps, not the live task state.',gates:'Core gates and approvals',lifecycle:'8-step deterministic lifecycle',contract:'Task contract',terminal:'Pipeline log',simDock:'Interactive step simulator',simDockHint:'Click a step to walk through the stations',attempt:'Attempt',noRun:'No active task',run:'Task',updated:'Updated',target:'Target branch',allowed:'Allowed paths',lockedTest:'Locked test',worktree:'Worktree',design:'Design doc',red:'Red evidence',mutation:'Mutation gate',preCritic:'Pre-critic',impact:'AST impact',verdict:'Critic verdict',passed:'PASSED',blocked:'BLOCKED',lockNote:'🔒 The allowlist and tamper-proof tests are audited; out-of-scope edits are blocked by the Git hook.',art:'Pixel Forge pipeline topology',currentNode:'Current Node',activeActor:'Active Actor',waitingFor:'Waiting For',stationPos:'Station'}});
 styles.insert(`.pfs{display:flex;flex-direction:column;gap:12px;max-width:1180px;margin:0 auto;padding:12px;font:inherit;font-size:12px;line-height:1.5;color:var(--color-text-primary);min-height:100%;box-sizing:border-box}
 .pfs-full{max-width:none;min-height:100vh}
 .pfs *,.pfs *::before,.pfs *::after{box-sizing:border-box}
@@ -100,6 +100,21 @@ styles.insert(`.pfs{display:flex;flex-direction:column;gap:12px;max-width:1180px
 .pfs-pipe-rev{stroke-dasharray:6 6;animation:pfs-flow-rev .8s linear infinite}
 .pfs-node-active{animation:pfs-glow 2s ease-in-out infinite}
 .pfs-avatar{transform-box:fill-box;transform-origin:50% 50%;transition:transform .3s,filter .3s}
+.pfs-hero{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--color-border-muted);background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(99,102,241,0.08));box-shadow:0 2px 8px -2px rgba(59,130,246,0.08)}
+.pfs-hero-main{display:flex;align-items:center;gap:12px}
+.pfs-hero-beacon{position:relative;display:flex;align-items:center;justify-content:center;width:14px;height:14px}
+.pfs-hero-ping{position:absolute;width:14px;height:14px;border-radius:50%;opacity:0.75;animation:pfs-led 1.5s ease-in-out infinite}
+.pfs-hero-dot{position:relative;width:12px;height:12px;border-radius:50%}
+.pfs-hero-content{display:flex;flex-direction:column;gap:3px}
+.pfs-hero-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.pfs-hero-lbl{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--color-text-tertiary)}
+.pfs-hero-stage{font:700 11px var(--font-mono,monospace);padding:2px 8px;border-radius:999px;border:1px solid}
+.pfs-hero-actor{font:600 11px var(--font-mono,monospace);padding:2px 8px;border-radius:6px;background:var(--color-bg-input);border:1px solid var(--color-border-muted);color:var(--color-text-secondary)}
+.pfs-hero-action{font-size:12px;font-weight:600;color:var(--color-text-primary)}
+.pfs-hero-side{display:flex;align-items:center;gap:8px;font:11px var(--font-mono,monospace)}
+.pfs-hero-box{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;background:var(--color-bg-input);border:1px solid var(--color-border-muted)}
+.pfs-hero-box-lbl{color:var(--color-text-tertiary)}
+.pfs-pill-active-sub{color:var(--color-accent-blue);font-weight:700}
 @media (max-width:900px){.pfs-steps{grid-template-columns:repeat(4,minmax(0,1fr))}.pfs-cols{grid-template-columns:minmax(0,1fr)}.pfs-simg{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @media (prefers-reduced-motion:reduce){.pfs *{transition:none!important;animation:none!important}}`);
 // 拓扑图素材：取自看板页面 templates/dashboard.html 的 #topology-svg，运行时解析成 React 元素（id 统一加 pfs- 前缀）
@@ -475,6 +490,19 @@ return {nodes,visible,anim,avatar:avatar?avatar[0]:null,avatarColor:avatar?avata
 const PILLS=[[1,'设计AI 📐','方案/拆分','1. 架构设计AI产出设计文档与任务拆分','#2563eb'],[2,'测试AI 🧪','红灯真测','2. 测试AI根据设计出红色测试用例(AST影响点)','#059669'],[3,'Critic 🧐','双审一致','3. 前置审查核对设计与用例一致性（随契约起草内嵌执行）','#0891b2'],[4,'HITL ✍️','签字锁定','4. 关键HITL确认任务和测试cases并锁定','#d97706'],[5,'开发AI 🔨','沙箱施工','5. 开发AI在受限沙箱开始编码','#d97706'],[6,'自动测试 ⚙️','真机跑测','6. 对开发结果自动化测试跑道真机验证','#7c3aed'],[7,'自愈打回 🔄','指纹修复','7. 测试不通过打回开发AI定向自愈重试','#ea580c'],[8,'仓库交付 🚀','硬门禁入库','8. AST硬门禁防线 + 交付主干仓库','#059669']];
 const GATES=[['👤 关卡-1','人工签字确认 (方案与测试审核)',[4],'amber','人工签字'],['🔒 门禁-1','验证测试真实有效 (必须报错防假需求)',[2],'blue','红灯验真'],['🔒 门禁-M','变异击杀率 ≥85% (锁定时强制，度量步骤2用例有效性)',[2,4],'cyan','变异验真'],['🔒 门禁-2','划分独立工位 (改动范围锁定防污染)',[5,7],'orange','沙箱隔离'],['🔒 门禁-3','机器自动测试 (全套用例真机跑通)',[6],'purple','机械跑道'],['👤 关卡-2','异常跳闸保护 (人工介入排障复位)',[9],'rose','异常复位']];
 const SIM=[['1.设计AI 📐','blue'],['2.测试AI 🧪','emerald'],['3.Critic 🧐','cyan'],['4.HITL ✍️','amber'],['5.开发AI 🔨','amber'],['6.自动测试 ⚙️','purple'],['7.自愈打回 🔄','orange'],['8.仓库交付 🚀','emerald'],['9.跳闸 🚨','rose']];
+const STEP_HERO={
+0:{stage:'系统待命 · STANDBY',actor:'系统调度器',action:'流水线处于空闲待命状态，无活跃执行任务',waiting:'等待派发新任务 (flow_init / flow_dispatch)',station:'工位 0 · 待命区',tone:'slate',dot:'#64748b',badge:'⚡ 待命待发'},
+1:{stage:'步骤 1/8 · 架构蓝图与任务拆分',actor:'架构师 AI (Architect Agent)',action:'架构师 AI 正在分析代码依赖与 AST 影响面，起草设计文档与原子任务清单',waiting:'等待架构设计文档生成',station:'工位 1 · 架构设计工位',tone:'blue',dot:'#2563eb',badge:'📐 架构师方案起草中'},
+2:{stage:'步骤 2/8 · 验收测试编写与变异验真',actor:'测试工程师 AI (QA Tester Agent)',action:'测试 AI 正在编写验收用例，执行真实红灯预检与 AST 变异测试击杀分析 (要求 ≥85%)',waiting:'等待测试编写与变异门禁判定',station:'工位 2 · 验收测试实验室',tone:'emerald',dot:'#059669',badge:'🧪 验收测试编写与验真中'},
+3:{stage:'步骤 3/8 · 前置规范双审',actor:'独立审查专家 (Critic Agent)',action:'第三视角审查员正在双审设计与用例一致性，校验架构规范与公共签名保护',waiting:'等待前置双审放行',station:'工位 3 · 前置双审台',tone:'cyan',dot:'#0891b2',badge:'🧐 前置规范审查中'},
+4:{stage:'步骤 4/8 · 关键 HITL 契约锁定',actor:'人工审核员 / 调度器 (HITL)',action:'任务契约与测试用例已锁定签名，环境准备就绪，等待派发沙箱编码施工',waiting:'等待调用 flow_dispatch 启动工兵沙箱开发',station:'工位 4 · 签字锁定期',tone:'amber',dot:'#d97706',badge:'✍️ 契约已锁定 · 等待派发'},
+5:{stage:'步骤 5/8 · 开发工兵沙箱编码施工',actor:'开发工兵 Agent (Worker Agent)',action:'开发工兵 Agent 正在独立沙箱 Worktree 中受限编码施工，目标全量跑通验收测试',waiting:'等待工兵编码完成提交',station:'工位 5 · 沙箱编码施工区',tone:'amber',dot:'#d97706',badge:'🔨 开发工兵沙箱编码施工中'},
+6:{stage:'步骤 6/8 · 自动化测试全量真机跑测',actor:'自动化测试跑道引擎 (Test Runner)',action:'机械跑道正在执行测试防篡改审计、Ruff 规范静态扫描与全量 Pytest 真机跑测',waiting:'等待自动化测试全绿通过',station:'工位 6 · 自动化测试跑道',tone:'purple',dot:'#7c3aed',badge:'⚙️ 自动化测试真机跑测中'},
+7:{stage:'步骤 7/8 · 错误指纹定向自愈回流',actor:'自愈修复工兵 (Self-Healing Worker)',action:'测试未通过，系统已提取错误指纹回路送回工兵工位进行定向修复 (≤3轮)',waiting:'等待工兵修复并重新送测',station:'工位 7 · 自愈回流环',tone:'orange',dot:'#ea580c',badge:'🔄 错误指纹定向自愈修复中'},
+8:{stage:'步骤 8/8 · AST 硬门禁 + 成果交付代码库',actor:'代码仓库评审人 (Code Reviewer)',action:'全套测试验证通过，代码已安全存入仓库，已生成 PR/MR 并附带全套存证，等待人工合并评审',waiting:'等待人工在 GitLab/GitHub 上评审并合并 PR/MR',station:'工位 8 · 成果交付代码库',tone:'emerald',dot:'#059669',badge:'🎉 成果交付就绪 · 等待合并评审'},
+9:{stage:'步骤 9 · 异常熔断跳闸保护',actor:'物理熔断保护器 (Circuit Breaker)',action:'自愈重试超限或出现严重异常，触发物理熔断机制强制停机，保护工作现场未受污染',waiting:'等待人工排障复位 (调用 flow_resume 或 flow_abort)',station:'工位 9 · 异常熔断安全区',tone:'rose',dot:'#dc2626',badge:'🚨 异常跳闸 · 等待人工排障'}
+};
+const ACTIVE_PILL_SUB={1:'📐 起草方案',2:'🧪 编写/变异',3:'🧐 前置双审',4:'✍️ 契约待发',5:'🔨 正在编码',6:'⚙️ 正在跑测',7:'🔄 自愈修复',8:'🚀 交付就绪'};
 const call=(method,args)=>host.call('pixel_forge',method,args);
 const reason=e=>String((e&&e.message)||e);
 function Screen(props){
@@ -528,6 +556,19 @@ if(d.pre_critic_report)add(t('preCritic'),d.pre_critic_report.approved?'规范�
 if(d.impact_analysis){const callers=d.impact_analysis.impacted_callers||[];add(t('impact'),callers.length+' 处受影响调用点',callers.join(', '));}
 if(d.updated_at)add(t('updated'),String(d.updated_at).slice(0,19).replace('T',' '));
 const rev=d.review,issues=(rev&&(rev.blocking_issues||[]))||[];
+const heroToneMap={WORK:'amber',TEST:'purple',MR:'emerald',ESCALATE:'rose',CRITIC:'cyan',SPEC:'blue',IDLE:'slate'};
+const heroDotMap={amber:'#d97706',purple:'#7c3aed',emerald:'#059669',rose:'#dc2626',cyan:'#0891b2',blue:'#2563eb',slate:'#64748b'};
+const dNode=d.node_info;
+const hero=sim?STEP_HERO[sim.step]:dNode?{
+stage:dNode.stage_name||st.stepTitle,
+actor:dNode.actor_role||d.active_actor,
+action:dNode.current_action||d.current_action,
+waiting:dNode.waiting_for||d.waiting_for,
+station:dNode.station_name,
+tone:heroToneMap[dNode.node_key]||'blue',
+dot:heroDotMap[heroToneMap[dNode.node_key]]||'#2563eb',
+badge:dNode.badge_text||st.badge
+}:STEP_HERO[liveStep]||STEP_HERO[0];
 return h('div',{className:'pfs'+(props.page&&props.page.standalone?' pfs-full':'')},
 h('header',{className:'pfs-card pfs-row pfs-bar'},
 h('div',{className:'pfs-brand'},h('span',{className:'pfs-logo','aria-hidden':'true'},'⚡'),
@@ -543,6 +584,24 @@ h('button',{type:'button',className:'pfs-btn',title:t('refresh'),'aria-label':t(
 h('button',{type:'button',className:'pfs-btn pfs-btn-pri',disabled:!online,onClick:openFull},t('openFull')),
 sim?h('button',{type:'button',className:'pfs-btn pfs-btn-warn',onClick:()=>play(0)},t('backLive')):null,
 h('button',{type:'button',className:'pfs-btn '+(auto?'pfs-btn-rose':'pfs-btn-indigo'),onClick:toggleAuto},auto?t('stopAuto'):t('autoPlay')))),
+h('section',{className:'pfs-hero',role:'region','aria-label':t('currentNode')},
+h('div',{className:'pfs-hero-main'},
+h('div',{className:'pfs-hero-beacon'},
+h('span',{className:'pfs-hero-ping pfs-t-'+hero.tone,style:{background:hero.dot}}),
+h('span',{className:'pfs-hero-dot',style:{background:hero.dot}})),
+h('div',{className:'pfs-hero-content'},
+h('div',{className:'pfs-hero-top'},
+h('span',{className:'pfs-hero-lbl'},t('currentNode')),
+h('span',{className:'pfs-hero-stage pfs-t-'+hero.tone},hero.badge||hero.stage),
+hero.actor?h('span',{className:'pfs-hero-actor'},t('activeActor')+': '+hero.actor):null),
+h('div',{className:'pfs-hero-action'},hero.action))),
+h('div',{className:'pfs-hero-side'},
+hero.waiting?h('div',{className:'pfs-hero-box'},
+h('span',{className:'pfs-hero-box-lbl'},t('waitingFor')+':'),
+h('b',{style:{color:'#d97706'}},hero.waiting)):null,
+hero.station?h('div',{className:'pfs-hero-box'},
+h('span',{className:'pfs-hero-box-lbl'},t('stationPos')+':'),
+h('b',{style:{color:'#4f46e5'}},hero.station)):null)),
 !online?h('div',{role:'alert',className:'pfs-banner pfs-banner-off'},h('span',null,fault?t('offline'):t('loading')),faultText?h('code',{className:'pfs-err'},faultText):null,h('button',{type:'button',className:'pfs-btn pfs-btn-pri',onClick:start},t('startServer'))):null,
 starting?h('div',{role:'status',className:'pfs-banner'},t('starting')):null,
 sim?h('div',{role:'status',className:'pfs-banner pfs-banner-sim'},t('simOn')):null,
@@ -551,8 +610,14 @@ h('div',{className:'pfs-card pfs-row'},h('span',{className:'pfs-gates-title'},'�
 GATES.map(g=>h('span',{key:g[0],className:'pfs-gate pfs-t-'+g[3]+(g[2].indexOf(step)>=0?' pfs-gate-on':''),title:g[1]},h('span',null,g[0]),h('b',null,g[4])))),
 h('section',{className:'pfs-card'},
 h('div',{className:'pfs-sec-head'},h('span',null,'🔄 ',t('lifecycle')),h('span',{className:'pfs-badge pfs-t-blue',role:'status'},st.stepTitle)),
-h('div',{className:'pfs-steps'},PILLS.map(m=>h('button',{key:m[0],type:'button',title:m[3],'aria-label':m[1],className:'pfs-pill '+(step===m[0]?'pfs-pill-on':step>m[0]?'pfs-pill-done':'pfs-pill-todo'),onClick:()=>play(m[0])},
-h('span',null,h('span',{className:'pfs-num',style:{background:m[4]+'22',color:m[4]}},String(m[0])),m[1]),h('span',{className:'pfs-pill-sub'},m[2]))))),
+h('div',{className:'pfs-steps'},PILLS.map(m=>{
+const isCur=step===m[0];
+const isDone=step>m[0];
+const subLabel=isCur?(ACTIVE_PILL_SUB[m[0]]||m[2]):isDone?'已完成 ✓':m[2];
+return h('button',{key:m[0],type:'button',title:m[3],'aria-label':m[1],className:'pfs-pill '+(isCur?'pfs-pill-on':isDone?'pfs-pill-done':'pfs-pill-todo'),onClick:()=>play(m[0])},
+h('span',null,h('span',{className:'pfs-num',style:{background:m[4]+'22',color:m[4]}},String(m[0])),m[1]),
+h('span',{className:'pfs-pill-sub'+(isCur?' pfs-pill-active-sub':'')},subLabel));
+}))),
 h('section',{className:'pfs-card pfs-canvas'},render(ROOT,st)),
 h('div',{className:'pfs-cols'},
 h('section',{className:'pfs-card pfs-panel'},h('h3',{className:'pfs-h3'},'📋 ',t('contract')),
