@@ -11,7 +11,7 @@
 - 🎨 **像素工坊卡通工位动态监控看板（Generative UI & MCP App）**：
   - 结合 Factorio / Peon / Pixel Agent 理念，将流水线映射为 6 大工位动画（架构师、施工工兵、TDD 质检员、独立 Critic、交付卡车、熔断警报）。
   - **8 步确定性生命周期胶囊栏**：交互式直观展示 8 步全生命周期（方案/拆分 ➔ 红灯真测 ➔ 规范对齐 ➔ 签字锁定 ➔ 沙箱编码 ➔ 真机跑测 ➔ 错误指纹 ➔ 硬门禁入库），支持单步交互探索与实时 SSE 状态流无缝联动。
-  - 支持 Google Antigravity 原生 Aux Pane 侧边栏/对话内联渲染 (`flow_dashboard`)、自动化 SSE 流式推流与全屏独立 Web 仪表盘 (`adk-dev-flow-dashboard`)，并提供 Web UI Dock 扩展（`mod/pixel-forge-dock`）。
+  - 支持 Google Antigravity 原生 Aux Pane 侧边栏/对话内联渲染 (`flow_dashboard`)、自动化 SSE 流式推流与全屏独立 Web 仪表盘 (`adk-dev-flow-dashboard`)，并提供 CodeBuddy Web UI 原生整页大屏模组（`mod/pixel-forge-screen`）。
 - 🐙/🦊 **GitLab & GitHub 双托管平台自适应**：
   - 自动识别当前仓库 remote（`github.com` vs `gitlab`）或环境变量，无缝适配拉取 Issue、创建 Draft PR/MR、追加 Critic 审查评论及解除 Draft。
   - 完全抽象的 `BaseGitForge` 架构，支持离线纯本地模式（零平台依赖）。
@@ -177,7 +177,7 @@ def test_lock_acquire_and_release():
   adk-dev-flow-dashboard --port 8888 --run-id <run_id>
   ```
 - **IDE 内嵌与侧边栏（Antigravity / CodeBuddy）**：
-  在对话中调用 `flow_dashboard(run_id=...)`，系统自动利用 `ui://adk-dev-flow/dashboard.html` 将动态看板渲染在 Aux Pane 侧边栏或对话内嵌流中。同时支持以 Mod Sidecar 方式集成至 Web UI Dock 面板（参见 `docs/dashboard-webui-integration-assessment.md`）。
+  在对话中调用 `flow_dashboard(run_id=...)`，系统自动利用 `ui://adk-dev-flow/dashboard.html` 将动态看板渲染在 Aux Pane 侧边栏或对话内嵌流中（参见 `docs/dashboard-webui-integration-assessment.md`）。CodeBuddy Web UI 另提供原生整页大屏模组 `mod/pixel-forge-screen`，数据直接取自独立看板服务的 `/api/*` 端点。
 
 ---
 
