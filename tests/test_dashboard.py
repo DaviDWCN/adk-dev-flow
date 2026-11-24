@@ -50,6 +50,8 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertIn("banner-action-text", html)
         self.assertIn("banner-waiting-for", html)
         self.assertIn("banner-station-pos", html)
+        self.assertNotIn("svg-critic-beam", html)
+        self.assertNotIn("animate-scan", html)
 
         # Test run_id injection
         injected = get_dashboard_html(initial_run_id="run_custom_999")
