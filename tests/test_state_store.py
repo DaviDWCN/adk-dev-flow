@@ -87,6 +87,25 @@ class TestStateStore(unittest.TestCase):
             )
         )
 
+    def test_formal_transition_matrix_enforcement(self) -> None:
+        from adk_dev_flow.state_store import is_valid_transition
+
+        self.assertTrue(is_valid_transition("SPEC_LOCKED", "RUNNING"))
+        self.assertTrue(is_valid_transition("RUNNING", "VERIFYING"))
+        self.assertTrue(is_valid_transition("REVIEWING", "MR_READY"))
+        self.assertFalse(is_valid_transition("SPEC_DRAFTING", "MR_READY"))
+        self.assertFalse(is_valid_transition("RUNNING", "MR_READY"))
+
+        self.store.create_run("run-matrix")
+        # Enforcing transition matrix rejects illegal leap: SPEC_DRAFTING -> MR_READY
+        with self.assertRaises(ValueError):
+            self.store.transition_run(
+                "run-matrix",
+                expected_statuses=("SPEC_DRAFTING",),
+                new_status="MR_READY",
+                enforce_matrix=True,
+            )
+
     def test_invalid_column_rejected(self) -> None:
         self.store.create_run("r-col")
         with self.assertRaises(ValueError):

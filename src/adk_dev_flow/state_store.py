@@ -49,6 +49,32 @@ PRE_LOCK_STATUSES: tuple[RunStatus, ...] = (
     "PRE_CRITIC_REVIEWED",
 )
 
+# Discrete transition automaton mapping: from_status -> set of admissible to_statuses
+VALID_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
+    "SPEC_DRAFTING": frozenset({"SPEC_DESIGNED", "TEST_GENERATED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "SPEC_DESIGNED": frozenset({"TEST_GENERATED", "PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "TEST_GENERATED": frozenset({"PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "PRE_CRITIC_REVIEWED": frozenset({"SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "SPEC_LOCKED": frozenset({"RUNNING", "ABORTED", "ESCALATED"}),
+    "RUNNING": frozenset({"VERIFYING", "REPAIRING", "ABORTED", "ESCALATED"}),
+    "VERIFYING": frozenset({"REVIEWING", "REPAIRING", "ESCALATED", "ABORTED"}),
+    "REPAIRING": frozenset({"VERIFYING", "ESCALATED", "ABORTED"}),
+    "REVIEWING": frozenset({"MR_READY", "ESCALATED", "REPAIRING", "ABORTED"}),
+    "MR_READY": frozenset({"ABORTED"}),
+    "ESCALATED": frozenset({"RUNNING", "SPEC_LOCKED", "REPAIRING", "VERIFYING", "ABORTED"}),
+    "ABORTED": frozenset(),
+}
+
+
+def is_valid_transition(from_status: str, to_status: str) -> bool:
+    """Validate whether transitioning from from_status to to_status is mathematically admissible."""
+    if from_status == to_status:
+        return True
+    allowed = VALID_TRANSITIONS.get(from_status)  # type: ignore[arg-type]
+    if allowed is None:
+        return False
+    return to_status in allowed
+
 ACTIVE_STATUSES: tuple[str, ...] = (
     "SPEC_DRAFTING",
     "SPEC_DESIGNED",
@@ -202,11 +228,16 @@ class StateStore:
         *,
         expected_statuses: Sequence[str],
         new_status: RunStatus,
+        enforce_matrix: bool = False,
         **fields: Any,
     ) -> bool:
         """Atomic compare-and-swap (CAS) state transition. Returns True iff transition succeeded."""
         if not expected_statuses:
             raise ValueError("expected_statuses 不能为空")
+        if enforce_matrix:
+            for exp in expected_statuses:
+                if not is_valid_transition(exp, new_status):
+                    raise ValueError(f"非法状态转移: 无法从 {exp} 转移至 {new_status}")
         update_fields: dict[str, Any] = dict(fields)
         update_fields["status"] = new_status
         update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()

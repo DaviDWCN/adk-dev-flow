@@ -43,6 +43,7 @@ class SymbolDef:
     parameters: list[str] = field(default_factory=list)
     param_defaults: dict[str, str] = field(default_factory=dict)
     return_annotation: str | None = None
+    is_local: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +58,7 @@ class SymbolDef:
             "parameters": list(self.parameters),
             "param_defaults": dict(self.param_defaults),
             "return_annotation": self.return_annotation,
+            "is_local": self.is_local,
         }
 
     @classmethod
@@ -78,6 +80,7 @@ class SymbolDef:
             parameters=d.get("parameters", []),
             param_defaults=d.get("param_defaults", {}),
             return_annotation=d.get("return_annotation"),
+            is_local=d.get("is_local", False),
         )
 
 
@@ -181,6 +184,7 @@ class SymbolVisitor(ast.NodeVisitor):
         self.definitions: dict[str, SymbolDef] = {}
         self.current_class: str | None = None
         self.current_symbol: SymbolDef | None = None
+        self.scope_stack: list[SymbolDef] = []
 
     def _extract_signature(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> str:
         start = max(0, node.lineno - 1)
@@ -239,7 +243,17 @@ class SymbolVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         name = node.name
-        full_name = f"{self.current_class}.{name}" if self.current_class else name
+        is_local = any(
+            s.kind in (SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION)
+            for s in self.scope_stack
+        )
+        if is_local and self.scope_stack:
+            full_name = f"{self.scope_stack[-1].name}.<locals>.{name}"
+        elif self.current_class:
+            full_name = f"{self.current_class}.{name}"
+        else:
+            full_name = name
+
         doc = ast.get_docstring(node)
         sig = self._extract_signature(node)
         decs = self._extract_decorators(node.decorator_list)
@@ -252,6 +266,7 @@ class SymbolVisitor(ast.NodeVisitor):
             signature=sig,
             docstring=doc,
             decorators=decs,
+            is_local=is_local,
         )
         self.definitions[full_name] = sym
 
@@ -259,18 +274,33 @@ class SymbolVisitor(ast.NodeVisitor):
         prev_sym = self.current_symbol
         self.current_class = full_name
         self.current_symbol = sym
+        self.scope_stack.append(sym)
 
         self.generic_visit(node)
 
+        self.scope_stack.pop()
         self.current_class = prev_class
         self.current_symbol = prev_sym
 
     def _visit_func(self, node: ast.FunctionDef | ast.AsyncFunctionDef, is_async: bool) -> None:
         name = node.name
-        full_name = f"{self.current_class}.{name}" if self.current_class else name
-        kind = SymbolKind.METHOD if self.current_class else (
-            SymbolKind.ASYNC_FUNCTION if is_async else SymbolKind.FUNCTION
+        is_local = any(
+            s.kind in (SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION)
+            for s in self.scope_stack
         )
+        if self.scope_stack and (
+            is_local or self.scope_stack[-1].kind in (SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION)
+        ):
+            full_name = f"{self.scope_stack[-1].name}.<locals>.{name}"
+            is_local = True
+            kind = SymbolKind.ASYNC_FUNCTION if is_async else SymbolKind.FUNCTION
+        elif self.current_class:
+            full_name = f"{self.current_class}.{name}"
+            kind = SymbolKind.METHOD
+        else:
+            full_name = name
+            kind = SymbolKind.ASYNC_FUNCTION if is_async else SymbolKind.FUNCTION
+
         doc = ast.get_docstring(node)
         sig = self._extract_signature(node)
         decs = self._extract_decorators(node.decorator_list)
@@ -294,12 +324,17 @@ class SymbolVisitor(ast.NodeVisitor):
             parameters=params,
             param_defaults=defaults,
             return_annotation=ret_annot,
+            is_local=is_local,
         )
         self.definitions[full_name] = sym
 
         prev_sym = self.current_symbol
         self.current_symbol = sym
+        self.scope_stack.append(sym)
+
         self.generic_visit(node)
+
+        self.scope_stack.pop()
         self.current_symbol = prev_sym
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -310,8 +345,11 @@ class SymbolVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         call_name = _get_call_name(node.func)
-        if call_name and self.current_symbol:
-            self.current_symbol.calls.add(call_name)
+        if call_name:
+            if self.current_symbol:
+                self.current_symbol.calls.add(call_name)
+            for sym in self.scope_stack:
+                sym.calls.add(call_name)
         self.generic_visit(node)
 
 
@@ -1034,7 +1072,9 @@ def audit_ast_diff(
 
         # Check for deleted public symbols
         for sym_name, sym in base_visitor.definitions.items():
-            # Only care about public API (not starting with _)
+            # Only care about public API (not starting with _, not local closure)
+            if getattr(sym, "is_local", False) or "<locals>" in sym_name:
+                continue
             short_name = sym_name.split(".")[-1]
             if short_name.startswith("_"):
                 continue
@@ -1043,6 +1083,11 @@ def audit_ast_diff(
                 report.breaking_issues.append(f"删除了公共符号 `{sym_name}`")
             else:
                 new_sym = new_visitor.definitions[sym_name]
+                if getattr(new_sym, "is_local", False) or "<locals>" in sym_name:
+                    continue
+                if new_sym.line_start in suppressed_lines:
+                    continue
+
                 # Check for removed parameters
                 base_params = [p for p in sym.parameters if not p.startswith("*")]
                 new_params = [p for p in new_sym.parameters if not p.startswith("*")]
@@ -1052,6 +1097,13 @@ def audit_ast_diff(
                     if p not in new_params and p != "self" and p != "cls":
                         report.breaking_issues.append(
                             f"符号 `{sym_name}` 移除了参数 `{p}` (破坏向后兼容性)"
+                        )
+
+                # Check if old optional parameter had its default removed (making it required)
+                for p in base_params:
+                    if p in new_params and p in sym.param_defaults and p not in new_sym.param_defaults:
+                        report.breaking_issues.append(
+                            f"符号 `{sym_name}` 将原有可选参数 `{p}` 改为无默认值的必填参数 (破坏向后兼容性)"
                         )
 
                 # Check if new required parameter was added without a default

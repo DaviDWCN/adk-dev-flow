@@ -1053,7 +1053,13 @@ def build_dev_workflow(
     async def publish_mr_node(node_input: Any) -> dict[str, Any]:
         # Strict Fail-Closed parsing: any invalid/unrecognized output sets approved=False.
         raw_dict = parse_review_verdict_dict(node_input)
-        ast_findings = verification_state.get("ast_findings") or []
+        ast_findings = (
+            verification_state.get("ast_findings")
+            or (raw_dict.get("ast_findings") if isinstance(raw_dict, dict) else None)
+            or (node_input.get("ast_findings") if isinstance(node_input, dict) else None)
+            or (node_input.get("ast_static_audit") if isinstance(node_input, dict) else None)
+            or []
+        )
         guarded_dict = enforce_deterministic_verdict_guard(raw_dict, ast_findings)
         verdict = ReviewVerdict.model_validate(guarded_dict)
 
@@ -1144,6 +1150,28 @@ def build_dev_workflow(
             except Exception:
                 # MR note failure should not invalidate an already-published MR.
                 pass
+
+        # Formal Safety Invariant: Status MUST NOT become MR_READY unless verdict.approved is strictly True!
+        if not verdict.approved:
+            veto_reason = f"[Critic/AST 审查否决] {verdict.summary}"
+            if verdict.blocking_issues:
+                veto_reason += f" | 阻断问题: {'; '.join(verdict.blocking_issues[:3])}"
+            store.update_run(
+                run_id,
+                status="ESCALATED",
+                mr_iid=mr_iid,
+                mr_url=mr_url,
+                review_json=verdict.model_dump_json(),
+                last_error_log=veto_reason,
+            )
+            return {
+                "run_id": run_id,
+                "status": "ESCALATED",
+                "mr_iid": mr_iid,
+                "mr_url": mr_url,
+                "review": verdict.model_dump(),
+                "error": veto_reason,
+            }
 
         store.update_run(
             run_id,
