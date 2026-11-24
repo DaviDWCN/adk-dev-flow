@@ -70,6 +70,30 @@ class BaseGitForge(ABC):
         """Fetch issue title, description, and metadata by issue number/id."""
         ...
 
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new issue on the code hosting forge."""
+        return {
+            "iid": 0,
+            "title": title,
+            "description": description,
+            "labels": list(labels or []),
+            "web_url": "",
+            "state": "opened",
+        }
+
+    def post_issue_comment(self, issue_iid: int, body: str) -> None:
+        """Post a comment or update note under an issue."""
+        pass
+
+    def close_issue(self, issue_iid: int) -> dict[str, Any]:
+        """Close an issue on the code hosting forge."""
+        return {"iid": issue_iid, "state": "closed", "web_url": ""}
+
     @abstractmethod
     def create_or_update_mr(
         self,
@@ -121,6 +145,10 @@ class BaseGitForge(ABC):
 class NullGitForge(BaseGitForge):
     """Null forge used when neither GitLab nor GitHub is configured (offline mode)."""
 
+    def __init__(self) -> None:
+        self._next_issue_id = 1
+        self._issues: dict[int, dict[str, Any]] = {}
+
     @property
     def platform_name(self) -> str:
         return "null"
@@ -130,7 +158,36 @@ class NullGitForge(BaseGitForge):
         return False
 
     def get_issue(self, issue_iid: int) -> dict[str, Any]:
+        if issue_iid in self._issues:
+            return dict(self._issues[issue_iid])
         return {"iid": issue_iid, "title": "", "description": "", "labels": [], "web_url": ""}
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        iid = self._next_issue_id
+        self._next_issue_id += 1
+        issue_data = {
+            "iid": iid,
+            "title": title,
+            "description": description,
+            "labels": list(labels or []),
+            "web_url": f"local://issues/{iid}",
+            "state": "opened",
+        }
+        self._issues[iid] = issue_data
+        return dict(issue_data)
+
+    def post_issue_comment(self, issue_iid: int, body: str) -> None:
+        pass
+
+    def close_issue(self, issue_iid: int) -> dict[str, Any]:
+        if issue_iid in self._issues:
+            self._issues[issue_iid]["state"] = "closed"
+        return {"iid": issue_iid, "state": "closed", "web_url": f"local://issues/{issue_iid}"}
 
     def create_or_update_mr(
         self,
@@ -226,6 +283,40 @@ class GitLabClient(BaseGitForge):
             "title": issue.title,
             "description": issue.description or "",
             "labels": getattr(issue, "labels", []),
+            "web_url": getattr(issue, "web_url", ""),
+        }
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        project = self._get_project()
+        payload: dict[str, Any] = {"title": title, "description": description}
+        if labels:
+            payload["labels"] = labels
+        issue = project.issues.create(payload)
+        return {
+            "iid": issue.iid,
+            "title": issue.title,
+            "description": issue.description or "",
+            "labels": getattr(issue, "labels", []),
+            "web_url": getattr(issue, "web_url", ""),
+        }
+
+    def post_issue_comment(self, issue_iid: int, body: str) -> None:
+        issue = self._get_project().issues.get(issue_iid)
+        issue.notes.create({"body": body})
+
+    def close_issue(self, issue_iid: int) -> dict[str, Any]:
+        issue = self._get_project().issues.get(issue_iid)
+        issue.state_event = "close"
+        issue.save()
+        return {
+            "iid": issue.iid,
+            "state": "closed",
+            "title": getattr(issue, "title", ""),
             "web_url": getattr(issue, "web_url", ""),
         }
 
@@ -336,6 +427,61 @@ class GitHubClient(BaseGitForge):
             "title": data.get("title", ""),
             "description": data.get("body") or "",
             "labels": labels,
+            "web_url": data.get("html_url", ""),
+        }
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            raise RuntimeError(f"GitHub 未配置 GITHUB_TOKEN 或 GITHUB_REPOSITORY (当前 repo={self.repo})")
+        url = f"{self.api_url}/repos/{self.repo}/issues"
+        payload: dict[str, Any] = {
+            "title": title,
+            "body": description,
+        }
+        if labels:
+            payload["labels"] = labels
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(url, json=payload, headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+
+        out_labels = [
+            lbl["name"] if isinstance(lbl, dict) else str(lbl)
+            for lbl in data.get("labels", [])
+        ]
+        return {
+            "iid": data["number"],
+            "title": data.get("title", ""),
+            "description": data.get("body") or "",
+            "labels": out_labels,
+            "web_url": data.get("html_url", ""),
+        }
+
+    def post_issue_comment(self, issue_iid: int, body: str) -> None:
+        if not self.enabled:
+            raise RuntimeError(f"GitHub 未配置 GITHUB_TOKEN 或 GITHUB_REPOSITORY (当前 repo={self.repo})")
+        url = f"{self.api_url}/repos/{self.repo}/issues/{issue_iid}/comments"
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(url, json={"body": body}, headers=self._headers())
+            resp.raise_for_status()
+
+    def close_issue(self, issue_iid: int) -> dict[str, Any]:
+        if not self.enabled:
+            raise RuntimeError(f"GitHub 未配置 GITHUB_TOKEN 或 GITHUB_REPOSITORY (当前 repo={self.repo})")
+        url = f"{self.api_url}/repos/{self.repo}/issues/{issue_iid}"
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.patch(url, json={"state": "closed"}, headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+        return {
+            "iid": data["number"],
+            "state": data.get("state", "closed"),
+            "title": data.get("title", ""),
             "web_url": data.get("html_url", ""),
         }
 

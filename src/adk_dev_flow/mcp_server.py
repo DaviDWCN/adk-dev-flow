@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -16,6 +17,83 @@ from adk_dev_flow.models import SpecContract
 from adk_dev_flow.state_store import PRE_LOCK_STATUSES, StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
+
+
+def parse_epic_into_subtasks(epic_text: str, default_labels: list[str] | None = None) -> list[dict[str, Any]]:
+    """Parse a macro epic/PRD requirement string into discrete atomic sub-issues."""
+    cleaned = epic_text.strip()
+    if not cleaned:
+        return []
+
+    labels = list(default_labels or [])
+    subtasks: list[dict[str, Any]] = []
+
+    # 1. Try matching numbered list patterns, e.g. "1. xxx; 2. yyy" or lines "1. xxx\n2. yyy"
+    pattern = re.compile(r"(?:^|\n|\s*)(?:(\d+)[\.\、\)]|\-|\*)\s*([^\n;；]+(?:[;；]|\n|$))", re.MULTILINE)
+    matches = pattern.findall(cleaned)
+    if len(matches) >= 2:
+        for idx, (num, item_text) in enumerate(matches, 1):
+            text = item_text.strip(" ;；\n\r\t")
+            if not text:
+                continue
+            title = text if len(text) <= 50 else f"{text[:47]}..."
+            if not any(title.startswith(pfx) for pfx in ("feat", "fix", "refactor", "chore", "test", "docs")):
+                title = f"feat: {title}"
+            subtasks.append({
+                "index": idx,
+                "title": title,
+                "description": (
+                    f"### 需求背景\n来自宏观需求拆解：\n> {cleaned}\n\n"
+                    f"### 本任务目标\n{text}\n\n"
+                    f"### 验收标准 (Acceptance Criteria)\n"
+                    f"- [ ] 编写针对该功能的验收测试用例\n"
+                    f"- [ ] 通过红灯验真与 AST 变异测试 (击杀率 ≥ 85%)\n"
+                    f"- [ ] 独立沙箱 Worktree 编码施工并通过全量自动化测试\n"
+                    f"- [ ] AST 语义审计无破坏性公共签名变更\n"
+                ),
+                "labels": labels,
+            })
+    else:
+        # 2. Try splitting by semicolon or newlines
+        parts = [p.strip() for p in re.split(r"[;；\n]+", cleaned) if p.strip()]
+        if len(parts) >= 2:
+            for idx, part in enumerate(parts, 1):
+                title = part if len(part) <= 50 else f"{part[:47]}..."
+                if not any(title.startswith(pfx) for pfx in ("feat", "fix", "refactor", "chore", "test", "docs")):
+                    title = f"feat: {title}"
+                subtasks.append({
+                    "index": idx,
+                    "title": title,
+                    "description": (
+                        f"### 需求背景\n来自宏观需求拆解：\n> {cleaned}\n\n"
+                        f"### 本任务目标\n{part}\n\n"
+                        f"### 验收标准 (Acceptance Criteria)\n"
+                        f"- [ ] 编写针对该功能的验收测试用例\n"
+                        f"- [ ] 通过红灯验真与 AST 变异测试 (击杀率 ≥ 85%)\n"
+                        f"- [ ] 独立沙箱 Worktree 编码施工并通过全量自动化测试\n"
+                        f"- [ ] AST 语义审计无破坏性公共签名变更\n"
+                    ),
+                    "labels": labels,
+                })
+        else:
+            title = cleaned if len(cleaned) <= 50 else f"{cleaned[:47]}..."
+            if not any(title.startswith(pfx) for pfx in ("feat", "fix", "refactor", "chore", "test", "docs")):
+                title = f"feat: {title}"
+            subtasks.append({
+                "index": 1,
+                "title": title,
+                "description": (
+                    f"### 任务目标\n{cleaned}\n\n"
+                    f"### 验收标准 (Acceptance Criteria)\n"
+                    f"- [ ] 编写针对该功能的验收测试用例\n"
+                    f"- [ ] 通过红灯验真与 AST 变异测试 (击杀率 ≥ 85%)\n"
+                    f"- [ ] 独立沙箱 Worktree 编码施工并通过全量自动化测试\n"
+                    f"- [ ] AST 语义审计无破坏性公共签名变更\n"
+                ),
+                "labels": labels,
+            })
+
+    return subtasks
 
 
 class FlowService:
@@ -63,8 +141,15 @@ class FlowService:
             if self.gl.enabled:
                 try:
                     issue_info = await asyncio.to_thread(self.gl.get_issue, issue_iid)
+                    init_comment = (
+                        f"🚀 **ADK Dev Flow 已为该 Issue 启动研发流水线**\n\n"
+                        f"- **Run ID**: `{run_id}`\n"
+                        f"- **阶段**: `SPEC_DRAFTING`\n"
+                        f"- **模式**: 8 步确定性闭环开发 (含 AST 变异测试门禁与沙箱隔离)"
+                    )
+                    await asyncio.to_thread(self.gl.post_issue_comment, issue_iid, init_comment)
                 except Exception as exc:
-                    forge_warning = f"拉取 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续初始化: {exc}"
+                    forge_warning = f"拉取/更新 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续初始化: {exc}"
             else:
                 forge_warning = (
                     f"传入了 Issue #{issue_iid}，但未检测到有效启用的 Git 托管平台配置（未配置 GITLAB_URL / GITLAB_TOKEN / GITLAB_PROJECT_ID 或 GITHUB_TOKEN）。"
@@ -582,6 +667,87 @@ class FlowService:
             aborted.append(res)
         return {"aborted_runs": aborted, "count": len(aborted)}
 
+    async def flow_create_issue(
+        self,
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """在 GitLab / GitHub（或本地离线模式）创建新 Issue。"""
+        clean_title = title.strip()
+        if not clean_title:
+            return {"ok": False, "error": "Issue 标题不能为空"}
+
+        try:
+            res = await asyncio.to_thread(
+                self.gl.create_issue,
+                title=clean_title,
+                description=description.strip(),
+                labels=labels or [],
+            )
+            return {
+                "ok": True,
+                "platform": self.gl.platform_name,
+                "issue_iid": res["iid"],
+                "title": res["title"],
+                "description": res.get("description", ""),
+                "labels": res.get("labels", []),
+                "web_url": res.get("web_url", ""),
+                "next_step": f"可立即调用 flow_init(requirement='{clean_title}', issue_iid={res['iid']}) 启动确定性研发流程。",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": f"在 {self.gl.platform_name} 创建 Issue 失败: {exc}",
+            }
+
+    async def flow_plan_issues(
+        self,
+        epic_requirement: str,
+        auto_create: bool = False,
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """将宏观需求拆解为原子 Issue 清单，支持预览或一键自动建单。"""
+        planned = parse_epic_into_subtasks(epic_requirement, default_labels=labels)
+        if not planned:
+            return {"ok": False, "error": "未能从需求文本中提取有效任务，请提供详细需求内容"}
+
+        created_issues: list[dict[str, Any]] = []
+        if auto_create:
+            for task in planned:
+                try:
+                    c = await asyncio.to_thread(
+                        self.gl.create_issue,
+                        title=task["title"],
+                        description=task["description"],
+                        labels=task.get("labels", []),
+                    )
+                    created_issues.append({
+                        "issue_iid": c["iid"],
+                        "title": c["title"],
+                        "web_url": c.get("web_url", ""),
+                        "labels": c.get("labels", []),
+                    })
+                except Exception as exc:
+                    created_issues.append({
+                        "error": str(exc),
+                        "title": task["title"],
+                    })
+
+        return {
+            "ok": True,
+            "auto_created": auto_create,
+            "platform": self.gl.platform_name,
+            "epic_requirement": epic_requirement,
+            "planned_issues": planned,
+            "created_issues": created_issues if auto_create else [],
+            "next_step": (
+                f"已自动创建 {len(created_issues)} 个 Issue，请按顺序或并发调用 flow_init 逐一开展研发。"
+                if auto_create
+                else f"已规划 {len(planned)} 个原子任务。确认无误后可调用 flow_plan_issues(..., auto_create=True) 或通过 flow_create_issue 逐项创建。"
+            ),
+        }
+
 
 def resolve_repo_root(custom_root: Path | None = None) -> Path:
     """Resolve the business repository root directory.
@@ -709,6 +875,28 @@ def create_mcp_server(
     service = FlowService(resolved_root, resolved_store, resolved_forge)
 
     mcp = FastMCP("adk-dev-flow")
+
+    @mcp.tool()
+    async def flow_create_issue(
+        title: str,
+        description: str = "",
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """在 GitLab / GitHub（或本地离线模式）创建新 Issue，作为确定性开发闭环的前置追踪工单。"""
+        return await service.flow_create_issue(title=title, description=description, labels=labels)
+
+    @mcp.tool()
+    async def flow_plan_issues(
+        epic_requirement: str,
+        auto_create: bool = False,
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """将宏观需求/PRD 拆解为原子 Issue 清单（支持预览或 auto_create=True 一键批量在平台建单）。"""
+        return await service.flow_plan_issues(
+            epic_requirement=epic_requirement,
+            auto_create=auto_create,
+            labels=labels,
+        )
 
     @mcp.tool()
     async def flow_init(requirement: str, issue_iid: int | None = None) -> dict[str, Any]:

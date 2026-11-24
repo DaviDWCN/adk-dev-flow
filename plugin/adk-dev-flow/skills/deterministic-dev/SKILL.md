@@ -7,8 +7,13 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
 
 当此 Skill 激活时，你充当**研发指挥台**，严禁直接编辑仓库源码，必须按以下状态机调用 `adk-dev-flow` MCP 工具：
 
+0. **Issue 驱动与宏观需求拆解（Issue-Driven Development 前置）**：
+   - 当面对复杂宏观需求（Epic / PRD）或用户要求“先建 Issue 再开发”时：
+     - 调用 `flow_plan_issues(epic_requirement=..., auto_create=False)` 智能解析需求为原子任务清单（含任务背景与验收标准）并向用户确认；
+     - 确认后调用 `flow_plan_issues(..., auto_create=True)` 或 `flow_create_issue(title=..., description=...)` 批量在 GitLab / GitHub 上建单；
+     - 针对每个 Issue 独立调用 `flow_init(requirement=..., issue_iid=...)` 接入确定性开发流水线。
 1. **初始化或找回上下文**：
-   - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`（自动自适应 GitLab / GitHub 平台并拉取 Issue）。
+   - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`（自动自适应 GitLab / GitHub 平台并拉取 Issue，流水线将自动在 Issue 下追加启动通知）。
    - 若跨会话找回任务或存在多任务并发：调用 `flow_active_runs()` 查看所有活跃流水线，或调用 `flow_list()` 检索历史记录。
    - 若因异常中断导致主工作区处于只读锁定：调用 `flow_unlock()` 安全解除锁定。
 2. **架构设计与 AST 影响面推导（设计阶段）**：

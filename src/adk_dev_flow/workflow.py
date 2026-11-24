@@ -1165,6 +1165,19 @@ def build_dev_workflow(
             review_json=verdict.model_dump_json(),
             last_error_log=f"[MR] 🚀 验收与静态门禁全部通过！已交付 {gl.platform_name.upper()} PR/MR: {mr_url or branch}",
         )
+        if spec.issue_iid is not None and gl.enabled:
+            try:
+                mr_link = f"[{spec.title}]({mr_url})" if mr_url else spec.title
+                issue_delivery_note = (
+                    f"🎉 **ADK Dev Flow 成果已交付！**\n\n"
+                    f"- **关联 MR**: {mr_link}\n"
+                    f"- **验收测试**: 全部通过 (100% GREEN)\n"
+                    f"- **AST 语义门禁**: 审查通过\n"
+                    f"- **状态**: `MR_READY`\n"
+                )
+                await asyncio.to_thread(gl.post_issue_comment, spec.issue_iid, issue_delivery_note)
+            except Exception:
+                pass
         return {
             "run_id": run_id,
             "status": "MR_READY",
