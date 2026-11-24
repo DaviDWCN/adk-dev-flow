@@ -17,7 +17,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.workflow import START
 from google.genai import types
 
-from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
+from adk_dev_flow.codebuddy_bridge import run_codebuddy_worker
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.providers import get_worker_provider
@@ -948,132 +948,6 @@ def build_dev_workflow(
 
         return Event(output=node_input, route="retry")
 
-    async def prepare_diff_node(node_input: dict[str, Any]) -> str:
-        worktree = Path(node_input["worktree"])
-        spec = SpecContract.model_validate(node_input["spec"])
-        base_sha = str(node_input.get("base_sha") or "HEAD~1")
-
-        store.update_run(
-            run_id,
-            status="REVIEWING",
-            attempt=int(node_input.get("attempt") or 0),
-            last_error_log="[Critic] 🧐 独立盲审中：正在对 Diff 变更进行架构与安全审查",
-        )
-
-        status_res = await _git(["status", "--porcelain"], worktree)
-        if status_res.returncode != 0:
-            raise RuntimeError(f"git status 失败: {status_res.stderr.strip()}")
-
-        if status_res.stdout.strip():
-            add_res = await _git(["add", "-A"], worktree)
-            if add_res.returncode != 0:
-                raise RuntimeError(f"git add 失败: {add_res.stderr.strip()}")
-            commit_res = await _git(["commit", "-m", f"feat: {spec.title}"], worktree)
-            if commit_res.returncode != 0:
-                raise RuntimeError(f"git commit 失败: {commit_res.stderr.strip()}")
-
-        # 1. 提取完整的变更文件统计作为骨架
-        stat_res = await _git(["diff", "--stat", f"{base_sha}..HEAD"], worktree)
-        diff_stat = stat_res.stdout.strip() if stat_res.returncode == 0 else ""
-
-        # 2. 提取变更的文件名清单，按文件边界组装 Diff
-        names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
-        changed_files = [line.strip() for line in names_res.stdout.splitlines() if line.strip()]
-
-        file_diffs: list[tuple[str, str]] = []
-        for f in changed_files:
-            file_diff_res = await _git(["diff", f"{base_sha}..HEAD", "--", f], worktree)
-            file_diffs.append((f, file_diff_res.stdout))
-
-        diff_text, diff_truncated, truncated_files = assemble_diff_blocks(file_diffs)
-
-        # 3. 执行 AST 静态语义审计（语法树解析、破坏性接口变更、高危调用与符号对齐）
-        ast_findings: list[dict[str, Any]] = []
-        definitions_by_file: dict[str, list[str]] = {}
-        for f in changed_files:
-            if not f.endswith(".py"):
-                continue
-            base_code = ""
-            base_res = await _git(["show", f"{base_sha}:{f}"], worktree)
-            if base_res.returncode == 0:
-                base_code = base_res.stdout
-            new_code = ""
-            new_p = worktree / f
-            if new_p.exists():
-                try:
-                    new_code = new_p.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    new_code = ""
-
-            try:
-                from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
-
-                if new_code.strip():
-                    try:
-                        tree = ast.parse(new_code, filename=f)
-                        vis = SymbolVisitor(new_code.splitlines())
-                        vis.visit(tree)
-                        definitions_by_file[f] = list(vis.definitions.keys())
-                    except Exception:
-                        pass
-
-                report = audit_ast_diff(base_code, new_code, file_path=f)
-                if report.has_issues:
-                    ast_findings.append(report.to_dict())
-            except Exception:
-                pass
-
-        # 4. OKF 符号级任务契约对齐校验
-        missing_symbols = audit_symbol_alignment(spec.tasks, definitions_by_file)
-        if missing_symbols:
-            ast_findings.append({
-                "file_path": "spec.tasks",
-                "breaking_issues": missing_symbols,
-                "syntax_ok": True,
-                "has_issues": True,
-            })
-
-        # Save ast_findings into verification_state so publish_mr_node can deterministically enforce it.
-        verification_state["ast_findings"] = ast_findings
-
-        # Return an explicit JSON string so ADK 2.x reliably delivers text content to Critic Agent.
-        critic_payload = {
-            "spec": {
-                "title": spec.title,
-                "summary": spec.summary,
-                "allowed_paths": spec.allowed_paths,
-                "acceptance_test_path": spec.acceptance_test_path,
-                "tasks": [t.model_dump() for t in spec.tasks],
-            },
-            "diff_stat": diff_stat,
-            "worker_summary": node_input.get("worker_summary", ""),
-            "diff_truncated": diff_truncated,
-            "git_diff": diff_text,
-            "ast_static_audit": ast_findings,
-        }
-        return json.dumps(critic_payload, ensure_ascii=False, indent=2)
-
-    critic_env = os.environ.get("ADK_CRITIC_MODEL") or os.environ.get("CODEBUDDY_CRITIC_MODEL")
-    critic_model: Any
-    if not critic_env:
-        critic_model = CodeBuddyLlm()
-    elif hasattr(critic_env, "generate_content_async"):
-        critic_model = critic_env
-    else:
-        critic_model = CodeBuddyLlm(model=str(critic_env))
-    critic_review_agent = Agent(
-        name="critic_review_agent",
-        model=critic_model,
-        output_schema=ReviewVerdict,
-        instruction=(
-            "你是独立的只读代码审查专家（Critic）。你收到的是 JSON 上下文，包含 spec、worker_summary、git_diff 及可选的 ast_static_audit 静态语义审计结论。"
-            "严格检查：1) 是否违背 Spec 约束或越界修改；2) 若 ast_static_audit 中存在 syntax_error、dangerous_nodes 或 breaking_issues，必须在 blocking_issues 中列出并直接一票否决 (approved=false)；"
-            "3) 是否有明显边界空值、异常处理或安全漏洞；4) 是否存在硬编码密钥或绕过测试的作弊行为；"
-            "5) 若 diff_truncated 为 true 且无法确认完整性，请审慎评估并在 blocking_issues 说明。"
-            "只输出符合 ReviewVerdict 结构的 JSON。"
-        ),
-    )
-
     async def publish_mr_node(node_input: Any) -> dict[str, Any]:
         run = store.get_run(run_id)
         if run is None:
@@ -1299,9 +1173,8 @@ def build_dev_workflow(
             "review": verdict.model_dump(),
         }
 
-    # Step 8 Delivery node aliases for clean naming
+    # Step 8 Delivery node alias for clean naming
     deliver_mr_node = publish_mr_node
-    prepare_diff_node = publish_mr_node
 
     async def escalate_node(node_input: dict[str, Any]) -> dict[str, Any]:
         reason = node_input.get("escalation_reason", "验证失败")

@@ -77,6 +77,7 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         "require_tdd_red": spec.get("require_tdd_red", True),
         "design_doc": spec.get("design_doc", ""),
         "red_evidence": spec.get("red_evidence"),
+        "mutation_report": spec.get("mutation_report"),
         "pre_critic_report": spec.get("pre_critic_report"),
         "impact_analysis": spec.get("impact_analysis"),
         "review": review,

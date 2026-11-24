@@ -5,8 +5,8 @@ return {slotContract:'strict',inject:['slots','locale'],apply(ctx){
 const ns='pixel-forge-screen';
 const h=React.createElement;
 ctx.locale.register(ns,{
-zh:{title:'像素工坊大屏',sub:'确定性研发流水线监控台',synced:'已连接看板服务',offline:'看板服务未连接',loading:'正在连接看板服务…',noResponse:'无响应（服务未启动）',badHttp:'响应异常',opened:'已请求在浏览器打开：',starting:'正在后台拉起看板服务…',currentRun:'当前任务',refresh:'刷新',openFull:'在浏览器打开完整看板',startServer:'启动看板服务',autoPlay:'▶ 演练流水线',stopAuto:'⏹ 停止演练',backLive:'回到实时',simOn:'演练模式：当前显示的是模拟步骤，不是任务的实时状态。',gates:'核心门禁与审批关卡',lifecycle:'8 步确定性研发全生命周期流水线',contract:'任务契约',terminal:'流水线日志',simDock:'交互式单步仿真控制台',simDockHint:'点击按钮演练各工位流动',attempt:'轮次',noRun:'暂无活跃任务',run:'任务',updated:'更新时间',target:'目标分支',allowed:'白名单',lockedTest:'验收测试',worktree:'施工工位',design:'设计文档',red:'红灯证据',preCritic:'前置审查',impact:'AST 影响面',verdict:'质量把关结论',passed:'通过 / PASSED',blocked:'驳回 / BLOCKED',lockNote:'🔒 白名单与测试防篡改双重审计，超范围修改由底层 Git Hook 即时阻断。',art:'像素工坊流水线拓扑图'},
-en:{title:'Pixel Forge Screen',sub:'Deterministic R&D pipeline monitor',synced:'Dashboard service connected',offline:'Dashboard service is not connected',loading:'Connecting to the dashboard service…',noResponse:'no response (service not started)',badHttp:'unexpected response',opened:'Requested to open in browser: ',starting:'Starting the dashboard service in the background…',currentRun:'Current task',refresh:'Refresh',openFull:'Open full dashboard in browser',startServer:'Start dashboard service',autoPlay:'▶ Run walkthrough',stopAuto:'⏹ Stop walkthrough',backLive:'Back to live',simOn:'Walkthrough mode: showing simulated steps, not the live task state.',gates:'Core gates and approvals',lifecycle:'8-step deterministic lifecycle',contract:'Task contract',terminal:'Pipeline log',simDock:'Interactive step simulator',simDockHint:'Click a step to walk through the stations',attempt:'Attempt',noRun:'No active task',run:'Task',updated:'Updated',target:'Target branch',allowed:'Allowed paths',lockedTest:'Locked test',worktree:'Worktree',design:'Design doc',red:'Red evidence',preCritic:'Pre-critic',impact:'AST impact',verdict:'Critic verdict',passed:'PASSED',blocked:'BLOCKED',lockNote:'🔒 The allowlist and tamper-proof tests are audited; out-of-scope edits are blocked by the Git hook.',art:'Pixel Forge pipeline topology'}});
+zh:{title:'像素工坊大屏',sub:'确定性研发流水线监控台',synced:'已连接看板服务',offline:'看板服务未连接',loading:'正在连接看板服务…',noResponse:'无响应（服务未启动）',badHttp:'响应异常',opened:'已请求在浏览器打开：',starting:'正在后台拉起看板服务…',currentRun:'当前任务',refresh:'刷新',openFull:'在浏览器打开完整看板',startServer:'启动看板服务',autoPlay:'▶ 演练流水线',stopAuto:'⏹ 停止演练',backLive:'回到实时',simOn:'演练模式：当前显示的是模拟步骤，不是任务的实时状态。',gates:'核心门禁与审批关卡',lifecycle:'8 步确定性研发全生命周期流水线',contract:'任务契约',terminal:'流水线日志',simDock:'交互式单步仿真控制台',simDockHint:'点击按钮演练各工位流动',attempt:'轮次',noRun:'暂无活跃任务',run:'任务',updated:'更新时间',target:'目标分支',allowed:'白名单',lockedTest:'验收测试',worktree:'施工工位',design:'设计文档',red:'红灯证据',mutation:'变异门禁',preCritic:'前置审查',impact:'AST 影响面',verdict:'质量把关结论',passed:'通过 / PASSED',blocked:'驳回 / BLOCKED',lockNote:'🔒 白名单与测试防篡改双重审计，超范围修改由底层 Git Hook 即时阻断。',art:'像素工坊流水线拓扑图'},
+en:{title:'Pixel Forge Screen',sub:'Deterministic R&D pipeline monitor',synced:'Dashboard service connected',offline:'Dashboard service is not connected',loading:'Connecting to the dashboard service…',noResponse:'no response (service not started)',badHttp:'unexpected response',opened:'Requested to open in browser: ',starting:'Starting the dashboard service in the background…',currentRun:'Current task',refresh:'Refresh',openFull:'Open full dashboard in browser',startServer:'Start dashboard service',autoPlay:'▶ Run walkthrough',stopAuto:'⏹ Stop walkthrough',backLive:'Back to live',simOn:'Walkthrough mode: showing simulated steps, not the live task state.',gates:'Core gates and approvals',lifecycle:'8-step deterministic lifecycle',contract:'Task contract',terminal:'Pipeline log',simDock:'Interactive step simulator',simDockHint:'Click a step to walk through the stations',attempt:'Attempt',noRun:'No active task',run:'Task',updated:'Updated',target:'Target branch',allowed:'Allowed paths',lockedTest:'Locked test',worktree:'Worktree',design:'Design doc',red:'Red evidence',mutation:'Mutation gate',preCritic:'Pre-critic',impact:'AST impact',verdict:'Critic verdict',passed:'PASSED',blocked:'BLOCKED',lockNote:'🔒 The allowlist and tamper-proof tests are audited; out-of-scope edits are blocked by the Git hook.',art:'Pixel Forge pipeline topology'}});
 styles.insert(`.pfs{display:flex;flex-direction:column;gap:12px;max-width:1180px;margin:0 auto;padding:12px;font:inherit;font-size:12px;line-height:1.5;color:var(--color-text-primary);min-height:100%;box-sizing:border-box}
 .pfs-full{max-width:none;min-height:100vh}
 .pfs *,.pfs *::before,.pfs *::after{box-sizing:border-box}
@@ -228,7 +228,7 @@ const ART=`<svg viewBox="0 0 960 380">
 <text x="134.5" y="138" text-anchor="middle" font-size="7.5" font-weight="600" fill="#475569">产出设计文档 & 任务拆分</text>
 </g>
 <g id="node-step-2" onclick="setStep(2)">
-<title>② 验收测试 AI：出红灯测试用例，真实预检断言失败</title>
+<title>② 验收测试 AI：出红灯测试用例，真实预检断言失败，并通过 AST 变异验真</title>
 <rect x="262" y="36" width="205" height="118" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.4" filter="url(#soft-shadow)" />
 <rect x="262" y="36" width="205" height="28" rx="10" fill="#f0fdf4" />
 <rect x="262" y="54" width="205" height="10" fill="#f0fdf4" />
@@ -247,10 +247,10 @@ const ART=`<svg viewBox="0 0 960 380">
 </g>
 </g>
 <rect x="272" y="126" width="185" height="18" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
-<text x="364.5" y="138" text-anchor="middle" font-size="7.5" font-weight="600" fill="#475569">AST 影响分析 · 真实红灯预检</text>
+<text x="364.5" y="138" text-anchor="middle" font-size="7.5" font-weight="600" fill="#475569">红灯预检 · AST 变异验真</text>
 </g>
 <g id="node-critic" onclick="setStep(3)">
-<title>③ Critic 双审：第三视角评审设计与测试一致性、业务覆盖与架构规则</title>
+<title>③ 前置审查：随契约起草内嵌执行，评审设计与测试一致性及架构规则</title>
 <rect x="492" y="36" width="205" height="118" rx="10" fill="#ffffff" stroke="#67e8f9" stroke-width="1.4" filter="url(#soft-shadow)" />
 <rect x="492" y="36" width="205" height="28" rx="10" fill="#ecfeff" />
 <rect x="492" y="54" width="205" height="10" fill="#ecfeff" />
@@ -342,7 +342,7 @@ const ART=`<svg viewBox="0 0 960 380">
 </g>
 </g>
 <rect x="272" y="332" width="185" height="18" rx="6" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="0.8"/>
-<text x="364.5" y="344" text-anchor="middle" font-size="7.5" font-weight="600" fill="#7c3aed">白名单防篡改 · 全量真机跑测</text>
+<text x="364.5" y="344" text-anchor="middle" font-size="7.5" font-weight="600" fill="#7c3aed">防篡改 · lint · 验收跑测</text>
 </g>
 <g id="node-escalate" onclick="setStep(7)">
 <title>⑦ 自愈打回 / 异常跳闸：提取错误指纹打回重试 (≤3次)；连续超限自动熔断</title>
@@ -438,23 +438,27 @@ const STAGE={
 IDLE:{tone:'slate',badge:'STANDBY · 待命',pipes:[],log:'[系统] ⚡ 流水线待命中，无活跃执行任务',details:'可通过 flow_dispatch 派发新任务，或点击下方按钮演练全流程'},
 SPEC:{tone:'blue',badge:'① 方案/测试 · 待审批',pipes:['pipe-1-2'],node:'node-spec',color:'#3b82f6',log:'[方案/测试] 📐 蓝图契约完成，验收测试就绪，待人工审批',details:'用例进入门禁-1盲测，必须证明能捕获未实现方可准入'},
 WORK:{tone:'amber',badge:'⑤ 编码施工 · 目标全绿',pipes:['pipe-5-6'],node:'node-work',color:'#d97706',log:'[编码施工] 🔨 工兵在独立沙箱编写代码，白名单监控中',details:'超范围修改即时拦截，测试文件禁止改动'},
-TEST:{tone:'purple',badge:'⑥ 自动化测试 · 跑道执行',pipes:['pipe-6-8'],node:'node-test',color:'#3b82f6',log:'[自动化测试] ⚙️ 防篡改审计核验 + 全量用例真机跑测',details:'确定性执行：未过退回工兵修复；全通放行送审'},
-CRITIC:{tone:'cyan',badge:'③ 质量把关 · 独立审查',pipes:['pipe-3-4'],node:'node-critic',color:'#0891b2',log:'[质量把关] 🧐 第三视角审查代码结构与规范，排查隐患',details:'发现隐患退回整改；通过准予交付'},
+TEST:{tone:'purple',badge:'⑥ 自动化测试 · 跑道执行',pipes:['pipe-6-8'],node:'node-test',color:'#3b82f6',log:'[自动化测试] ⚙️ 防篡改审计 + ruff 静态检查 + pytest 验收（可选全量回归）',details:'确定性执行：未过退回工兵修复；全通放行送审'},
+CRITIC:{tone:'cyan',badge:'③ 前置审查 · 契约双审',pipes:['pipe-3-4'],node:'node-critic',color:'#0891b2',log:'[前置审查] 🧐 审查随契约起草内嵌执行，核对设计文档与验收用例一致性',details:'结论写入 spec.pre_critic_report；独立状态位预留，不单独流转'},
 MR:{tone:'emerald',badge:'⑧ 成果交付 · 任务竣工',pipes:['pipe-6-8'],node:'node-mr',color:'#10b981',log:'[成果交付] 🚀 成果安全存入代码库，自动发起 PR/MR',details:'全套测试存证完备，符合交付准入规范'},
-ESCALATE:{tone:'rose',badge:'⑨ 异常跳闸 · 熔断保护',pipes:['pipe-branch-escalate'],node:'node-escalate',color:'#ef4444',log:'[异常跳闸] 🚨 重试超限自动熔断停机，保护工作现场',details:'主干零污染，等待人工排障复位'}};
+ESCALATE:{tone:'rose',badge:'⑨ 异常跳闸 · 熔断保护',pipes:['pipe-branch-escalate'],node:'node-escalate',color:'#ef4444',log:'[异常跳闸] 🚨 重试超限自动熔断停机，保护工作现场',details:'主干零污染，等待人工排障复位'},
+ABORT:{tone:'rose',badge:'⛔ 已中止 · ABORTED',pipes:[],log:'[异常中止] ⛔ 任务已被人工中止或系统终止，现场已保护',details:'主干零污染；可 flow_dispatch 派发新任务，或在日志区回看中止前现场'}};
 const STEPS={
 1:{stage:'SPEC',nodes:{'node-spec':'#2563eb'},avatar:['svg-architect','#3b82f6'],pipes:['pipe-1-2'],log:'[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分',details:'推导影响面爆炸半径与受影响调用点，拆解原子任务清单'},
-2:{stage:'SPEC',nodes:{'node-step-2':'#16a34a'},avatar:['svg-tester','#10b981'],pipes:['pipe-2-3'],log:'[2. 红色测试] 🧪 测试 AI 依据设计规范编写用例，并完成真机预检验证红灯有效',details:'基线环境断言失败确认，防空跑假需求'},
-3:{stage:'CRITIC',nodes:{'node-critic':'#0891b2'},avatar:['svg-critic','#06b6d4'],pipes:['pipe-3-4'],log:'[3. Critic 双审] 🧐 独立审查员第三视角审查设计与用例一致性，严格校验架构规范',details:'禁止 eval/exec 动态执行，校验公有函数签名与向后兼容性'},
-4:{stage:'SPEC',nodes:{'badge-hitl-spec':'#d97706'},avatar:null,pipes:['pipe-4-5'],log:'[4. 关键 HITL] ✍️ 人工确认任务拆分与测试用例，签字锁定契约规范',details:'人工专家把关签署 spec_contract，一旦锁定不可篡改'},
+2:{stage:'SPEC',nodes:{'node-step-2':'#16a34a'},avatar:['svg-tester','#10b981'],pipes:['pipe-2-3'],log:'[2. 红色测试] 🧪 测试 AI 依据设计规范编写用例，真机预检红灯有效并通过变异击杀率验真',details:'基线红灯确认防空跑假需求，变异击杀率 ≥85% 方可锁定'},
+3:{stage:'CRITIC',nodes:{'node-critic':'#0891b2'},avatar:['svg-critic','#06b6d4'],pipes:['pipe-3-4'],log:'[3. 前置审查] 🧐 独立审查员核对设计与用例一致性及架构规范（随契约起草内嵌执行）',details:'审查结论写入 spec.pre_critic_report；AST 语义与 eval/exec 检查在交付门禁执行'},
+4:{stage:'SPEC',nodes:{'badge-hitl-spec':'#d97706'},avatar:null,pipes:['pipe-4-5'],log:'[4. 关键 HITL] ✍️ 人工确认任务拆分与测试用例，签字锁定契约规范',details:'锁定时强制执行变异击杀率 ≥85% 门禁，契约一旦锁定不可篡改'},
 5:{stage:'WORK',nodes:{'node-work':'#d97706'},avatar:['svg-builder','#f59e0b'],pipes:['pipe-5-6'],log:'[5. 沙箱编码] 🔨 开发工兵进入隔离沙箱 Worktree 开始编码施工',details:'白名单受限修改，严格执行 TDD 契约'},
-6:{stage:'TEST',nodes:{'node-test':'#7c3aed'},avatar:null,pipes:['pipe-6-8'],log:'[6. 自动测试] ⚙️ 机械跑道执行防篡改与真机 pytest 全量跑测',details:'无副作用自动化测试，验证业务功能完整通过'},
+6:{stage:'TEST',nodes:{'node-test':'#7c3aed'},avatar:null,pipes:['pipe-6-8'],log:'[6. 自动测试] ⚙️ 机械跑道执行防篡改审计、ruff 静态检查与 pytest 验收跑测',details:'无副作用自动化测试，验证业务功能完整通过'},
 7:{stage:'WORK',nodes:{'node-work':'#d97706','node-escalate':'#f97316'},avatar:['svg-builder','#f59e0b'],pipes:['pipe-loop-tdd'],log:'[7. 自愈打回] 🔄 测试未通过，提取错误指纹打回开发工兵定向修复',details:'AST 影响点与异常回溯自愈，重试计数累计 (≤3次)'},
 8:{stage:'MR',nodes:{'node-mr':'#059669'},avatar:null,pipes:['pipe-6-8'],log:'[8. 成果交付] 🚀 AST 语义硬门禁一票否决校验通过，成果安全合入代码库并交付',details:'检查无破坏性变更与规则违背，准予合并交付主干'},
 9:{stage:'ESCALATE',nodes:{'node-escalate':'#dc2626'},avatar:null,pipes:['pipe-branch-escalate'],log:'[9. 异常跳闸] 🚨 重试超限触发物理熔断，启动保护机制',details:'避免无限循环与主干破坏，等待人工排障复位'}};
-const STEP_TITLE=['待命 · STANDBY','步骤 1/8 · 架构设计 AI (方案与任务拆分)','步骤 2/8 · 验收测试 AI (AST红灯预检)','步骤 3/8 · 前置 Critic AI (规范双审)','步骤 4/8 · 关键 HITL (人工签字锁定)','步骤 5/8 · 开发工兵 AI (沙箱编码施工)','步骤 6/8 · 自动化测试 (全量真机跑测)','步骤 7/8 · 定向自愈重试 (错误指纹打回)','步骤 8/8 · AST 硬门禁 + 成果交付代码库','步骤 9 · 异常跳闸 (熔断保护)'];
+const STEP_TITLE=['待命 · STANDBY','步骤 1/8 · 架构设计 AI (方案与任务拆分)','步骤 2/8 · 验收测试 AI (红灯预检·变异验真)','步骤 3/8 · 前置审查 (契约内嵌·一致性双审)','步骤 4/8 · 关键 HITL (人工签字锁定)','步骤 5/8 · 开发工兵 AI (沙箱编码施工)','步骤 6/8 · 自动化测试 (防篡改·lint·验收跑测)','步骤 7/8 · 定向自愈重试 (错误指纹打回)','步骤 8/8 · AST 硬门禁 + 成果交付代码库','步骤 9 · 异常跳闸 (熔断保护)'];
 function derive(step,opt){
-const s=STEPS[step],stage=STAGE[s?s.stage:'IDLE'],nodes={},visible={},anim={};
+const s=STEPS[step];
+let stage=STAGE[s?s.stage:'IDLE'];
+if(step===0&&opt&&opt.abort)stage=STAGE.ABORT;
+const nodes={},visible={},anim={};
 if(stage.node)nodes[stage.node]=stage.color;
 stage.pipes.forEach(id=>{visible[id]=1;});
 let avatar=null;
@@ -466,10 +470,10 @@ if(stage===STAGE.SPEC)anim['svg-tube']='tube';
 if(stage===STAGE.CRITIC)anim['svg-glass']='glass';
 if(stage===STAGE.MR)anim['svg-truck']='truck';
 if(stage===STAGE.TEST)anim['svg-runner-gears']='spin';
-return {nodes,visible,anim,avatar:avatar?avatar[0]:null,avatarColor:avatar?avatar[1]:'',tone:stage.tone,badge:stage.badge,log:s?s.log:stage.log,details:s?s.details:stage.details,stepTitle:STEP_TITLE[step]||'',onStep:()=>{}};
+return {nodes,visible,anim,avatar:avatar?avatar[0]:null,avatarColor:avatar?avatar[1]:'',tone:stage.tone,badge:stage.badge,log:s?s.log:stage.log,details:s?s.details:stage.details,stepTitle:(step===0&&opt&&opt.abort)?'⛔ 任务已中止':(STEP_TITLE[step]||''),onStep:()=>{}};
 }
-const PILLS=[[1,'设计AI 📐','方案/拆分','1. 架构设计AI产出设计文档与任务拆分','#2563eb'],[2,'测试AI 🧪','红灯真测','2. 测试AI根据设计出红色测试用例(AST影响点)','#059669'],[3,'Critic 🧐','双审一致','3. Critic AI评审设计与测试一致性及架构规范','#0891b2'],[4,'HITL ✍️','签字锁定','4. 关键HITL确认任务和测试cases并锁定','#d97706'],[5,'开发AI 🔨','沙箱施工','5. 开发AI在受限沙箱开始编码','#d97706'],[6,'自动测试 ⚙️','真机跑测','6. 对开发结果自动化测试跑道真机验证','#7c3aed'],[7,'自愈打回 🔄','指纹修复','7. 测试不通过打回开发AI定向自愈重试','#ea580c'],[8,'仓库交付 🚀','硬门禁入库','8. AST硬门禁防线 + 交付主干仓库','#059669']];
-const GATES=[['👤 关卡-1','人工签字确认 (方案与测试审核)',[4],'amber','人工签字'],['🔒 门禁-1','验证测试真实有效 (必须报错防假需求)',[2],'blue','红灯验真'],['🔒 门禁-2','划分独立工位 (改动范围锁定防污染)',[5,7],'orange','沙箱隔离'],['🔒 门禁-3','机器自动测试 (全套用例真机跑通)',[6],'purple','机械跑道'],['👤 关卡-2','异常跳闸保护 (人工介入排障复位)',[9],'rose','异常复位']];
+const PILLS=[[1,'设计AI 📐','方案/拆分','1. 架构设计AI产出设计文档与任务拆分','#2563eb'],[2,'测试AI 🧪','红灯真测','2. 测试AI根据设计出红色测试用例(AST影响点)','#059669'],[3,'Critic 🧐','双审一致','3. 前置审查核对设计与用例一致性（随契约起草内嵌执行）','#0891b2'],[4,'HITL ✍️','签字锁定','4. 关键HITL确认任务和测试cases并锁定','#d97706'],[5,'开发AI 🔨','沙箱施工','5. 开发AI在受限沙箱开始编码','#d97706'],[6,'自动测试 ⚙️','真机跑测','6. 对开发结果自动化测试跑道真机验证','#7c3aed'],[7,'自愈打回 🔄','指纹修复','7. 测试不通过打回开发AI定向自愈重试','#ea580c'],[8,'仓库交付 🚀','硬门禁入库','8. AST硬门禁防线 + 交付主干仓库','#059669']];
+const GATES=[['👤 关卡-1','人工签字确认 (方案与测试审核)',[4],'amber','人工签字'],['🔒 门禁-1','验证测试真实有效 (必须报错防假需求)',[2],'blue','红灯验真'],['🔒 门禁-M','变异击杀率 ≥85% (锁定时强制，度量步骤2用例有效性)',[2,4],'cyan','变异验真'],['🔒 门禁-2','划分独立工位 (改动范围锁定防污染)',[5,7],'orange','沙箱隔离'],['🔒 门禁-3','机器自动测试 (全套用例真机跑通)',[6],'purple','机械跑道'],['👤 关卡-2','异常跳闸保护 (人工介入排障复位)',[9],'rose','异常复位']];
 const SIM=[['1.设计AI 📐','blue'],['2.测试AI 🧪','emerald'],['3.Critic 🧐','cyan'],['4.HITL ✍️','amber'],['5.开发AI 🔨','amber'],['6.自动测试 ⚙️','purple'],['7.自愈打回 🔄','orange'],['8.仓库交付 🚀','emerald'],['9.跳闸 🚨','rose']];
 const call=(method,args)=>host.call('pixel_forge',method,args);
 const reason=e=>String((e&&e.message)||e);
@@ -506,7 +510,7 @@ const openFull=()=>call('open').then(r=>setNotice(t('opened')+((r&&r.url)||'')),
 const start=()=>call('ensure').then(r=>{setStarting(Boolean(r&&r.starting));if(r&&r.up)setTick(x=>x+1);},e=>setFault({kind:'internal',text:reason(e)}));
 const faultText=!fault?'':fault.kind==='internal'?fault.text:(fault.url||'')+' · '+(fault.kind==='http'?'HTTP '+(fault.status||'?'):t('noResponse'));
 const liveStep=data&&typeof data.step==='number'?data.step:0,step=sim?sim.step:liveStep;
-const st=derive(step,{highlightCritic:Boolean(data&&data.highlight_critic)});
+const st=derive(step,{highlightCritic:Boolean(data&&data.highlight_critic),abort:Boolean(data&&data.status==='ABORTED')});
 st.onStep=play;
 const d=data||{};
 const primary=sim?st.log:((data&&(d.last_log||d.message))||st.log);
@@ -519,6 +523,7 @@ if(d.worktree_path)add(t('worktree'),d.worktree_path);
 if(d.run_id)add(t('target'),d.target_branch||'main');
 if(d.design_doc)add(t('design'),'已锁定 · 任务拆分就绪',d.design_doc);
 if(d.red_evidence)add(t('red'),(d.red_evidence.verdict||'PASSED_RED')+' (基线红灯验证有效)',JSON.stringify(d.red_evidence));
+if(d.mutation_report){const m=d.mutation_report;add(t('mutation'),(Math.round((m.kill_ratio||0)*1000)/10)+'% ('+(m.killed_count||0)+'/'+(m.total_mutants||0)+' 击杀'+(m.is_acceptable?' · 达标':' · 未达标')+')',JSON.stringify(m),m.is_acceptable?'emerald':'rose');}
 if(d.pre_critic_report)add(t('preCritic'),d.pre_critic_report.approved?'规范双审一致 (准予放行)':'存在拦截项 (打回修改)','',d.pre_critic_report.approved?'emerald':'rose');
 if(d.impact_analysis){const callers=d.impact_analysis.impacted_callers||[];add(t('impact'),callers.length+' 处受影响调用点',callers.join(', '));}
 if(d.updated_at)add(t('updated'),String(d.updated_at).slice(0,19).replace('T',' '));
