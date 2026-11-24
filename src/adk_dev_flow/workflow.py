@@ -28,10 +28,70 @@ from adk_dev_flow.worktree_utils import (
     sync_worktree_dependencies,
 )
 
+def get_max_diff_chars() -> int:
+    val = os.environ.get("ADK_MAX_DIFF_CHARS", "12000")
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 12000
+
+
 MAX_REPAIR_ATTEMPTS = int(os.environ.get("ADK_MAX_RETRIES", "3"))
-MAX_DIFF_CHARS = int(os.environ.get("ADK_MAX_DIFF_CHARS", "12000"))
+MAX_DIFF_CHARS = get_max_diff_chars()
 GIT_TIMEOUT_SEC = float(os.environ.get("ADK_GIT_TIMEOUT", "60"))
 VERIFY_TIMEOUT_SEC = float(os.environ.get("ADK_VERIFY_TIMEOUT", "180"))
+
+
+def assemble_diff_blocks(
+    file_diffs: list[tuple[str, str]],
+    max_chars: int | None = None,
+) -> tuple[str, bool, list[str]]:
+    """Assemble git diff blocks for changed files with per-file budget allocation.
+
+    Prevents starvation of subsequent files (like test files and spec contracts)
+    when an implementation file has a massive diff.
+    """
+    if max_chars is None:
+        max_chars = get_max_diff_chars()
+
+    if not file_diffs:
+        return "", False, []
+
+    n_files = len(file_diffs)
+    # Fair per-file budget allocation
+    per_file_budget = (
+        max(1000, max_chars // max(1, n_files))
+        if max_chars >= 1000 * n_files
+        else max(100, max_chars // max(1, n_files))
+    )
+
+    assembled_blocks: list[str] = []
+    truncated_files: list[str] = []
+
+    for file_path, file_diff in file_diffs:
+        if len(file_diff) <= per_file_budget:
+            assembled_blocks.append(file_diff)
+        else:
+            truncated_files.append(file_path)
+            last_nl = file_diff.rfind("\n", 0, per_file_budget)
+            cut_point = last_nl if last_nl > per_file_budget // 2 else per_file_budget
+            truncated_diff = file_diff[:cut_point]
+            banner = (
+                f"\n... [DIFF TRUNCATED FOR {file_path}: "
+                f"showing first {cut_point} chars, see diff_stat for full changes] ...\n"
+            )
+            assembled_blocks.append(truncated_diff + banner)
+
+    diff_truncated = len(truncated_files) > 0
+    diff_text = "\n".join(assembled_blocks)
+    if diff_truncated:
+        diff_text += (
+            f"\n\n... [DIFF TRUNCATED BY FILE BOUNDARY]\n"
+            f"以下文件因超出长度预算未展示完整 Diff: {', '.join(truncated_files)}\n"
+            f"请重点参考 diff_stat 评估影响面。"
+        )
+
+    return diff_text, diff_truncated, truncated_files
 
 
 async def _git(cmd: list[str], cwd: Path, timeout_sec: float = GIT_TIMEOUT_SEC) -> CommandResult:
@@ -658,27 +718,12 @@ def build_dev_workflow(
         names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
         changed_files = [line.strip() for line in names_res.stdout.splitlines() if line.strip()]
 
-        assembled_diff_blocks: list[str] = []
-        current_len = 0
-        truncated_files: list[str] = []
-
+        file_diffs: list[tuple[str, str]] = []
         for f in changed_files:
             file_diff_res = await _git(["diff", f"{base_sha}..HEAD", "--", f], worktree)
-            file_diff = file_diff_res.stdout
-            if current_len + len(file_diff) <= MAX_DIFF_CHARS:
-                assembled_diff_blocks.append(file_diff)
-                current_len += len(file_diff)
-            else:
-                truncated_files.append(f)
+            file_diffs.append((f, file_diff_res.stdout))
 
-        diff_truncated = len(truncated_files) > 0
-        diff_text = "\n".join(assembled_diff_blocks)
-        if diff_truncated:
-            diff_text += (
-                f"\n\n... [DIFF TRUNCATED BY FILE BOUNDARY]\n"
-                f"以下文件因超出长度预算未展示完整 Diff: {', '.join(truncated_files)}\n"
-                f"请重点参考 diff_stat 评估影响面。"
-            )
+        diff_text, diff_truncated, truncated_files = assemble_diff_blocks(file_diffs)
 
         # 3. 执行 AST 静态语义审计（语法树解析、破坏性接口变更、高危调用）
         ast_findings: list[dict[str, Any]] = []
