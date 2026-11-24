@@ -92,6 +92,14 @@ class SpecContract(BaseModel):
         default=None,
         description="前置 Critic 对设计与测试一致性及合规性的审查报告",
     )
+    mutation_report: dict[str, Any] | None = Field(
+        default=None,
+        description="基于 AST 变异测试的验收用例击杀率报告（客观度量测试有效性）",
+    )
+    require_mutation_gate: bool = Field(
+        default=True,
+        description="是否强制要求变异测试击杀率 >= 85%",
+    )
 
     @model_validator(mode="after")
     def _validate_contract_integrity(self) -> SpecContract:

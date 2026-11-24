@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 from typing import Any, Sequence
 
 import yaml
@@ -616,7 +617,14 @@ def build_dev_workflow(
         locked_test_sha256 = existing_run.get("locked_test_sha256") or ""
         locked_test_commit_sha = existing_run.get("locked_test_commit_sha") or ""
 
-        if not worktree.exists():
+        is_valid_worktree = worktree.exists() and (worktree / ".git").exists()
+        if not is_valid_worktree:
+            if worktree.exists():
+                try:
+                    shutil.rmtree(worktree, ignore_errors=True)
+                except Exception:
+                    pass
+                await _git(["worktree", "prune"], repo_root)
             worktree.parent.mkdir(parents=True, exist_ok=True)
             base_ref = getattr(spec, "base_branch", None) or spec.target_branch
             res = await _git(
@@ -624,12 +632,24 @@ def build_dev_workflow(
                 repo_root,
             )
             if res.returncode != 0:
+                if worktree.exists():
+                    shutil.rmtree(worktree, ignore_errors=True)
+                    await _git(["worktree", "prune"], repo_root)
                 res = await _git(
                     ["worktree", "add", "-b", branch, str(worktree), "HEAD"],
                     repo_root,
                 )
                 if res.returncode != 0:
-                    raise RuntimeError(f"创建 Git Worktree 失败: {res.stderr.strip()}")
+                    if worktree.exists():
+                        shutil.rmtree(worktree, ignore_errors=True)
+                        await _git(["worktree", "prune"], repo_root)
+                    # If branch already exists from a prior interrupted attempt, checkout existing branch
+                    res = await _git(
+                        ["worktree", "add", str(worktree), branch],
+                        repo_root,
+                    )
+                    if res.returncode != 0:
+                        raise RuntimeError(f"创建 Git Worktree 失败: {res.stderr.strip()}")
 
             # Record the exact base commit SHA BEFORE adding the locked acceptance test.
             base_res = await _git(["rev-parse", "HEAD"], worktree)

@@ -95,6 +95,44 @@ class FlowService:
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
+        # 1. Mutation Verification Gate: Objective verification of test effectiveness
+        mutation_dict: dict[str, Any] | None = None
+        if getattr(spec, "require_mutation_gate", True):
+            if spec.mutation_report and spec.mutation_report.get("is_acceptable"):
+                mutation_dict = spec.mutation_report
+            else:
+                from adk_dev_flow.mutation import evaluate_test_against_mutants_sync
+
+                target_sources: list[tuple[str, str]] = []
+                for task in spec.tasks:
+                    for tf in task.target_files:
+                        full_p = (self.repo_root / tf).resolve()
+                        if full_p.is_file() and full_p.suffix == ".py":
+                            try:
+                                src = full_p.read_text(encoding="utf-8")
+                                target_sources.append((tf, src))
+                            except Exception:
+                                pass
+                if target_sources:
+                    target_rel, target_code = target_sources[0]
+                    m_report = evaluate_test_against_mutants_sync(
+                        target_source=target_code,
+                        test_source=spec.acceptance_test_code,
+                        target_module_name=target_rel,
+                        min_kill_ratio=0.85,
+                    )
+                    mutation_dict = m_report.to_dict()
+                    spec.mutation_report = mutation_dict
+                    if not m_report.is_acceptable:
+                        return {
+                            "error": (
+                                f"变异测试门禁未通过 (Kill Ratio: {m_report.kill_ratio:.1%} < 85.0%)。"
+                                "当前验收测试断言有效性不足，未能击杀以下语义变异体：\n"
+                                + "\n".join(m_report.survived_details[:10])
+                            ),
+                            "mutation_report": mutation_dict,
+                        }
+
         ok = self.store.transition_run(
             run_id,
             expected_statuses=PRE_LOCK_STATUSES,
@@ -131,6 +169,8 @@ class FlowService:
             "allowed_paths": spec.allowed_paths,
             "next_step": "Spec 已冻结并通过静态校验，可调用 flow_dispatch 触发 ADK 后台隔离执行与验收。",
         }
+        if mutation_dict:
+            res["mutation_report"] = mutation_dict
         if ast_impact:
             res["ast_impact"] = ast_impact
         return res
@@ -425,18 +465,24 @@ class FlowService:
         return {"runs": items, "count": len(items)}
 
     async def _remove_worktree(self, worktree_path: str) -> str | None:
+        wt_p = Path(worktree_path)
         res = await run_subprocess_safe(
             ["git", "worktree", "remove", "--force", worktree_path],
             cwd=self.repo_root,
             timeout_sec=30.0,
         )
+        if wt_p.exists():
+            try:
+                shutil.rmtree(wt_p, ignore_errors=True)
+            except Exception:
+                pass
         await run_subprocess_safe(
             ["git", "worktree", "prune"],
             cwd=self.repo_root,
             timeout_sec=15.0,
         )
-        if res.returncode != 0:
-            return res.stderr.strip() or f"git worktree remove exited {res.returncode}"
+        if wt_p.exists():
+            return f"未能完全删除目录: {worktree_path}"
         return None
 
     async def flow_finalize(self, run_id: str, remove_worktree: bool = True) -> dict[str, Any]:

@@ -293,6 +293,7 @@ def factory(base_val: int):
                     target_files=["src/pkg/core.py"],
                 )
             ],
+            require_mutation_gate=False,
         )
         lock_res = service.flow_lock_spec("run-ast-1", spec)
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
