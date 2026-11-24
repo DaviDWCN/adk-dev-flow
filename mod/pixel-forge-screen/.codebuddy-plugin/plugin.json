@@ -1,0 +1,13 @@
+{
+  "name": "pixel-forge-screen",
+  "version": "0.0.7",
+  "description": "Web UI 内的像素工坊大屏整页：原生重绘看板的流水线拓扑图，实时同步 adk-dev-flow 看板服务的任务状态，支持演练与无外壳大屏。",
+  "userConfig": {},
+  "modHost": "web",
+  "client": {
+    "platform": "web",
+    "entry": "client/index.js",
+    "format": "module",
+    "apiVersion": 1
+  }
+}
