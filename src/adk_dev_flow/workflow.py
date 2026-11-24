@@ -839,17 +839,29 @@ def build_dev_workflow(
             if spec.extra_dependencies:
                 await sync_worktree_dependencies(worktree, repo_root, spec.extra_dependencies)
 
-            # Step 2: Resolve commands inside target repository venv (or env overrides).
+            # Step 2: Prepare subprocess environment with worktree sources prioritized in PYTHONPATH
+            subproc_env = dict(os.environ)
+            wt_src = worktree / "src"
+            candidates = [str(wt_src)] if wt_src.is_dir() else [str(worktree)]
+            sep = ";" if os.name == "nt" else ":"
+            existing_pypath = subproc_env.get("PYTHONPATH", "")
+            if existing_pypath:
+                candidates.append(existing_pypath)
+            subproc_env["PYTHONPATH"] = sep.join(candidates)
+
+            # Step 3: Resolve commands inside target repository venv (or env overrides).
+            lint_targets = [p for p in spec.allowed_paths if (worktree / p).exists()]
+            lint_args = ["check", *lint_targets] if lint_targets else ["check", "."]
             lint_cmd = resolve_tool_command(
                 "ruff",
-                ["check", "."],
+                lint_args,
                 worktree=worktree,
                 repo_root=repo_root,
                 env_override=os.environ.get("ADK_LINT_CMD"),
             )
             if lint_cmd is not None:
                 lint_res = await run_subprocess_safe(
-                    lint_cmd, cwd=worktree, timeout_sec=VERIFY_TIMEOUT_SEC
+                    lint_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
                 )
                 if lint_res.returncode != 0:
                     failure_sections.append(
@@ -867,7 +879,7 @@ def build_dev_workflow(
             )
             if test_cmd is not None:
                 test_res = await run_subprocess_safe(
-                    test_cmd, cwd=worktree, timeout_sec=VERIFY_TIMEOUT_SEC
+                    test_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
                 )
                 if test_res.returncode != 0:
                     failure_sections.append(
@@ -888,7 +900,7 @@ def build_dev_workflow(
                 )
                 if reg_cmd is not None:
                     reg_res = await run_subprocess_safe(
-                        reg_cmd, cwd=worktree, timeout_sec=VERIFY_TIMEOUT_SEC
+                        reg_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
                     )
                     if reg_res.returncode != 0:
                         failure_sections.append(

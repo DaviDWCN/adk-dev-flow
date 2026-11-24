@@ -105,14 +105,20 @@ class FlowService:
         store: StateStore,
         gl: BaseGitForge | None = None,
         forge: BaseGitForge | None = None,
+        recovery_grace_period: float | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.store = store
         self.gl: BaseGitForge = forge or gl or get_git_forge(self.repo_root)
         self.forge: BaseGitForge = self.gl
         self.bg_tasks: dict[str, asyncio.Task[None]] = {}
+        if recovery_grace_period is None:
+            try:
+                recovery_grace_period = float(os.environ.get("ADK_RECOVERY_GRACE_PERIOD", ""))
+            except ValueError:
+                recovery_grace_period = 0.0 if "PYTEST_CURRENT_TEST" in os.environ else 600.0
         # Mark any in-flight runs left over from a prior server restart as ESCALATED.
-        self.recovered_runs = self.store.recover_orphaned_runs()
+        self.recovered_runs = self.store.recover_orphaned_runs(grace_period_seconds=recovery_grace_period)
 
     def _register_task(self, run_id: str, task: asyncio.Task[None]) -> None:
         self.bg_tasks[run_id] = task
@@ -123,7 +129,29 @@ class FlowService:
 
         task.add_done_callback(_cleanup)
 
-    async def flow_init(self, requirement: str, issue_iid: int | None = None) -> dict[str, Any]:
+    def _ensure_repo_root(self, repo_override: str | None = None) -> None:
+        if repo_override:
+            p = Path(repo_override).resolve()
+            curr = p
+            while curr != curr.parent:
+                if (curr / ".git").is_dir():
+                    p = curr
+                    break
+                curr = curr.parent
+            if (p / ".git").exists() or p.exists():
+                self.repo_root = p
+                self.store = StateStore(p)
+                self.gl = get_git_forge(p)
+                self.forge = self.gl
+                return
+
+    async def flow_init(
+        self,
+        requirement: str,
+        issue_iid: int | None = None,
+        repo_root: str | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_repo_root(repo_root)
         # Preflight checks
         if not (self.repo_root / ".git").exists():
             return {
@@ -176,6 +204,7 @@ class FlowService:
         return result
 
     def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
+        self._ensure_repo_root()
         run = self.store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
@@ -263,6 +292,7 @@ class FlowService:
     def flow_analyze_impact(
         self, target_paths: list[str], include_skeletons: bool = False
     ) -> dict[str, Any]:
+        self._ensure_repo_root()
         from adk_dev_flow.ast_graph import CodeGraph
 
         cg = CodeGraph(self.repo_root)
@@ -299,6 +329,7 @@ class FlowService:
         self, test_path: str, test_code: str, run_id: str | None = None
     ) -> dict[str, Any]:
         """Pre-flight test runner on baseline repository to verify TDD Red validity."""
+        self._ensure_repo_root()
         import ast
         import subprocess
         import sys
@@ -399,6 +430,7 @@ class FlowService:
                     pass
 
     def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
+        self._ensure_repo_root()
         p = Path(spec_file_path)
         if not p.is_absolute():
             p = (self.repo_root / p).resolve()
@@ -411,6 +443,7 @@ class FlowService:
         return self.flow_lock_spec(run_id=run_id, spec=spec)
 
     async def flow_dispatch(self, run_id: str) -> dict[str, Any]:
+        self._ensure_repo_root()
         run = self.store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
@@ -473,6 +506,7 @@ class FlowService:
         }
 
     def flow_status(self, run_id: str) -> dict[str, Any]:
+        self._ensure_repo_root()
         run = self.store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
@@ -534,6 +568,7 @@ class FlowService:
         }
 
     def flow_list(self, limit: int = 10) -> dict[str, Any]:
+        self._ensure_repo_root()
         runs = self.store.list_runs(limit=limit)
         items = [
             {
@@ -619,6 +654,7 @@ class FlowService:
         return result
 
     def flow_active_runs(self) -> dict[str, Any]:
+        self._ensure_repo_root()
         runs = self.store.get_active_runs()
         items = [
             {
@@ -636,6 +672,7 @@ class FlowService:
 
     def flow_dashboard(self, run_id: str | None = None) -> dict[str, Any]:
         """获取或生成用于像素工坊动画看板的运行态数据。"""
+        self._ensure_repo_root()
         status_info: dict[str, Any]
         if run_id:
             status_info = self.flow_status(run_id)
@@ -752,28 +789,51 @@ class FlowService:
 def resolve_repo_root(custom_root: Path | None = None) -> Path:
     """Resolve the business repository root directory.
 
-    Priority: custom_root -> REPO_ROOT -> WORKSPACE_FOLDER -> CODEBUDDY_WORKSPACE_ROOT -> os.getcwd().
+    Priority: custom_root -> REPO_ROOT -> WORKSPACE_FOLDER -> CODEBUDDY_WORKSPACE_ROOT -> os.getcwd() -> ~/.adk/active_repo.txt.
     If candidate lacks .git, searches upwards for the nearest Git repository root.
     """
     if custom_root is not None:
-        return custom_root.resolve()
+        p = custom_root.resolve()
+        curr = p
+        while curr != curr.parent:
+            if (curr / ".git").is_dir():
+                return curr
+            curr = curr.parent
+        return p
 
-    candidate = (
-        os.environ.get("REPO_ROOT")
-        or os.environ.get("WORKSPACE_FOLDER")
-        or os.environ.get("CODEBUDDY_WORKSPACE_ROOT")
-        or ""
-    ).strip()
-    if candidate:
-        p = Path(candidate)
-        return p.resolve() if p.is_absolute() else (Path.cwd() / p).resolve()
+    for env_var in ("REPO_ROOT", "WORKSPACE_FOLDER", "CODEBUDDY_WORKSPACE_ROOT", "PROJECT_ROOT"):
+        val = os.environ.get(env_var, "").strip()
+        if val and val != ".":
+            p = Path(val).resolve()
+            curr = p
+            while curr != curr.parent:
+                if (curr / ".git").is_dir():
+                    return curr
+                curr = curr.parent
 
+    # Try cwd and upwards
     cwd = Path.cwd().resolve()
     curr = cwd
     while curr != curr.parent:
         if (curr / ".git").is_dir():
             return curr
         curr = curr.parent
+
+    # Check ~/.adk/active_repo.txt
+    active_repo_file = Path.home() / ".adk" / "active_repo.txt"
+    if active_repo_file.is_file():
+        try:
+            line = active_repo_file.read_text(encoding="utf-8").strip()
+            if line:
+                p = Path(line).resolve()
+                curr = p
+                while curr != curr.parent:
+                    if (curr / ".git").is_dir():
+                        return curr
+                    curr = curr.parent
+        except Exception:
+            pass
+
     return cwd
 
 
@@ -899,9 +959,13 @@ def create_mcp_server(
         )
 
     @mcp.tool()
-    async def flow_init(requirement: str, issue_iid: int | None = None) -> dict[str, Any]:
+    async def flow_init(
+        requirement: str,
+        issue_iid: int | None = None,
+        repo_root: str | None = None,
+    ) -> dict[str, Any]:
         """初始化确定性开发流。若提供 GitLab/GitHub Issue 编号，将自动拉取详情。"""
-        return await service.flow_init(requirement=requirement, issue_iid=issue_iid)
+        return await service.flow_init(requirement=requirement, issue_iid=issue_iid, repo_root=repo_root)
 
     @mcp.tool()
     def flow_lock_spec(run_id: str, spec: SpecContract) -> dict[str, Any]:

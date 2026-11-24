@@ -271,29 +271,45 @@ class StateStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def recover_orphaned_runs(self) -> list[str]:
-        """Mark in-flight runs left over from a previous MCP server crash/restart as ESCALATED."""
-        now = datetime.now(timezone.utc).isoformat()
+    def recover_orphaned_runs(self, grace_period_seconds: float = 0.0) -> list[str]:
+        """Mark in-flight runs left over from a previous MCP server crash/restart as ESCALATED.
+
+        If grace_period_seconds > 0, skips runs updated within that duration to prevent stomping
+        active concurrent executions during live process coexistence.
+        """
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
         in_clause = ", ".join("?" for _ in IN_FLIGHT_STATUSES)
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT run_id FROM runs WHERE status IN ({in_clause})",
+                f"SELECT run_id, updated_at FROM runs WHERE status IN ({in_clause})",
                 list(IN_FLIGHT_STATUSES),
             ).fetchall()
-            orphaned_ids = [str(r["run_id"]) for r in rows]
+            orphaned_ids: list[str] = []
+            for r in rows:
+                if grace_period_seconds > 0 and r["updated_at"]:
+                    try:
+                        up_dt = datetime.fromisoformat(r["updated_at"])
+                        if (now_dt - up_dt).total_seconds() < grace_period_seconds:
+                            continue
+                    except Exception:
+                        pass
+                orphaned_ids.append(str(r["run_id"]))
+
             if orphaned_ids:
+                in_orphans = ", ".join("?" for _ in orphaned_ids)
                 conn.execute(
                     f"""
                     UPDATE runs
                     SET status = 'ESCALATED',
                         last_error_log = COALESCE(last_error_log, '') || ?,
                         updated_at = ?
-                    WHERE status IN ({in_clause})
+                    WHERE run_id IN ({in_orphans})
                     """,
                     [
                         "\n[系统恢复] MCP 服务重启导致后台任务中断，请调用 flow_resume 恢复或 flow_abort 退出。",
                         now,
-                        *IN_FLIGHT_STATUSES,
+                        *orphaned_ids,
                     ],
                 )
         if orphaned_ids:

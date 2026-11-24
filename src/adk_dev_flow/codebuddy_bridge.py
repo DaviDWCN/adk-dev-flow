@@ -156,7 +156,13 @@ def _parse_json_list_env(var_name: str, default: list[str]) -> list[str]:
 
 
 def _use_stdin_prompt() -> bool:
-    return os.environ.get("CODEBUDDY_USE_STDIN", "false").strip().lower() in ("1", "true", "yes")
+    val = os.environ.get("CODEBUDDY_USE_STDIN", "").strip().lower()
+    if val in ("1", "true", "yes"):
+        return True
+    if val in ("0", "false", "no"):
+        return False
+    # On Windows, default to True to prevent cmd.exe 8,191-character CLI limit ("The command line is too long")
+    return os.name == "nt"
 
 
 class CodeBuddyLlm(BaseLlm):

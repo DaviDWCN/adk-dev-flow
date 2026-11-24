@@ -159,10 +159,12 @@ def parse_review_verdict_dict(raw_output: Any) -> dict[str, Any]:
 
 
 def _find_venv_bin(base_dir: Path, tool_name: str) -> Path | None:
+    base = base_dir.resolve()
     candidates = [
-        base_dir / ".venv" / "bin" / tool_name,
-        base_dir / ".venv" / "Scripts" / f"{tool_name}.exe",
-        base_dir / "venv" / "bin" / tool_name,
+        base / ".venv" / "bin" / tool_name,
+        base / ".venv" / "Scripts" / f"{tool_name}.exe",
+        base / "venv" / "bin" / tool_name,
+        base / "venv" / "Scripts" / f"{tool_name}.exe",
     ]
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
@@ -369,8 +371,8 @@ async def audit_worktree_changes(
 
     if exclude_file and exclude_file.is_file():
         try:
-            lines = [l.strip() for l in exclude_file.read_text(encoding="utf-8", errors="replace").splitlines()]
-            non_comments = [l for l in lines if l and not l.startswith("#")]
+            lines = [line.strip() for line in exclude_file.read_text(encoding="utf-8", errors="replace").splitlines()]
+            non_comments = [line for line in lines if line and not line.startswith("#")]
             if non_comments:
                 violations.append("检测到受保护配置篡改: 禁止修改或利用 .git/info/exclude 掩盖文件变更")
         except Exception:
