@@ -107,7 +107,7 @@
   </style>
 </head>
 <body class="bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 text-slate-800 antialiased p-3 sm:p-4 m-0 select-none font-sans text-xs min-h-screen">
-  <div class="max-w-6xl mx-auto space-y-3">
+  <div class="w-full max-w-[1680px] mx-auto space-y-3 px-1 sm:px-3">
     
     <!-- Top Cockpit Bar: Project Overview & Metrics (Glassmorphism Pro) -->
     <header class="p-3.5 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200/80 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.07)] flex flex-wrap items-center justify-between gap-3 transition-all">
@@ -167,23 +167,29 @@
         <span class="tracking-tight">核心门禁与审批关卡</span>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <span id="hitl-spec-pill" title="人工签字确认 (方案与测试审核)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-amber-50 text-amber-700 border border-amber-300 flex items-center gap-1.5 shadow-2xs transition-all">
-          <span>👤 关卡-1</span> <span class="font-bold">人工签字</span>
-        </span>
-        <span id="gate-tdd-pill" title="验证测试真实有效 (必须报错防假需求)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-blue-50 text-blue-700 border border-blue-300 flex items-center gap-1.5 shadow-2xs transition-all">
+        <span id="gate-tdd-pill" title="验证测试真实有效 (基线必须报错防空断言)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-blue-50 text-blue-700 border border-blue-300 flex items-center gap-1.5 shadow-2xs transition-all">
           <span>🔒 门禁-1</span> <span class="font-bold">红灯验真</span>
         </span>
-        <span id="gate-mutation-pill" title="变异击杀率 ≥85% (AST 变异体客观度量用例有效性)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-cyan-50 text-cyan-700 border border-cyan-300 flex items-center gap-1.5 shadow-2xs transition-all">
-          <span>🔒 门禁-M</span> <span class="font-bold">变异验真</span>
+        <span id="gate-mutation-pill" title="AST 变异测试击杀率门禁 (>=85% 防无效断言)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1.5 shadow-2xs transition-all">
+          <span>🧬 门禁-2</span> <span class="font-bold">变异击杀率 (≥85%)</span>
+        </span>
+        <span id="gate-critic-pill" title="前置双审 (设计文档与测试用例一致性 & 架构防破坏)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-cyan-50 text-cyan-700 border border-cyan-300 flex items-center gap-1.5 shadow-2xs transition-all">
+          <span>🧐 门禁-3</span> <span class="font-bold">Critic 规范双审</span>
+        </span>
+        <span id="hitl-spec-pill" title="人工签字确认 (方案与测试审核锁定)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-amber-50 text-amber-700 border border-amber-300 flex items-center gap-1.5 shadow-2xs transition-all">
+          <span>👤 关卡-1</span> <span class="font-bold">HITL 签字锁定</span>
         </span>
         <span id="gate-sandbox-pill" title="划分独立工位 (改动范围锁定防污染)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-300 flex items-center gap-1.5 shadow-2xs transition-all">
-          <span>🔒 门禁-2</span> <span class="font-bold">沙箱隔离</span>
+          <span>🔒 门禁-4</span> <span class="font-bold">沙箱隔离</span>
         </span>
         <span id="gate-verify-pill" title="机器自动测试 (全套用例真机跑通)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-purple-50 text-purple-700 border border-purple-300 flex items-center gap-1.5 shadow-2xs transition-all">
-          <span>🔒 门禁-3</span> <span class="font-bold">机械跑道</span>
+          <span>🔒 门禁-5</span> <span class="font-bold">全量真机跑测</span>
+        </span>
+        <span id="gate-ast-pill" title="AST 语义门禁一票否决 (无破坏性重构与不安全调用)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-300 flex items-center gap-1.5 shadow-2xs transition-all">
+          <span>🔒 门禁-6</span> <span class="font-bold">AST 语义硬门禁</span>
         </span>
         <span id="hitl-escalate-pill" title="异常跳闸保护 (人工介入排障复位)" class="px-2.5 py-1 rounded-lg font-mono text-[10px] bg-rose-50 text-rose-700 border border-rose-300 flex items-center gap-1.5 shadow-2xs transition-all">
-          <span>👤 关卡-2</span> <span class="font-bold">异常复位</span>
+          <span>👤 关卡-2</span> <span class="font-bold">熔断跳闸复位</span>
         </span>
       </div>
     </div>
@@ -207,19 +213,19 @@
           </div>
           <span class="text-[9px] text-slate-500 mt-0.5">方案/拆分</span>
         </div>
-        <div id="step-pill-2" onclick="setStep(2)" title="2. 测试AI根据设计出红色测试用例(AST影响点)" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-emerald-400 hover:shadow-xs group">
+        <div id="step-pill-2" onclick="setStep(2)" title="2. 测试AI根据设计出红色测试用例，并执行变异测试击杀率门禁 (>=85%)" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-emerald-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-emerald-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] flex items-center justify-center font-bold">2</span>
             <span>测试AI 🧪</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">红灯真测</span>
+          <span class="text-[9px] text-slate-500 mt-0.5">红灯/变异门禁</span>
         </div>
-        <div id="step-pill-3" onclick="setStep(3)" title="3. Critic AI评审设计与测试一致性及架构规范" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-cyan-400 hover:shadow-xs group">
+        <div id="step-pill-3" onclick="setStep(3)" title="3. Critic AI前置双审设计与测试一致性及架构规范" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-cyan-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-cyan-600 transition-colors">
             <span class="w-4 h-4 rounded-full bg-cyan-100 text-cyan-700 text-[9px] flex items-center justify-center font-bold">3</span>
             <span>Critic 🧐</span>
           </div>
-          <span class="text-[9px] text-slate-500 mt-0.5">双审一致</span>
+          <span class="text-[9px] text-slate-500 mt-0.5">规范前审</span>
         </div>
         <div id="step-pill-4" onclick="setStep(4)" title="4. 关键HITL确认任务和测试cases并锁定" class="p-2 rounded-xl border border-slate-200/90 bg-slate-50/70 hover:bg-white flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-amber-400 hover:shadow-xs group">
           <div class="flex items-center gap-1 font-bold text-slate-700 group-hover:text-amber-600 transition-colors">
@@ -321,7 +327,7 @@
         </g>
 
         <!-- ================= TRACK 2: LOWER TRACK · 物理施工与成果交付域 (步骤 5-8) ================= -->
-        <rect x="15" y="210" width="930" height="158" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" filter="url(#soft-shadow)" />
+        <rect x="15" y="210" width="930" height="166" rx="14" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" filter="url(#soft-shadow)" />
         <!-- Track 2 Title Badge -->
         <g transform="translate(30, 201)">
           <rect x="0" y="0" width="195" height="20" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.8"/>
@@ -335,7 +341,7 @@
           <path d="M 237 95 L 262 95" fill="none" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#arrow-gray)" />
           <path id="pipe-1-2" d="M 237 95 L 262 95" fill="none" stroke="#3b82f6" stroke-width="2.8" class="pipe-active hidden" marker-end="url(#arrow)" filter="url(#pipe-glow)" />
 
-          <!-- 连线 2 ➔ 3: 测试 AI ➔ Critic 双审 (水平直通) -->
+          <!-- 连线 2 ➔ 3: 测试 AI ➔ 变异测试门禁 ➔ Critic 双审 (水平直通) -->
           <path d="M 467 95 L 492 95" fill="none" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#arrow-gray)" />
           <path id="pipe-2-3" d="M 467 95 L 492 95" fill="none" stroke="#10b981" stroke-width="2.8" class="pipe-active hidden" marker-end="url(#arrow-green)" filter="url(#pipe-glow)" />
 
@@ -351,17 +357,20 @@
           <path d="M 237 290 L 262 290" fill="none" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#arrow-gray)" />
           <path id="pipe-5-6" d="M 237 290 L 262 290" fill="none" stroke="#8b5cf6" stroke-width="2.8" class="pipe-active hidden" marker-end="url(#arrow-purple)" filter="url(#pipe-glow)" />
 
-          <!-- 回流 7 (自愈打回): 自动化测试未通过 -> 开发工兵修复 (拱桥回流管道) -->
-          <path d="M 364.5 222 C 364.5 170, 134.5 170, 134.5 222" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-amber)" />
-          <path id="pipe-loop-tdd" d="M 364.5 222 C 364.5 170, 134.5 170, 134.5 222" fill="none" stroke="#f59e0b" stroke-width="2.8" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" filter="url(#pipe-glow)" />
+          <!-- 连线 6 ➔ 7: 测试未通过 -> 指纹回流打回 (仅失败时分流至工位 7) -->
+          <path d="M 467 280 L 492 280" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-amber)" />
 
-          <!-- 紧急跳闸支线 7 -> 异常跳闸: 连续超限熔断 -->
-          <path d="M 467 290 L 492 290" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-rose)" />
-          <path id="pipe-branch-escalate" d="M 467 290 L 492 290" fill="none" stroke="#ef4444" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-rose)" filter="url(#pipe-glow)" />
+          <!-- 回流 7 ➔ 5 (自愈打回): 提取错误指纹定向回流工兵沙箱 (拱桥回流管道) -->
+          <path d="M 594.5 222 C 594.5 168, 134.5 168, 134.5 222" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-amber)" />
+          <path id="pipe-loop-tdd" d="M 594.5 222 C 594.5 168, 134.5 168, 134.5 222" fill="none" stroke="#f59e0b" stroke-width="2.8" class="pipe-loopback hidden" marker-end="url(#arrow-amber)" filter="url(#pipe-glow)" />
 
-          <!-- 连线 6 ➔ 8: 自动化测试通过 -> 成果交付代码库 (全绿直通) -->
-          <path d="M 467 312 L 722 312" fill="none" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#arrow-gray)" />
-          <path id="pipe-6-8" d="M 467 312 L 722 312" fill="none" stroke="#10b981" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-green)" filter="url(#pipe-glow)" />
+          <!-- 紧急跳闸支线 -> 异常跳闸: 连续超限熔断报警 -->
+          <path d="M 467 296 L 492 296" fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="4,4" marker-end="url(#arrow-rose)" />
+          <path id="pipe-branch-escalate" d="M 467 296 L 492 296" fill="none" stroke="#ef4444" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-rose)" filter="url(#pipe-glow)" />
+
+          <!-- 连线 6 ➔ 8: 自动化测试通过 -> 成果交付代码库 (全绿直通下轨快道，平滑绕开返修工位) -->
+          <path d="M 467 338 L 482 338 Q 488 338 488 344 L 488 364 Q 488 368 494 368 L 695 368 Q 701 368 701 364 L 701 344 Q 701 338 707 338 L 722 338" fill="none" stroke="#cbd5e1" stroke-width="2.5" marker-end="url(#arrow-gray)" />
+          <path id="pipe-6-8" d="M 467 338 L 482 338 Q 488 338 488 344 L 488 364 Q 488 368 494 368 L 695 368 Q 701 368 701 364 L 701 344 Q 701 338 707 338 L 722 338" fill="none" stroke="#10b981" stroke-width="3" class="pipe-active hidden" marker-end="url(#arrow-green)" filter="url(#pipe-glow)" />
         </g>
 
         <!-- ================= FLOATING CONDUIT PILL BADGES ================= -->
@@ -372,13 +381,15 @@
             <text x="25" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#1d4ed8">蓝图 ➔</text>
           </g>
 
-          <!-- 2 -> 3: 用例预检 -->
-          <g transform="translate(455, 87)">
-            <rect x="0" y="0" width="50" height="16" rx="6" fill="#ffffff" stroke="#10b981" stroke-width="1" filter="url(#soft-shadow)"/>
-            <text x="25" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#047857">用例 ➔</text>
+          <!-- 2 -> 3: 变异测试客观门禁 (Kill Ratio >= 85%) -->
+          <g id="badge-gate-mutation" transform="translate(434, 78)">
+            <rect x="0" y="0" width="90" height="30" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.2" filter="url(#soft-shadow)"/>
+            <circle cx="12" cy="15" r="4.5" fill="#22c55e"/>
+            <text x="50" y="13" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#15803d">🧬 变异测试门禁</text>
+            <text x="50" y="23" text-anchor="middle" font-size="6.8" font-mono font-bold fill="#166534">击杀率 ≥ 85%</text>
           </g>
 
-          <!-- 3 -> 4: 双审准予 -->
+          <!-- 3 -> 4: 双审放行 -->
           <g transform="translate(685, 87)">
             <rect x="0" y="0" width="50" height="16" rx="6" fill="#ffffff" stroke="#06b6d4" stroke-width="1" filter="url(#soft-shadow)"/>
             <text x="25" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#0e7490">双审 ➔</text>
@@ -396,22 +407,22 @@
             <text x="25" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#6d28d9">送测 ➔</text>
           </g>
 
-          <!-- 7 回流: 自愈打回 -->
-          <g transform="translate(195, 160)">
-            <rect x="0" y="0" width="110" height="17" rx="7" fill="#fff7ed" stroke="#f97316" stroke-width="1" filter="url(#soft-shadow)"/>
-            <text x="55" y="12" text-anchor="middle" font-size="7" font-weight="bold" fill="#c2410c">🔄 7. 自愈打回 (≤3次)</text>
+          <!-- 7 回流: 自愈打回 (指纹回路) -->
+          <g transform="translate(300, 158)">
+            <rect x="0" y="0" width="126" height="18" rx="8" fill="#fff7ed" stroke="#f97316" stroke-width="1" filter="url(#soft-shadow)"/>
+            <text x="63" y="12.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#c2410c">🔄 7. 错误指纹自愈回流 (≤3轮)</text>
           </g>
 
-          <!-- 6 -> 7 跳闸 -->
-          <g transform="translate(455, 282)">
-            <rect x="0" y="0" width="50" height="16" rx="6" fill="#fff1f2" stroke="#ef4444" stroke-width="1" filter="url(#soft-shadow)"/>
-            <text x="25" y="11" text-anchor="middle" font-size="7" font-weight="bold" fill="#ef4444">🚨 熔断</text>
+          <!-- 6 -> 7 失败分流 -->
+          <g transform="translate(456, 272)">
+            <rect x="0" y="0" width="46" height="15" rx="5" fill="#fff7ed" stroke="#f59e0b" stroke-width="0.9" filter="url(#soft-shadow)"/>
+            <text x="23" y="10.5" text-anchor="middle" font-size="6.8" font-weight="bold" fill="#d97706">未过 ➔</text>
           </g>
 
-          <!-- 6 -> 8 全绿直通交付 -->
-          <g transform="translate(530, 303)">
-            <rect x="0" y="0" width="130" height="18" rx="7" fill="#f0fdf4" stroke="#10b981" stroke-width="1" filter="url(#soft-shadow)"/>
-            <text x="65" y="12.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">✅ 跑测全绿 ➔ AST门禁审查</text>
+          <!-- 6 -> 8 全绿直通交付快轨 -->
+          <g transform="translate(528, 357)">
+            <rect x="0" y="0" width="138" height="18" rx="7" fill="#f0fdf4" stroke="#10b981" stroke-width="1" filter="url(#soft-shadow)"/>
+            <text x="69" y="12.5" text-anchor="middle" font-size="7.5" font-weight="bold" fill="#047857">✅ 跑测全绿 ➔ 直通交付快道</text>
           </g>
         </g>
 
@@ -446,7 +457,7 @@
 
         <!-- 【工位 2】步骤 2 · 测试 AI (依据设计出红灯测试用例) -->
         <g id="node-step-2" class="cursor-pointer transition-all duration-300" onclick="setStep(2)">
-          <title>② 验收测试 AI：出红灯测试用例，真实预检断言失败，并通过 AST 变异验真</title>
+          <title>② 验收测试 AI：出红灯测试用例，真实预检断言失败</title>
           <rect x="262" y="36" width="205" height="118" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.4" filter="url(#soft-shadow)" />
           <!-- Header Accent Strip -->
           <rect x="262" y="36" width="205" height="28" rx="10" fill="#f0fdf4" />
@@ -469,18 +480,18 @@
             </g>
           </g>
           <rect x="272" y="126" width="185" height="18" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="0.8"/>
-          <text x="364.5" y="138" text-anchor="middle" font-size="7.5" font-weight="600" fill="#475569">红灯预检 · AST 变异验真</text>
+          <text x="364.5" y="138" text-anchor="middle" font-size="7.5" font-weight="600" fill="#475569">AST 影响分析 · 红灯验真 & 变异门禁</text>
         </g>
 
         <!-- 【工位 3】步骤 3 · Critic 双审 (审查设计与测试一致性及架构规范) -->
         <g id="node-critic" class="cursor-pointer transition-all duration-300" onclick="setStep(3)">
-          <title>③ 前置审查：随契约起草内嵌执行，评审设计与测试一致性及架构规则</title>
+          <title>③ Critic 双审：第三视角评审设计与测试一致性、业务覆盖与架构规则</title>
           <rect x="492" y="36" width="205" height="118" rx="10" fill="#ffffff" stroke="#67e8f9" stroke-width="1.4" filter="url(#soft-shadow)" />
           <!-- Header Accent Strip -->
           <rect x="492" y="36" width="205" height="28" rx="10" fill="#ecfeff" />
           <rect x="492" y="54" width="205" height="10" fill="#ecfeff" />
           <circle cx="508" cy="50" r="3" fill="#06b6d4"/>
-          <text x="594.5" y="53.5" text-anchor="middle" font-size="9" font-weight="700" fill="#0891b2">3. Critic 双审 🧐 规范对齐</text>
+          <text x="594.5" y="53.5" text-anchor="middle" font-size="9" font-weight="700" fill="#0891b2">3. Critic 双审 🧐 规范前审</text>
           <!-- Inspection Podium under avatar -->
           <rect x="555" y="104" width="78" height="5" rx="2" fill="#e2e8f0"/>
           <!-- Critic Avatar -->
@@ -584,7 +595,7 @@
             </g>
           </g>
           <rect x="272" y="332" width="185" height="18" rx="6" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="0.8"/>
-          <text x="364.5" y="344" text-anchor="middle" font-size="7.5" font-weight="600" fill="#7c3aed">防篡改 · lint · 验收跑测</text>
+          <text x="364.5" y="344" text-anchor="middle" font-size="7.5" font-weight="600" fill="#7c3aed">白名单防篡改 · 全量真机跑测</text>
         </g>
 
         <!-- 【工位 7】步骤 7 · 自愈打回 / 异常跳闸保护 (指纹定向回流与熔断) -->
@@ -690,8 +701,8 @@
             <span id="spec-red-evidence" class="font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 truncate max-w-xs md:max-w-sm text-right" title="">基线 AssertionError 验真</span>
           </div>
           <div id="row-spec-mutation" class="hidden flex justify-between items-center gap-2 py-0.5">
-            <span class="text-slate-500 whitespace-nowrap flex items-center gap-1"><span>☣️</span> 变异门禁:</span>
-            <span id="spec-mutation" class="font-semibold text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200 truncate max-w-xs md:max-w-sm text-right" title="">-</span>
+            <span class="text-slate-500 whitespace-nowrap flex items-center gap-1"><span>🧬</span> 变异击杀率:</span>
+            <span id="spec-mutation" class="font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 truncate max-w-xs md:max-w-sm text-right" title="">击杀率 ≥ 85% (有效门禁)</span>
           </div>
           <div id="row-spec-pre-critic" class="hidden flex justify-between items-center gap-2 py-0.5">
             <span class="text-slate-500 whitespace-nowrap flex items-center gap-1"><span>🧐</span> 前置审查:</span>
@@ -707,7 +718,7 @@
         <div id="critic-verdict-box" class="hidden p-3 rounded-xl bg-slate-50/80 border border-slate-200/90 text-[11px] font-mono space-y-1.5 shadow-2xs">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-800 flex items-center gap-1.5">
-              <span>🧐</span> 质量把关结论:
+              <span>🧐</span> 前置双审结论 (Pre-Lock Critic):
             </span>
             <span id="critic-verdict-badge" class="px-2 py-0.5 rounded-full font-bold text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-300">通过 / PASSED</span>
           </div>
@@ -806,24 +817,24 @@
         badge: '⑥ 自动化测试 · 跑道执行',
         badgeClass: 'bg-purple-500/20 text-purple-500 border-purple-500/30',
         activePipes: ['pipe-6-8'],
-        log: '[自动化测试] ⚙️ 防篡改审计 + ruff 静态检查 + pytest 验收（可选全量回归）',
+        log: '[自动化测试] ⚙️ 防篡改审计核验 + 全量用例真机跑测',
         details: '确定性执行：未过退回工兵修复；全通放行送审'
       },
       CRITIC: {
         nodeId: 'node-critic',
-        badge: '③ 前置审查 · 契约双审',
+        badge: '③ 规范前审 · 双向把关',
         badgeClass: 'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
         activePipes: ['pipe-3-4'],
-        log: '[前置审查] 🧐 审查随契约起草内嵌执行，核对设计文档与验收用例一致性',
-        details: '结论写入 spec.pre_critic_report；独立状态位预留，不单独流转'
+        log: '[前置审查] 🧐 第三视角审查设计与用例一致性，严格校验架构规范',
+        details: '检查 AST 变异测试击杀率，确保用例与设计契约对齐且无架构违背'
       },
       MR: {
         nodeId: 'node-mr',
         badge: '⑧ 成果交付 · 任务竣工',
         badgeClass: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
         activePipes: ['pipe-6-8'],
-        log: '[成果交付] 🚀 成果安全存入代码库，自动发起 PR/MR',
-        details: '全套测试存证完备，符合交付准入规范'
+        log: '[成果交付] 🚀 AST 语义硬门禁一票否决核验通过，成果安全合入代码库并交付',
+        details: '全套测试存证完备，AST 语义分析无破坏性变更与违规'
       },
       ESCALATE: {
         nodeId: 'node-escalate',
@@ -894,13 +905,14 @@
       const stepTitles = [
         '待命 · STANDBY',
         '步骤 1/8 · 架构设计 AI (方案与任务拆分)',
-        '步骤 2/8 · 验收测试 AI (红灯预检·变异验真)',
-        '步骤 3/8 · 前置审查 (契约内嵌·一致性双审)',
+        '步骤 2/8 · 验收测试 AI (AST红灯预检 & 变异门禁)',
+        '步骤 3/8 · 前置 Critic AI (设计/用例规范双审)',
         '步骤 4/8 · 关键 HITL (人工签字锁定)',
         '步骤 5/8 · 开发工兵 AI (沙箱编码施工)',
         '步骤 6/8 · 自动化测试 (全量真机跑测)',
-        '步骤 7/8 · 定向自愈重试 (错误指纹打回)',
-        '步骤 8/8 · AST 硬门禁 + 成果交付代码库'
+        '步骤 7/8 · 定向自愈重试 (错误指纹回流)',
+        '步骤 8/8 · AST 硬门禁 + 成果交付代码库',
+        '🚨 异常跳闸熔断 (物理保护停机等待排障)'
       ];
       if (activeBadge) {
         activeBadge.textContent = stepTitles[num] || `步骤 ${num}/8`;
@@ -950,19 +962,19 @@
           showPipe('pipe-1-2');
           break;
         case 2:
-          setStage('SPEC', customLog || '[2. 红色测试] 🧪 测试 AI 依据设计规范编写用例，真机预检红灯有效并通过变异击杀率验真', customDetails || '基线红灯确认防空跑假需求，变异击杀率 ≥85% 方可锁定');
+          setStage('SPEC', customLog || '[2. 红色测试] 🧪 测试 AI 依据设计规范编写用例，执行红灯验真与 AST 变异测试 (击杀率≥85%)', customDetails || '基线断言失败确认，变异击杀率达标阻止无效断言');
           activateSvgNode('node-step-2', '#16a34a');
           highlightAvatar('svg-tester', '#10b981');
           showPipe('pipe-2-3');
           break;
         case 3:
-          setStage('CRITIC', customLog || '[3. 前置审查] 🧐 独立审查员核对设计与用例一致性及架构规范（随契约起草内嵌执行）', customDetails || '审查结论写入 spec.pre_critic_report；AST 语义与 eval/exec 检查在交付门禁执行');
+          setStage('CRITIC', customLog || '[3. Critic 双审] 🧐 独立审查员第三视角前置审查设计与用例一致性，严格校验架构规范', customDetails || '禁止 eval/exec 动态执行，校验公有函数签名与向后兼容性');
           activateSvgNode('node-critic', '#0891b2');
           highlightAvatar('svg-critic', '#06b6d4');
           showPipe('pipe-3-4');
           break;
         case 4:
-          setStage('SPEC', customLog || '[4. 关键 HITL] ✍️ 人工确认任务拆分与测试用例，签字锁定契约规范', customDetails || '锁定时强制执行变异击杀率 ≥85% 门禁，契约一旦锁定不可篡改');
+          setStage('SPEC', customLog || '[4. 关键 HITL] ✍️ 人工确认任务拆分与测试用例，签字锁定契约规范', customDetails || '人工专家把关签署 spec_contract，一旦锁定不可篡改');
           activateSvgNode('badge-hitl-spec', '#d97706');
           highlightAvatar(null, null);
           showPipe('pipe-4-5');
@@ -974,7 +986,7 @@
           showPipe('pipe-5-6');
           break;
         case 6:
-          setStage('TEST', customLog || '[6. 自动测试] ⚙️ 机械跑道执行防篡改审计、ruff 静态检查与 pytest 验收跑测', customDetails || '无副作用自动化测试，验证业务功能完整通过');
+          setStage('TEST', customLog || '[6. 自动测试] ⚙️ 自动化测试跑道全量真机 pytest 跑测', customDetails || '通过全绿则直通下轨快道交付；未过提取错误指纹回流工位 5 修复');
           activateSvgNode('node-test', '#7c3aed');
           highlightAvatar(null, null);
           showPipe('pipe-6-8');
@@ -984,14 +996,14 @@
           }
           break;
         case 7:
-          setStage('WORK', customLog || '[7. 自愈打回] 🔄 测试未通过，提取错误指纹打回开发工兵定向修复', customDetails || 'AST 影响点与异常回溯自愈，重试计数累计 (≤3次)');
+          setStage('WORK', customLog || '[7. 自愈打回] 🔄 测试未通过，提取错误指纹定向回流工兵修复 (≤3轮)', customDetails || '错误指纹精准定位，防止无序重试；连续失败触发物理熔断');
           activateSvgNode('node-work', '#d97706');
           activateSvgNode('node-escalate', '#f97316');
           highlightAvatar('svg-builder', '#f59e0b');
           showPipe('pipe-loop-tdd');
           break;
         case 8:
-          setStage('MR', customLog || '[8. 成果交付] 🚀 AST 语义硬门禁一票否决校验通过，成果安全合入代码库并交付', customDetails || '检查无破坏性变更与规则违背，准予合并交付主干');
+          setStage('MR', customLog || '[8. 成果交付] 🚀 AST 语义硬门禁一票否决核验通过，成果安全合入代码库并交付', customDetails || '严格审查无破坏性公共签名改动与动态执行代码，自动创建 MR');
           activateSvgNode('node-mr', '#059669');
           highlightAvatar(null, null);
           showPipe('pipe-6-8');
@@ -1190,6 +1202,23 @@
         }
       }
 
+      // Mutation report payload (Kill Ratio >= 85%)
+      if (data.mutation_report) {
+        const rowMutation = document.getElementById('row-spec-mutation');
+        const specMutation = document.getElementById('spec-mutation');
+        if (rowMutation) rowMutation.classList.remove('hidden');
+        if (specMutation) {
+          const rep = data.mutation_report;
+          const ratio = Math.round((rep.kill_ratio || 0) * 100);
+          const passed = rep.passed ?? (ratio >= 85);
+          specMutation.textContent = `击杀率 ${ratio}% (${rep.killed_mutants}/${rep.total_mutants || rep.killed_mutants}) · ${passed ? '达标通过' : '未达标拦截'}`;
+          specMutation.className = passed 
+            ? 'font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 truncate max-w-xs md:max-w-sm text-right'
+            : 'font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 truncate max-w-xs md:max-w-sm text-right';
+          specMutation.title = JSON.stringify(rep);
+        }
+      }
+
       // Pre-critic report payload
       if (data.pre_critic_report) {
         const rowPreCritic = document.getElementById('row-spec-pre-critic');
@@ -1199,22 +1228,6 @@
           const isApproved = data.pre_critic_report.approved;
           specPreCritic.textContent = isApproved ? '规范双审一致 (准予放行)' : '存在拦截项 (打回修改)';
           specPreCritic.className = isApproved ? 'font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200' : 'font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200';
-        }
-      }
-
-      // Mutation gate payload
-      if (data.mutation_report) {
-        const rowMutation = document.getElementById('row-spec-mutation');
-        const specMutation = document.getElementById('spec-mutation');
-        if (rowMutation) rowMutation.classList.remove('hidden');
-        if (specMutation) {
-          const m = data.mutation_report;
-          const ratio = Math.round((m.kill_ratio || 0) * 1000) / 10;
-          specMutation.textContent = `${ratio}% (${m.killed_count || 0}/${m.total_mutants || 0} 击杀${m.is_acceptable ? ' · 达标' : ' · 未达标'})`;
-          specMutation.title = JSON.stringify(m);
-          specMutation.className = m.is_acceptable
-            ? 'font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 truncate max-w-xs md:max-w-sm text-right'
-            : 'font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 truncate max-w-xs md:max-w-sm text-right';
         }
       }
 

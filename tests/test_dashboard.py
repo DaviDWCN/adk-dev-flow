@@ -37,6 +37,8 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertIn("row-spec-design", html)
         self.assertIn("spec-red-evidence", html)
         self.assertIn("spec-pre-critic", html)
+        self.assertIn("row-spec-mutation", html)
+        self.assertIn("gate-mutation-pill", html)
         self.assertIn("spec-impact", html)
         self.assertIn("step-pill-1", html)
         self.assertIn("step-pill-8", html)
@@ -70,7 +72,7 @@ class TestDashboardSuite(unittest.TestCase):
             branch="feat/test-branch",
             attempt=1,
             last_error_log="[Worker] 🔨 正在编辑代码",
-            spec_json='{"title": "Demo", "design_doc": "# Architecture Design", "red_evidence": {"verdict": "PASSED_RED", "exit_code": 1}, "pre_critic_report": {"approved": true}, "impact_analysis": {"impacted_callers": ["foo()"]}}',
+            spec_json='{"title": "Demo", "design_doc": "# Architecture Design", "red_evidence": {"verdict": "PASSED_RED", "exit_code": 1}, "pre_critic_report": {"approved": true}, "impact_analysis": {"impacted_callers": ["foo()"]}, "mutation_report": {"killed_mutants": 10, "total_mutants": 10, "kill_ratio": 1.0, "passed": true}}',
         )
 
         resp_status2 = client.get("/api/status?run_id=run_abc_1")
@@ -86,6 +88,8 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertEqual(data["red_evidence"]["verdict"], "PASSED_RED")
         self.assertTrue(data["pre_critic_report"]["approved"])
         self.assertEqual(data["impact_analysis"]["impacted_callers"], ["foo()"])
+        self.assertEqual(data["mutation_report"]["kill_ratio"], 1.0)
+        self.assertTrue(data["require_mutation_gate"])
 
         # 4. List runs route
         resp_runs = client.get("/api/runs")
