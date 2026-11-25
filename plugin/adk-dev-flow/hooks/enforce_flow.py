@@ -23,10 +23,31 @@ import re
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ISSUE_BRANCH_PATTERNS = (re.compile(r"^(\d+)-"), re.compile(r"^adk/issue-(\d+)"))
 COMMIT_RE = re.compile(r"\bgit\b(?:\s+-{1,2}[\w-]+(?:\s+\S+)?)*\s+commit(?![\w-])|\bgit\b\s+-C\s+\S+\s+commit(?![\w-])")
+
+# init-and-forget defense: SPEC_DRAFTING drafts are transient; older than
+# this they no longer legitimize commits (mirrors enforcement.py).
+SPEC_DRAFTING_STALE_HOURS = 24
+
+
+def _has_fresh_registration(rows) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=SPEC_DRAFTING_STALE_HOURS)
+    for status, updated_at in rows:
+        if status != "SPEC_DRAFTING":
+            return True
+        try:
+            ts = datetime.fromisoformat(str(updated_at))
+        except (TypeError, ValueError):
+            return True  # unparseable timestamp: treat conservatively as registered
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
+            return True
+    return False
 
 
 def find_flow_root(start: Path) -> Path | None:
@@ -109,21 +130,22 @@ def main() -> int:
     try:
         conn = sqlite3.connect(str(db_path), timeout=5)
         try:
-            row = conn.execute(
-                "SELECT 1 FROM runs WHERE issue_iid = ? AND status != 'ABORTED' LIMIT 1",
+            rows = conn.execute(
+                "SELECT status, updated_at FROM runs WHERE issue_iid = ? AND status != 'ABORTED'",
                 (issue,),
-            ).fetchone()
+            ).fetchall()
         finally:
             conn.close()
     except sqlite3.Error:
         return 0  # transient DB failure: fail-open, L3 keeps bypass visible
 
-    if row:
+    if _has_fresh_registration(rows):
         return 0  # issue properly registered
 
     deny(
         f"确定性研发约束：分支 `{branch}` 宣告了 issue #{issue}，但流程库中该 issue 没有有效 run"
-        f"（ABORTED 不计）。便宜合规路径：调用 flow_adopt(issue={issue}, branch='{branch}') 收编现有工作，"
+        f"（ABORTED 不计；SPEC_DRAFTING 超过 {SPEC_DRAFTING_STALE_HOURS} 小时视同失效，init-and-forget 不构成豁免）。"
+        f"便宜合规路径：调用 flow_adopt(issue={issue}, branch='{branch}') 收编现有工作，"
         f"或走完整 flow_init 建单。此检查只在 commit 时发生，不拦编辑与探索。"
     )
     return 0

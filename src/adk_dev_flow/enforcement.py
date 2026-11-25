@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,32 @@ ADVICE = (
     "便宜合规路径：调用 flow_adopt(issue={issue}, branch='{branch}') 收编现有工作，"
     "或走完整 flow_init 建单。此检查只在 commit 时发生，不拦编辑与探索。"
 )
+
+# init-and-forget defense: a SPEC_DRAFTING run is a transient draft, not a
+# permanent license. Older than this, it no longer legitimizes commits —
+# the issue must be adopted, progressed, or re-initialized.
+SPEC_DRAFTING_STALE_HOURS = 24
+
+
+def _has_fresh_registration(rows: list[tuple[str, str | None]]) -> bool:
+    """True when any run row counts as a live registration.
+
+    Non-drafting states (including ADOPTED and terminal ones) always count;
+    a SPEC_DRAFTING draft counts only while younger than the staleness bound.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=SPEC_DRAFTING_STALE_HOURS)
+    for status, updated_at in rows:
+        if status != "SPEC_DRAFTING":
+            return True
+        try:
+            ts = datetime.fromisoformat(str(updated_at))
+        except (TypeError, ValueError):
+            return True  # unparseable timestamp: treat conservatively as registered
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
+            return True
+    return False
 
 
 def extract_issue(branch: str) -> int | None:
@@ -69,19 +96,21 @@ def check_branch_binding(flow_root: Path, branch: str) -> tuple[bool, str]:
     try:
         conn = sqlite3.connect(str(db_path), timeout=5)
         try:
-            row = conn.execute(
-                "SELECT 1 FROM runs WHERE issue_iid = ? AND status != 'ABORTED' LIMIT 1",
+            rows = conn.execute(
+                "SELECT status, updated_at FROM runs WHERE issue_iid = ? AND status != 'ABORTED'",
                 (issue,),
-            ).fetchone()
+            ).fetchall()
         finally:
             conn.close()
     except sqlite3.Error:
         return True, ""  # transient DB failure: fail-open, L3 keeps bypass visible
-    if row:
+    if _has_fresh_registration(rows):
         return True, ""
     reason = (
         f"确定性研发约束：分支 `{branch}` 宣告了 issue #{issue}，"
-        f"但流程库中该 issue 没有有效 run（ABORTED 不计）。" + ADVICE.format(issue=issue, branch=branch)
+        f"但流程库中该 issue 没有有效 run（ABORTED 不计；SPEC_DRAFTING 超过 "
+        f"{SPEC_DRAFTING_STALE_HOURS} 小时视同失效，init-and-forget 不构成豁免）。"
+        + ADVICE.format(issue=issue, branch=branch)
     )
     return False, reason
 
@@ -91,11 +120,15 @@ PRE_COMMIT_TEMPLATE = """#!/bin/sh
 # Enforces branch<->run registration/traceability ONLY; pipeline verification
 # (allowed_paths audit, test locks) lives inside flow worktrees and is NOT
 # duplicated here.
-# Exit 17 = deny (issue branch without a registered run); anything else
-# (including package-not-importable) = fail-open.
-python -c "import sys; import adk_dev_flow.enforcement as e; sys.exit(e.main())" 2>/dev/null
+# Exit 17 = deny (issue branch without a registered run — the deny reason is
+# the hook's stderr and must reach the committer); anything else (including
+# package-not-importable) = fail-open.
+err=$(python -c "import sys; import adk_dev_flow.enforcement as e; sys.exit(e.main())" 2>&1 >/dev/null)
 rc=$?
-[ "$rc" -eq 17 ] && exit 1
+if [ "$rc" -eq 17 ]; then
+    [ -n "$err" ] && printf '%s\\n' "$err" >&2
+    exit 1
+fi
 exit 0
 """
 

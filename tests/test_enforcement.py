@@ -55,20 +55,47 @@ class TestBranchBinding(unittest.TestCase):
         self.db = self.root / ".adk" / "workflow.db"
         conn = sqlite3.connect(str(self.db))
         conn.execute(
-            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL)"
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL,"
+            " updated_at TEXT)"
         )
         conn.close()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def _add_run(self, run_id: str, issue: int, status: str) -> None:
+    def _add_run(self, run_id: str, issue: int, status: str, updated_at: str | None = None) -> None:
         conn = sqlite3.connect(str(self.db))
         conn.execute(
-            "INSERT INTO runs (run_id, issue_iid, status) VALUES (?, ?, ?)", (run_id, issue, status)
+            "INSERT INTO runs (run_id, issue_iid, status, updated_at) VALUES (?, ?, ?, ?)",
+            (run_id, issue, status, updated_at),
         )
         conn.commit()
         conn.close()
+
+    def test_zombie_spec_drafting_denied(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        stale = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        self._add_run("r1", 76, "SPEC_DRAFTING", updated_at=stale)
+        allowed, reason = check_branch_binding(self.root, "76-doc-adr")
+        self.assertFalse(allowed)
+        self.assertIn("init-and-forget", reason)
+
+    def test_fresh_spec_drafting_allowed(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        fresh = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        self._add_run("r1", 76, "SPEC_DRAFTING", updated_at=fresh)
+        allowed, _ = check_branch_binding(self.root, "76-doc-adr")
+        self.assertTrue(allowed)
+
+    def test_old_adopted_still_counts(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        self._add_run("r1", 76, "ADOPTED", updated_at=old)
+        allowed, _ = check_branch_binding(self.root, "76-doc-adr")
+        self.assertTrue(allowed)
 
     def test_allow_when_issue_registered_active(self) -> None:
         self._add_run("r1", 76, "ADOPTED")
@@ -117,7 +144,8 @@ class TestPreCommitInstall(unittest.TestCase):
         (self.repo / ".adk").mkdir()
         conn = sqlite3.connect(str(self.db))
         conn.execute(
-            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL)"
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL,"
+            " updated_at TEXT)"
         )
         conn.close()
 
@@ -172,7 +200,10 @@ class TestPreCommitInstall(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        pass
+
         self.assertNotEqual(blocked.returncode, 0, "unregistered issue branch must be blocked")
+        self.assertIn("flow_adopt", blocked.stderr, "deny reason must reach the committer (L2 teaching moment)")
         conn = sqlite3.connect(str(self.db))
         conn.execute("INSERT INTO runs (run_id, issue_iid, status) VALUES ('r1', 77, 'ADOPTED')")
         conn.commit()
@@ -201,7 +232,8 @@ class TestHookScript(unittest.IsolatedAsyncioTestCase, unittest.TestCase):
         self.db = self.repo / ".adk" / "workflow.db"
         conn = sqlite3.connect(str(self.db))
         conn.execute(
-            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL)"
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL,"
+            " updated_at TEXT)"
         )
         conn.close()
         subprocess.run(
@@ -211,10 +243,11 @@ class TestHookScript(unittest.IsolatedAsyncioTestCase, unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def _add_run(self, run_id: str, issue: int, status: str) -> None:
+    def _add_run(self, run_id: str, issue: int, status: str, updated_at: str | None = None) -> None:
         conn = sqlite3.connect(str(self.db))
         conn.execute(
-            "INSERT INTO runs (run_id, issue_iid, status) VALUES (?, ?, ?)", (run_id, issue, status)
+            "INSERT INTO runs (run_id, issue_iid, status, updated_at) VALUES (?, ?, ?, ?)",
+            (run_id, issue, status, updated_at),
         )
         conn.commit()
         conn.close()
@@ -233,6 +266,16 @@ class TestHookScript(unittest.IsolatedAsyncioTestCase, unittest.TestCase):
         decision = json.loads(res.stdout)["hookSpecificOutput"]
         self.assertEqual(decision["permissionDecision"], "deny")
         self.assertIn("flow_adopt(issue=76", decision["permissionDecisionReason"])
+
+    def test_deny_zombie_spec_drafting_commit(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        stale = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        self._add_run("r1", 76, "SPEC_DRAFTING", updated_at=stale)
+        res = _run_hook(self._payload("git commit -m 'wip'"), self.repo)
+        decision = json.loads(res.stdout)["hookSpecificOutput"]
+        self.assertEqual(decision["permissionDecision"], "deny")
+        self.assertIn("init-and-forget", decision["permissionDecisionReason"])
 
     def test_allow_commit_when_registered(self) -> None:
         self._add_run("r1", 76, "ADOPTED")
