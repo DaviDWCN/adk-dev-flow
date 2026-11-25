@@ -1,3 +1,11 @@
+---
+type: Assessment
+title: '评估：adk-dev-flow 像素工坊看板集成到 CodeBuddy CLI Web UI'
+status: final
+date: '2026-11-23'
+topic: dashboard-webui-integration
+---
+
 # 评估：adk-dev-flow 像素工坊看板集成到 CodeBuddy CLI Web UI
 
 > 调研日期：2026-11-23

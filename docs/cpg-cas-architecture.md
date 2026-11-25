@@ -1,3 +1,11 @@
+---
+type: ArchitectureDoc
+title: 'CPG (Code Property Graph) 与 CAS 增量同步架构设计'
+status: active
+component: cpg-cas
+date: '2026-11-23'
+---
+
 # CPG (Code Property Graph) 与 CAS 增量同步架构设计
 
 ## 1. 架构背景与设计动机
