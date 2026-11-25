@@ -18,3 +18,11 @@ pytest_gate:
   script:
     - pip install -e ".[dev]" pytest pytest-cov
     - pytest --cov=src --cov-fail-under=80 -q
+
+okf_validate:
+  stage: test
+  script:
+    # OKF 1.0 executable contract: schema + cross-reference validation over all
+    # typed documents. When the flow package is present a violation fails the
+    # pipeline; without it the check is skipped (registered, not silently ignored).
+    - if python -c "import adk_dev_flow" 2>/dev/null; then python -m adk_dev_flow.okf validate . ; else echo "SKIP: adk-dev-flow not installed in this CI env"; fi

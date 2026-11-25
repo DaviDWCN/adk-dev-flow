@@ -1,15 +1,237 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from adk_dev_flow.gitlab_client import GitLabClient
 from adk_dev_flow.mcp_server import FlowService
 from adk_dev_flow.models import AtomicTask, ReviewVerdict, SpecContract
+from adk_dev_flow.okf import TYPE_REGISTRY, split_frontmatter, validate_repo
 from adk_dev_flow.state_store import StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.workflow import _load_okf_rules
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _git_cmd(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _errors(report: dict) -> list[str]:
+    return [i["message"] for i in report["errors"]]
+
+
+class TestOkfContract(unittest.TestCase):
+    """OKF 1.0 executable contract: validator, corruption injection, queries."""
+
+    def test_repo_corpus_valid(self) -> None:
+        report = validate_repo(REPO_ROOT)
+        self.assertTrue(report["valid"], f"corpus errors: {_errors(report)}")
+        counts = report["type_counts"]
+        for expected in ("DevSpec", "EngineeringRule", "KnowledgeIndex", "ArchitectureDoc", "Assessment"):
+            self.assertGreaterEqual(counts.get(expected, 0), 1, f"{expected} missing from corpus")
+
+    def test_registry_covers_all_known_types(self) -> None:
+        expected = {
+            "DevSpec", "ReviewVerdict", "EngineeringRule", "KnowledgeIndex",
+            "AdoptedSpec", "ADR", "ArchitectureDoc", "Assessment",
+            "Note", "OpsGuide", "RequirementMatrix", "TaskPlan",
+        }
+        self.assertEqual(set(TYPE_REGISTRY.keys()), expected)
+
+    def test_broken_supersedes_symmetry_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "docs" / "adr").mkdir(parents=True)
+            (repo / "docs/adr/0009-x.md").write_text(
+                "---\ntype: ADR\nadr: 9\ntitle: 'T9'\nstatus: accepted\ndate: '2026-11-25'\n"
+                "supersedes_partial: [3]\n---\n\n# ADR 9\n",
+                encoding="utf-8",
+            )
+            broken = (
+                "---\ntype: ADR\nadr: 3\ntitle: 'T3'\nstatus: accepted\ndate: '2026-11-20'\n"
+                "superseded_by_partial: []\n---\n\n# ADR 3\n"
+            )
+            fixed = broken.replace("superseded_by_partial: []", "superseded_by_partial: [9]")
+            target = repo / "docs/adr/0003-y.md"
+            target.write_text(broken, encoding="utf-8")
+            self.assertIn("对称性破坏", " ".join(_errors(validate_repo(repo))))
+            target.write_text(fixed, encoding="utf-8")
+            self.assertEqual(_errors(validate_repo(repo)), [])
+
+    def test_reviewverdict_internal_contradiction_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".adk" / "audit").mkdir(parents=True)
+            (repo / ".adk/audit/review_bad.md").write_text(
+                "---\ntype: ReviewVerdict\nrun_id: r1\napproved: true\n"
+                "verified: process:acceptance_gate_failed\nstatus: rejected\n"
+                "timestamp: '2026-11-25T00:00:00+00:00'\n---\n\n# verdict\n",
+                encoding="utf-8",
+            )
+            self.assertIn("内部矛盾", " ".join(_errors(validate_repo(repo))))
+
+    def test_fabricated_run_id_is_error_when_db_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            StateStore(repo)  # creates .adk/workflow.db
+            (repo / ".adk" / "specs").mkdir(parents=True)
+            (repo / ".adk/specs/issue-76.md").write_text(
+                "---\ntype: AdoptedSpec\ntitle: 'X'\nstatus: finalized\nissue_iid: 76\n"
+                "branch: '76-x'\nhead_sha: 'abc123'\ncommit_range: ''\nevidence_type: post_hoc\n"
+                "run_id: deadbeef0000\nadopted_at: '2026-11-25T00:00:00+00:00'\n---\n\n# X\n",
+                encoding="utf-8",
+            )
+            self.assertIn("不存在于", " ".join(_errors(validate_repo(repo))))
+
+    def test_unknown_type_and_extra_keys_are_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "docs").mkdir()
+            (repo / "docs/w.md").write_text(
+                "---\ntype: FutureThing\ntitle: 'W'\nstatus: final\n---\n\n# W\n", encoding="utf-8"
+            )
+            (repo / "docs/ok.md").write_text(
+                "---\ntype: Note\ntitle: 'N'\nstatus: final\ndate: '2026-11-25'\ncustom_extra: 1\n---\n\n# N\n",
+                encoding="utf-8",
+            )
+            report = validate_repo(repo)
+            self.assertTrue(report["valid"])  # warnings do not fail
+            joined = " ".join(i["message"] for i in report["warnings"])
+            self.assertIn("未知 OKF 类型", joined)
+            self.assertIn("custom_extra", joined)
+
+    def test_status_out_of_domain_is_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "docs" / "adr").mkdir(parents=True)
+            (repo / "docs/adr/0001-a.md").write_text(
+                "---\ntype: ADR\nadr: 1\ntitle: 'A'\nstatus: approved-forever\ndate: '2026-11-20'\n---\n\n# A\n",
+                encoding="utf-8",
+            )
+            report = validate_repo(repo)
+            self.assertTrue(report["valid"])
+            self.assertIn("已知值域", " ".join(i["message"] for i in report["warnings"]))
+
+    def test_loader_contract_frontmatter_is_skipped_as_info(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            skill = repo / ".codebuddy" / "skills" / "x"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: x\ndescription: loader contract\n---\n\n# X\n", encoding="utf-8"
+            )
+            report = validate_repo(repo)
+            self.assertTrue(report["valid"])
+            self.assertTrue(any("加载器契约" in i["message"] for i in report["infos"]))
+
+    @settings(max_examples=30, deadline=None)
+    @given(
+        title=st.text(min_size=1, max_size=60).filter(lambda s: s.strip() and ":" not in s and "#" not in s),
+        issue=st.integers(min_value=1, max_value=9999),
+        spike=st.booleans(),
+    )
+    def test_devspec_meta_survives_yaml_round_trip(self, title: str, issue: int, spike: bool) -> None:
+        from adk_dev_flow.okf import DevSpecMeta
+
+        meta = {
+            "type": "DevSpec",
+            "title": title,
+            "status": "active",
+            "issue_iid": issue,
+            "target_branch": "main",
+            "require_tdd_red": True,
+            "spike": spike,
+            "extra_dependencies": [],
+            "allowed_paths": ["src/pkg"],
+            "acceptance_test_path": "tests/test_x.py",
+            "tasks": [{"id": "T1", "title": "t", "description": "d", "target_files": ["src/pkg/a.py"]}],
+        }
+        text = f"---\n{yaml.safe_dump(meta, sort_keys=False, allow_unicode=True)}---\n\n# body\n"
+        parsed, _body, err = split_frontmatter(text)
+        self.assertIsNone(err)
+        first = DevSpecMeta.model_validate(parsed)
+        again = DevSpecMeta.model_validate(yaml.safe_load(yaml.safe_dump(parsed)))
+        self.assertEqual(first.title, again.title)
+        self.assertEqual(first.issue_iid, again.issue_iid)
+        self.assertEqual(first.spike, again.spike)
+        self.assertEqual(first.allowed_paths, again.allowed_paths)
+
+    def test_query_zombie_runs_reports_stale_active_only(self) -> None:
+        from adk_dev_flow.okf import query_zombie_runs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _git_cmd(repo, "init", "-q")
+            (repo / "README.md").write_text("x", encoding="utf-8")
+            _git_cmd(repo, "add", "README.md")
+            _git_cmd(repo, "commit", "-q", "-m", "init")
+            store = StateStore(repo)
+            store.create_run("r66", issue_iid=66, status="MR_READY")
+            store.create_run("r67", issue_iid=67, status="ABORTED")
+            store.create_run("r68", issue_iid=68, status="SPEC_DRAFTING")
+            import sqlite3
+
+            conn = sqlite3.connect(str(repo / ".adk" / "workflow.db"))
+            conn.execute(
+                "UPDATE runs SET updated_at = ? WHERE run_id = 'r68'",
+                ("2026-01-01T00:00:00.000000+00:00",),
+            )
+            conn.commit()
+            conn.close()
+
+            res = query_zombie_runs(repo, threshold_hours=24.0)
+            ids = [z["run_id"] for z in res["zombies"]]
+            self.assertIn("r68", ids)
+            self.assertNotIn("r66", ids)
+            self.assertNotIn("r67", ids)  # ABORTED is not active
+
+    def test_query_spec_coverage_matches_constructed_facts(self) -> None:
+        from adk_dev_flow.okf import query_spec_coverage
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _git_cmd(repo, "init", "-q")
+            (repo / "README.md").write_text("x", encoding="utf-8")
+            _git_cmd(repo, "add", "README.md")
+            _git_cmd(repo, "commit", "-q", "-m", "init")
+            store = StateStore(repo)
+            store.create_run("r66", issue_iid=66, status="MR_READY")
+            store.create_run("r67", issue_iid=67, status="ABORTED")
+            store.create_run("r68", issue_iid=68, status="SPEC_DRAFTING")
+            specs = repo / ".adk" / "specs"
+            specs.mkdir(parents=True, exist_ok=True)
+            (specs / "issue-66.md").write_text(
+                "---\ntype: DevSpec\ntitle: 'S66'\nstatus: active\nissue_iid: 66\n"
+                "allowed_paths: ['src']\nacceptance_test_path: 'tests/t.py'\n"
+                "tasks: [{id: 'T1', title: 't', description: 'd', target_files: ['src/a.py']}]\n---\n\n# S66\n",
+                encoding="utf-8",
+            )
+
+            res = query_spec_coverage(repo)
+            self.assertEqual(res["issues_with_runs"], 3)
+            self.assertEqual(res["issues_with_spec_docs"], 1)
+            missing = {item["issue_iid"] for item in res["runs_without_spec"]}
+            self.assertEqual(missing, {67, 68})
+
+    def test_cli_validate_and_query(self) -> None:
+        from adk_dev_flow.okf import main
+
+        self.assertEqual(main(["validate", str(REPO_ROOT), "--json"]), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(main(["query", "zombie-runs", tmp]), 0)
 
 
 class TestOKFIntegration(unittest.IsolatedAsyncioTestCase):
