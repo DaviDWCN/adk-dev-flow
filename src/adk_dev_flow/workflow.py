@@ -831,11 +831,35 @@ def build_dev_workflow(
         )
 
         failure_sections: list[str] = []
+        zero_change = False
         if not audit.ok:
             failure_sections.append(
                 "[worktree_audit FAILED]\n" + "\n".join(f"- {v}" for v in audit.violations)
             )
         else:
+            # Step 1b: Zero-output detection. A worktree with no changes at all means
+            # the worker produced nothing this round; retrying blindly burns repair
+            # rounds on identical outcomes (lesson: run 558a138f54eb).
+            zero_change = False
+            base_sha = str(node_input.get("base_sha") or "").strip()
+            if base_sha:
+                try:
+                    names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
+                    status_res = await _git(
+                        ["status", "--porcelain", "-uall", "--ignored=matching"], worktree
+                    )
+                    zero_change = (
+                        names_res.returncode == 0
+                        and not names_res.stdout.strip()
+                        and not status_res.stdout.strip()
+                    )
+                except Exception:
+                    zero_change = False
+            if zero_change:
+                failure_sections.append(
+                    "[zero_change VIOLATION]\n"
+                    "- 工兵本轮对隔离 worktree 零改动：基线以来无提交且无未提交变更，判定为空转违规"
+                )
             if spec.extra_dependencies:
                 await sync_worktree_dependencies(worktree, repo_root, spec.extra_dependencies)
 
@@ -948,6 +972,14 @@ def build_dev_workflow(
             last_error_sig=err_sig,
             last_error_log=combined_err[-4000:],
         )
+
+        # Zero-output violation escalates immediately — a fresh round would repeat
+        # the same nothing (lesson: run 558a138f54eb burned 3 rounds on empty worktrees).
+        if zero_change:
+            node_input["escalation_reason"] = (
+                "工兵本轮零改动（未产生任何代码变更），立即熔断避免空转烧轮次"
+            )
+            return Event(output=node_input, route="escalated")
 
         # Fixed off-by-one: MAX_REPAIR_ATTEMPTS=3 allows initial(0) + repair rounds 1, 2, 3.
         if next_attempt > MAX_REPAIR_ATTEMPTS or repeated_same_error:

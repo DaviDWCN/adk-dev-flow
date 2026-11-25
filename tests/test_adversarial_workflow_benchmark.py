@@ -9,6 +9,7 @@ from adk_dev_flow.ast_graph import audit_ast_diff
 from adk_dev_flow.forge_client import BaseGitForge
 from adk_dev_flow.models import AtomicTask, ReviewVerdict, SpecContract
 from adk_dev_flow.state_store import StateStore
+from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.workflow import (
     _validate_tdd_red_outcome,
     build_dev_workflow,
@@ -243,6 +244,99 @@ def outer_service_factory():
         run_record = self.store.get_run(run_id)
         self.assertIsNotNone(run_record)
         self.assertIn(run_record["status"], {"VERIFYING", "ESCALATED"})
+
+    async def test_adversary_6_zero_change_worker_escalates_immediately(self) -> None:
+        """Adversary 6: Worker produces zero changes against its frozen baseline.
+
+        Liveness Invariant: a no-op worktree must escalate immediately instead of
+        burning MAX_REPAIR_ATTEMPTS on identical empty outcomes. Real-world lesson:
+        run 558a138f54eb spent all 3 repair rounds on zero-change worktrees.
+        """
+        import hashlib
+        import subprocess as sp
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            repo = Path(tmp.name) / "repo"
+            store_root = Path(tmp.name) / "store-root"
+            repo.mkdir()
+            store_root.mkdir()
+
+            def git(*args: str) -> sp.CompletedProcess:
+                return sp.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+            git("init", "-b", "main")
+            git("config", "user.name", "Tester")
+            git("config", "user.email", "tester@example.com")
+            (repo / "tests").mkdir()
+            test_file = repo / "tests" / "test_app.py"
+            test_file.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "chore: baseline")
+            base_sha = git("rev-parse", "HEAD").stdout.strip()
+            locked_sha = hashlib.sha256(test_file.read_bytes()).hexdigest()
+
+            store = StateStore(store_root / "state.db")
+            run_id = "adv-run-006"
+            store.create_run(run_id, issue_iid=6)
+
+            spec = SpecContract(
+                issue_iid=6,
+                title="Zero-output worker",
+                summary="Worker never writes anything",
+                allowed_paths=["src/"],
+                acceptance_test_path="tests/test_app.py",
+                acceptance_test_code="def test_x():\n    assert False\n",
+                tasks=[AtomicTask(id="T1", title="T1", description="D", target_files=["src/x.py"])],
+            )
+
+            wf = build_dev_workflow(repo, store, self.forge, run_id=run_id)
+            verify_node = None
+            for edge in wf.edges:
+                for item in edge:
+                    if callable(item) and item.__name__ == "verify_python_node":
+                        verify_node = item
+            self.assertIsNotNone(verify_node)
+
+            node_input = {
+                "spec": spec.model_dump(),
+                "worktree": str(repo),
+                "attempt": 0,
+                "base_sha": base_sha,
+                "locked_test_sha256": locked_sha,
+                "locked_test_commit_sha": base_sha,
+            }
+
+            # Real git via run_subprocess_safe; lint/pytest replaced with canned
+            # outcomes (no venv/ruff in the sandbox repo).
+            real_run = run_subprocess_safe
+            from adk_dev_flow.subproc import CommandResult
+
+            async def smart_run(cmd, **kw):
+                if cmd and cmd[0] == "git":
+                    return await real_run(cmd, **kw)
+                if cmd and cmd[0] == "ruff":
+                    return CommandResult(returncode=0, stdout="", stderr="")
+                return CommandResult(
+                    returncode=1,
+                    stdout="ImportError: cannot import name 'runtime_bridge' from 'uwra.api'\n5 failed in 0.87s",
+                    stderr="",
+                )
+
+            with patch("adk_dev_flow.workflow.run_subprocess_safe", smart_run), patch(
+                "adk_dev_flow.worktree_utils.run_subprocess_safe", smart_run
+            ):
+                event = await verify_node(node_input)
+
+            self.assertEqual(event.actions.route, "escalated")
+            self.assertIn("零改动", event.output.get("escalation_reason", ""))
+
+            run = store.get_run(run_id)
+            self.assertIsNotNone(run)
+            self.assertIn("[zero_change VIOLATION]", run["last_error_log"])
+            self.assertTrue(run["last_error_sig"])
+        finally:
+            tmp.cleanup()
 
 
 if __name__ == "__main__":
