@@ -13,6 +13,7 @@ RunStatus = Literal[
     "TEST_GENERATED",
     "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
+    "ADOPTED",
     "RUNNING",
     "VERIFYING",
     "REPAIRING",
@@ -27,12 +28,16 @@ RunStatus = Literal[
 # alert badge on top — escalation is a state, not a separate station.
 # REVIEWING shares step 6 with VERIFYING; the board lights the Critic from
 # highlight_critic, because this review happens after implementation.
+# ADOPTED paints step 5 (implementation): post-hoc registered work lives
+# where the coding happens, with its own amber badge marking the fact that
+# it was registered outside the pipeline (evidence_type='post_hoc').
 LIFECYCLE_STEP: dict[RunStatus, int] = {
     "SPEC_DRAFTING": 1,
     "SPEC_DESIGNED": 1,
     "TEST_GENERATED": 2,
     "PRE_CRITIC_REVIEWED": 3,
     "SPEC_LOCKED": 4,
+    "ADOPTED": 5,
     "RUNNING": 5,
     "VERIFYING": 6,
     "REVIEWING": 6,
@@ -58,6 +63,9 @@ VALID_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     "TEST_GENERATED": frozenset({"PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
     "PRE_CRITIC_REVIEWED": frozenset({"SPEC_LOCKED", "ABORTED", "ESCALATED"}),
     "SPEC_LOCKED": frozenset({"RUNNING", "ABORTED", "ESCALATED"}),
+    # Adoption is a registration shortcut: it may complete (MR_READY), be
+    # dropped (ABORTED), or be re-registered (self-transition).
+    "ADOPTED": frozenset({"MR_READY", "ABORTED"}),
     "RUNNING": frozenset({"VERIFYING", "REPAIRING", "ABORTED", "ESCALATED"}),
     "VERIFYING": frozenset({"MR_READY", "REVIEWING", "REPAIRING", "ESCALATED", "ABORTED"}),
     "REPAIRING": frozenset({"VERIFYING", "ESCALATED", "ABORTED"}),
@@ -83,6 +91,7 @@ ACTIVE_STATUSES: tuple[str, ...] = (
     "TEST_GENERATED",
     "PRE_CRITIC_REVIEWED",
     "SPEC_LOCKED",
+    "ADOPTED",
     "RUNNING",
     "VERIFYING",
     "REPAIRING",
@@ -126,6 +135,7 @@ ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(
         "last_error_log",
         "review_json",
         "human_hint",
+        "evidence_type",
         "updated_at",
     }
 )
@@ -179,6 +189,7 @@ class StateStore:
                     last_error_log TEXT,
                     review_json TEXT,
                     human_hint TEXT,
+                    evidence_type TEXT,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -209,6 +220,7 @@ class StateStore:
                 "locked_test_sha256": "TEXT",
                 "locked_test_commit_sha": "TEXT",
                 "human_hint": "TEXT",
+                "evidence_type": "TEXT",
             }
             for col, col_type in migrations.items():
                 if col not in existing_cols:
@@ -220,12 +232,21 @@ class StateStore:
         if invalid:
             raise ValueError(f"非法的 runs 更新字段: {sorted(invalid)}")
 
-    def create_run(self, run_id: str, issue_iid: int | None = None) -> None:
+    def create_run(
+        self,
+        run_id: str,
+        issue_iid: int | None = None,
+        status: str = "SPEC_DRAFTING",
+        branch: str | None = None,
+        evidence_type: str = "pipeline",
+        spec_json: str | None = None,
+    ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO runs (run_id, status, issue_iid, updated_at) VALUES (?, ?, ?, ?)",
-                (run_id, "SPEC_DRAFTING", issue_iid, now),
+                "INSERT INTO runs (run_id, status, issue_iid, branch, evidence_type, spec_json, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (run_id, status, issue_iid, branch, evidence_type, spec_json, now),
             )
         self._sync_active_marker()
 

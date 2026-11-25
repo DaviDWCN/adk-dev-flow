@@ -203,6 +203,119 @@ class FlowService:
             result["gitlab_warning"] = forge_warning
         return result
 
+    async def flow_adopt(
+        self,
+        issue_iid: int,
+        branch: str,
+        note: str | None = None,
+        repo_root: str | None = None,
+    ) -> dict[str, Any]:
+        """收编流程外进行中/已完成的工作：登记 ADOPTED run（post_hoc 后补证据，未经流水线验证）。"""
+        self._ensure_repo_root(repo_root)
+        branch = (branch or "").strip()
+        if not branch:
+            return {"error": "flow_adopt 需要提供 branch（当前工作所在的 Git 分支）。"}
+        if not (self.repo_root / ".git").exists():
+            return {"error": f"目录 `{self.repo_root}` 不是合法的 Git 仓库，无法收编登记。"}
+
+        run_id = uuid.uuid4().hex[:12]
+        forge_warning: str | None = None
+        if self.gl.enabled:
+            try:
+                await asyncio.to_thread(
+                    self.gl.post_issue_comment,
+                    issue_iid,
+                    (
+                        f"📥 **ADK Dev Flow 收编登记（post_hoc）**\n\n"
+                        f"- **Run ID**: `{run_id}`\n"
+                        f"- **分支**: `{branch}`\n"
+                        f"- **模式**: 后补登记 — 该工作在流水线外进行，未经 Spec 锁定 / 测试锁 / worktree 审计验证"
+                    ),
+                )
+            except Exception as exc:
+                forge_warning = (
+                    f"回写 {self.gl.platform_name.upper()} Issue #{issue_iid} 失败，已继续登记: {exc}"
+                )
+
+        spec_note = {"title": note or f"收编 #{issue_iid}", "adopted": True}
+        self.store.create_run(
+            run_id=run_id,
+            issue_iid=issue_iid,
+            status="ADOPTED",
+            branch=branch,
+            evidence_type="post_hoc",
+            spec_json=json.dumps(spec_note, ensure_ascii=False),
+        )
+        result: dict[str, Any] = {
+            "run_id": run_id,
+            "status": "ADOPTED",
+            "branch": branch,
+            "issue_iid": issue_iid,
+            "evidence_type": "post_hoc",
+            "repo_root": str(self.repo_root),
+            "state_db_path": str(self.store.db_path),
+            "next_step": (
+                "工作完成并提交后调用 flow_adopt_finalize(run_id=...) 完成登记；"
+                "放弃则调用 flow_abort(run_id=...)。大屏将以琥珀色徽章如实标注该 run 为后补登记。"
+            ),
+        }
+        if forge_warning:
+            result["forge_warning"] = forge_warning
+        return result
+
+    async def flow_adopt_finalize(
+        self, run_id: str | None = None, repo_root: str | None = None
+    ) -> dict[str, Any]:
+        """完成收编：记录分支尖端提交为证据，将 ADOPTED run 以 CAS 方式置为 MR_READY。"""
+        self._ensure_repo_root(repo_root)
+        if run_id:
+            run = self.store.get_run(run_id)
+            if not run:
+                return {"error": f"未知 run_id: {run_id}"}
+        else:
+            adopted = self.store.get_active_runs()
+            candidates = [r for r in adopted if r["status"] == "ADOPTED"]
+            run = candidates[0] if candidates else None
+            if not run:
+                return {"error": "没有 ADOPTED 状态的收编 run 可完成（可先调用 flow_adopt 登记）。"}
+
+        try:
+            res = await run_subprocess_safe(
+                ["git", "log", "-1", "--format=%H%n%h%n%s"],
+                cwd=self.repo_root,
+                timeout_sec=15.0,
+            )
+            lines = (res.stdout or "").strip().splitlines()
+            sha = lines[0] if lines else ""
+            short = lines[1] if len(lines) > 1 else ""
+            subject = lines[2] if len(lines) > 2 else ""
+            evidence = f"[post_hoc] 收编完成 @ {short} {subject}".strip()
+        except Exception as exc:
+            sha, short, subject = "", "", ""
+            evidence = f"[post_hoc] 收编完成（分支尖端读取失败: {exc}）"
+
+        branch_head: dict[str, Any] = {"commit_sha": sha, "short": short, "subject": subject}
+        ok = self.store.transition_run(
+            run["run_id"],
+            expected_statuses=("ADOPTED",),
+            new_status="MR_READY",
+            last_error_log=evidence[-4000:],
+        )
+        if not ok:
+            return {
+                "error": f"run {run['run_id']} 状态已变化（当前 {run['status']}），仅 ADOPTED 可收编完成。"
+            }
+        return {
+            "run_id": run["run_id"],
+            "status": "MR_READY",
+            "branch": run.get("branch"),
+            "issue_iid": run.get("issue_iid"),
+            "evidence_type": "post_hoc",
+            "evidence": evidence,
+            "branch_head": branch_head,
+            "note": "登记完成。该 run 仍标注 post_hoc：登记≠验证，流水线内门禁未被覆盖。",
+        }
+
     def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
         self._ensure_repo_root()
         run = self.store.get_run(run_id)
@@ -967,6 +1080,16 @@ def create_mcp_server(
     ) -> dict[str, Any]:
         """初始化确定性开发流。若提供 GitLab/GitHub Issue 编号，将自动拉取详情。"""
         return await service.flow_init(requirement=requirement, issue_iid=issue_iid, repo_root=repo_root)
+
+    @mcp.tool()
+    async def flow_adopt(issue_iid: int, branch: str, note: str | None = None) -> dict[str, Any]:
+        """收编流程外工作：登记 ADOPTED run（post_hoc 后补证据，未经流水线验证）。把已在分支上直接进行的工作纳入流程与大屏监控的便宜合规路径。"""
+        return await service.flow_adopt(issue_iid=issue_iid, branch=branch, note=note)
+
+    @mcp.tool()
+    async def flow_adopt_finalize(run_id: str | None = None) -> dict[str, Any]:
+        """完成收编：记录分支尖端提交为证据，将 ADOPTED run 置为 MR_READY。"""
+        return await service.flow_adopt_finalize(run_id=run_id)
 
     @mcp.tool()
     def flow_lock_spec(run_id: str, spec: SpecContract) -> dict[str, Any]:
