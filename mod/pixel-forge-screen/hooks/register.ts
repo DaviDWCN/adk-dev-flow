@@ -57,7 +57,8 @@ export function register(on) {
       const { port, repo, url } = await cfg();
       if ((await read('/api/status')).ok) return { up: true, starting: false, url };
       await beneath.process.run([
-        'python',
+        // pythonw：GUI 子系统解释器，宿主 spawn 时不再闪控制台窗口
+        'pythonw',
         '-m',
         'adk_dev_flow.dashboard',
         '--detach',
