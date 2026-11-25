@@ -15,6 +15,10 @@
 - 🐙/🦊 **GitLab & GitHub 双托管平台自适应**：
   - 自动识别当前仓库 remote（`github.com` vs `gitlab`）或环境变量，无缝适配拉取 Issue、创建 Draft PR/MR、追加 Critic 审查评论及解除 Draft。
   - 完全抽象的 `BaseGitForge` 架构，支持离线纯本地模式（零平台依赖）。
+- 📋 **Issue 驱动开发（Issue-Driven Development）**：
+  - 调用 `flow_plan_issues` 将宏观需求 / PRD（Epic）智能拆解为原子任务清单（含任务背景与验收标准），确认后批量在 GitLab / GitHub 建单。
+  - 每个 Issue 通过 `flow_init(issue_iid=...)` 独立接入确定性流水线；启动通知、Critic 审查报告与状态流转自动回评 Issue / PR / MR，形成端到端追踪闭环。
+  - 提供 `scripts/run_demo_flow.py` 一键端到端演示：自动以免费模型跑通「拆单 ➔ 建单 ➔ 初始化 ➔ 锁定 ➔ 派发 ➔ 看板实时追踪」全流程。
 - 🛡️ **物理级沙箱与对抗防御**：
   - 采用 Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) 与 POSIX 进程会话，彻底终结子进程树孤儿与僵尸进程。
   - 上下文管理器显式释放 SQLite 句柄，杜绝 Windows WAL `WinError 32` 锁定。
@@ -270,7 +274,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 13 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 17 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
 - `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标。
@@ -298,7 +302,7 @@ uv run --no-sync python -m adk_dev_flow.plugin_builder --no-global
 
 ## 10. 运行自动化测试
 
-项目内建 108 个全量单元测试与物理对抗用例（涵盖 CAS-CPG 增量同步缓存、AST/CFG/DFG 三图图谱、DFG 污点分析安全门禁、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、8 步交互式动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约等）：
+项目内建 156 个全量单元测试与物理对抗用例（涵盖 CAS-CPG 增量同步缓存、AST/CFG/DFG 三图图谱、DFG 污点分析安全门禁、Issue 驱动开发闭环、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、8 步交互式动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约、假设态模糊测试等）：
 
 ```bash
 # 执行全量单元与对抗测试
