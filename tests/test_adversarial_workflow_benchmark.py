@@ -345,6 +345,79 @@ def outer_service_factory():
         finally:
             tmp.cleanup()
 
+    async def test_adversary_7_repair_hint_feeds_back_worker_receipt(self) -> None:
+        """Adversary 7: Repair rounds run blind because the worker output is never fed back.
+
+        Continuity Invariant: each repair prompt must carry the previous round's
+        worker summary / changed files (from memory, or persisted attempt_logs),
+        and explicitly flag a zero-output previous round (lesson: run 558a138f54eb).
+        """
+        from unittest.mock import patch as sync_patch
+
+        from adk_dev_flow.providers import MockWorkerProvider
+
+        run_id = "adv-run-007"
+        self.store.create_run(run_id, issue_iid=7)
+        spec = SpecContract(
+            issue_iid=7,
+            title="Blind repair round",
+            summary="Test",
+            allowed_paths=["src/"],
+            acceptance_test_path="tests/test_hint.py",
+            acceptance_test_code="def test_h(): assert False\n",
+            tasks=[AtomicTask(id="T1", title="T1", description="D", target_files=["src/x.py"])],
+        )
+
+        wf = build_dev_workflow(self.repo, self.store, self.forge, run_id=run_id)
+        worker_node = None
+        for edge in wf.edges:
+            for item in edge:
+                if callable(item) and item.__name__ == "execute_worker_node":
+                    worker_node = item
+        self.assertIsNotNone(worker_node)
+
+        captured: dict = {}
+
+        class RecorderProvider(MockWorkerProvider):
+            async def run_worker(self, *, worktree, prompt, **kwargs):
+                captured["prompt"] = prompt
+                return {"changed_files": ["src/x.py"], "summary": "fresh round ran"}
+
+        def fake_provider(*args, **kwargs):
+            return RecorderProvider()
+
+        # Case 1: in-memory continuity — previous round claimed exploration, wrote nothing
+        with sync_patch("adk_dev_flow.workflow.get_worker_provider", fake_provider):
+            await worker_node(
+                {
+                    "spec": spec.model_dump(),
+                    "worktree": str(self.repo),
+                    "attempt": 1,
+                    "last_error_log": "[pytest exit=1]\nImportError: boom",
+                    "worker_summary": "explored only, no write",
+                    "worker_changed_files": [],
+                }
+            )
+        self.assertIn("上一轮修复回执", captured["prompt"])
+        self.assertIn("上一轮工兵自述: explored only, no write", captured["prompt"])
+        self.assertIn("上一轮实际改动文件: 无", captured["prompt"])
+
+        # Case 2: store fallback — node_input carries no worker fields, evidence
+        # comes from the persisted attempt_logs (cross-session resume)
+        self.store.log_attempt(run_id, 1, worker_summary="from store", changed_files=["src/y.py"])
+        captured.clear()
+        with sync_patch("adk_dev_flow.workflow.get_worker_provider", fake_provider):
+            await worker_node(
+                {
+                    "spec": spec.model_dump(),
+                    "worktree": str(self.repo),
+                    "attempt": 2,
+                    "last_error_log": "[pytest exit=1]\nImportError: boom",
+                }
+            )
+        self.assertIn("上一轮工兵自述: from store", captured["prompt"])
+        self.assertIn("src/y.py", captured["prompt"])
+
 
 if __name__ == "__main__":
     unittest.main()

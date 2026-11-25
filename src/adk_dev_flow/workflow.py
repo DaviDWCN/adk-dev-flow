@@ -783,6 +783,35 @@ def build_dev_workflow(
                 f"失败日志:\n```\n{str(node_input.get('last_error_log', ''))[-3000:]}\n```"
             )
 
+            # Repair hint: feed the previous round's worker output back so the
+            # repair round is not blind (lesson: run 558a138f54eb — rounds were
+            # stateless, each worker exited after pure exploration, and nobody
+            # told the next round that nothing had been written).
+            prev_summary = str(node_input.get("worker_summary") or "").strip()
+            prev_changed = list(node_input.get("worker_changed_files") or [])
+            if not prev_summary and not prev_changed:
+                recent_logs = store.list_attempt_logs(run_id, limit=2)
+                if recent_logs:
+                    latest = recent_logs[0]
+                    prev_summary = str(latest.get("worker_summary") or "").strip()
+                    try:
+                        prev_changed = list(json.loads(latest.get("changed_files") or "[]"))
+                    except Exception:
+                        prev_changed = []
+            if prev_summary or prev_changed:
+                hint_lines = []
+                if prev_summary:
+                    hint_lines.append(f"- 上一轮工兵自述: {prev_summary[:500]}")
+                if prev_changed:
+                    hint_lines.append(
+                        f"- 上一轮实际改动文件: {', '.join(prev_changed[:20])}"
+                    )
+                else:
+                    hint_lines.append(
+                        "- 上一轮实际改动文件: 无 (上一轮为空转) — 本轮必须真正写入/修改白名单内文件"
+                    )
+                prompt += "\n\n### 上一轮修复回执 (Repair Hint):\n" + "\n".join(hint_lines) + "\n"
+
         if spec.design_doc:
             prompt += f"\n\n### 架构设计方案 (Architecture Design):\n{spec.design_doc.strip()}\n"
 
