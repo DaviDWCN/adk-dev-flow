@@ -13,7 +13,9 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
      - 确认后调用 `flow_plan_issues(..., auto_create=True)` 或 `flow_create_issue(title=..., description=...)` 批量在 GitLab / GitHub 上建单；
      - 针对每个 Issue 独立调用 `flow_init(requirement=..., issue_iid=...)` 接入确定性开发流水线。
 1. **初始化或找回上下文**：
-   - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`（自动自适应 GitLab / GitHub 平台并拉取 Issue，流水线将自动在 Issue 下追加启动通知）。
+   - 新建任务：立即调用 `flow_init(requirement=..., issue_iid=...)`（自动自适应 GitLab / GitHub 平台并拉取 Issue，流水线将自动在 Issue 下追加启动通知，并自动安装 L2 pre-commit 登记门禁）。
+   - **流程外工作收编（flow_adopt 轻量通道）**：若 Issue 的工作已经在分支上直接进行（未走流水线），调用 `flow_adopt(issue_iid=..., branch=..., note=...)` 补登记为 `ADOPTED` run —— 大屏立即纳入监控；工作完成提交后调用 `flow_adopt_finalize(run_id=...)` 记录分支尖端提交为证据并置为 MR_READY。**收编是登记不是验证**（大屏会以琥珀色徽章如实标注 post_hoc）；适合 doc-only / ADR / 配置类轻任务，代码类任务建议收编后仍走锁定与验收流程。
+   - **commit 门禁（确定性研发约束）**：在宣告 issue 的分支（`NNN-*` / `adk/issue-N-*`）上 commit 时，系统校验该 issue 存在有效 run（ABORTED 不计）；未登记会被 PreToolUse hook / pre-commit 拦截并提示收编路径。此约束只拦 commit，不拦编辑与探索。紧急豁免 `ADK_FLOW_ENFORCE=off` 会留痕到 `.adk/exemptions.log` 并上屏。
    - 若跨会话找回任务或存在多任务并发：调用 `flow_active_runs()` 查看所有活跃流水线，或调用 `flow_list()` 检索历史记录。
    - 若因异常中断导致主工作区处于只读锁定：调用 `flow_unlock()` 安全解除锁定。
 2. **架构设计与 AST 影响面推导（设计阶段）**：

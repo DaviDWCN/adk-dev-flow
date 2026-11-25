@@ -17,6 +17,7 @@
   - 完全抽象的 `BaseGitForge` 架构，支持离线纯本地模式（零平台依赖）。
 - 📋 **Issue 驱动开发（Issue-Driven Development）**：
   - 调用 `flow_plan_issues` 将宏观需求 / PRD（Epic）智能拆解为原子任务清单（含任务背景与验收标准），确认后批量在 GitLab / GitHub 建单。
+  - **流程外收编与 commit 门禁**：已在分支上直接进行的工作用 `flow_adopt` 一键纳入监控；宣告 issue 的分支 commit 时校验 run 登记（PreToolUse hook + pre-commit 双卡点，`ADK_FLOW_ENFORCE=off` 豁免留痕），未登记的落地改动无处遁形。
   - 每个 Issue 通过 `flow_init(issue_iid=...)` 独立接入确定性流水线；启动通知、Critic 审查报告与状态流转自动回评 Issue / PR / MR，形成端到端追踪闭环。
   - 提供 `scripts/run_demo_flow.py` 一键端到端演示：自动以免费模型跑通「拆单 ➔ 建单 ➔ 初始化 ➔ 锁定 ➔ 派发 ➔ 看板实时追踪」全流程。
 - 🛡️ **物理级沙箱与对抗防御**：
@@ -90,13 +91,15 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 17 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 19 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `flow_create_issue` | 异步 | 在 GitLab / GitHub（或本地离线模式）创建新 Issue，作为确定性开发闭环的前置追踪工单 |
 | `flow_plan_issues` | 异步 | 将宏观需求 / PRD 拆解为原子 Issue 清单（支持预览或 `auto_create=True` 一键批量建单） |
 | `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
+| `flow_adopt` | 异步 | **收编流程外工作**：将已在分支上直接进行的工作登记为 `ADOPTED` run（post_hoc 后补证据，大屏琥珀色标注），并自动安装 pre-commit 登记门禁 |
+| `flow_adopt_finalize` | 异步 | 完成收编：记录分支尖端提交为证据，将 `ADOPTED` run 以 CAS 置为 `MR_READY` |
 | `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈） |
 | `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
 | `flow_analyze_impact` | 同步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架 |
@@ -275,7 +278,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 17 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 19 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
 - `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标。
