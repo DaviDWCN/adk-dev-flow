@@ -5,6 +5,7 @@ status: active
 issue_iid: 1
 target_branch: main
 require_tdd_red: true
+spike: false
 extra_dependencies: []
 allowed_paths:
   - "src/my_package"

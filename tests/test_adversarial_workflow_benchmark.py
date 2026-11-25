@@ -418,6 +418,62 @@ def outer_service_factory():
         self.assertIn("上一轮工兵自述: from store", captured["prompt"])
         self.assertIn("src/y.py", captured["prompt"])
 
+    async def test_adversary_8_spike_spec_gets_expanded_worker_budget(self) -> None:
+        """Adversary 8: Discovery-type tasks starve a 15-turn free flash model.
+
+        Budget Invariant: spike=True specs must hand the worker a substantially
+        larger exploration budget (max_turns >= 60, doubled timeout); standard
+        specs keep the defaults (lesson: run 558a138f54eb).
+        """
+        from unittest.mock import patch as sync_patch
+
+        from adk_dev_flow.providers import MockWorkerProvider
+
+        run_id = "adv-run-008"
+        self.store.create_run(run_id, issue_iid=8)
+        spec = SpecContract(
+            issue_iid=8,
+            title="Spike: reverse ADK internals",
+            summary="Discovery task",
+            allowed_paths=["src/"],
+            acceptance_test_path="tests/test_spike.py",
+            acceptance_test_code="def test_s(): assert False\n",
+            tasks=[AtomicTask(id="T1", title="T1", description="D", target_files=["src/x.py"])],
+        )
+
+        wf = build_dev_workflow(self.repo, self.store, self.forge, run_id=run_id)
+        worker_node = None
+        for edge in wf.edges:
+            for item in edge:
+                if callable(item) and item.__name__ == "execute_worker_node":
+                    worker_node = item
+        self.assertIsNotNone(worker_node)
+
+        captured: dict = {}
+
+        class BudgetRecorder(MockWorkerProvider):
+            async def run_worker(self, *, worktree, prompt, **kwargs):
+                captured["max_turns"] = kwargs.get("max_turns")
+                captured["timeout_sec"] = kwargs.get("timeout_sec")
+                return {"changed_files": [], "summary": "spike ran"}
+
+        def fake_provider(*args, **kwargs):
+            return BudgetRecorder()
+
+        base_input = {"spec": spec.model_dump(), "worktree": str(self.repo), "attempt": 0}
+
+        with sync_patch("adk_dev_flow.workflow.get_worker_provider", fake_provider):
+            await worker_node(base_input)
+        self.assertEqual(captured["max_turns"], 15)
+        self.assertIsNone(captured["timeout_sec"])
+
+        spike_spec = spec.model_copy(update={"spike": True})
+        captured.clear()
+        with sync_patch("adk_dev_flow.workflow.get_worker_provider", fake_provider):
+            await worker_node({**base_input, "spec": spike_spec.model_dump()})
+        self.assertGreaterEqual(captured["max_turns"], 60)
+        self.assertGreaterEqual(captured["timeout_sec"], 600)
+
 
 if __name__ == "__main__":
     unittest.main()

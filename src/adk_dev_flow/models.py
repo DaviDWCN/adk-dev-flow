@@ -100,6 +100,16 @@ class SpecContract(BaseModel):
         default=True,
         description="是否强制要求变异测试击杀率 >= 85%",
     )
+    spike: bool = Field(
+        default=False,
+        description=(
+            "发现型任务标记（新建模块 + 外部库机制探索类 spike）：worker 获得"
+            "大幅提高的探索预算（max_turns 基线 4 倍且不低于 60，超时翻倍）。"
+            "免费 flash 模型在 15 turns 内往往只够探索、到不了写文件"
+            "（教训: issue #42 与 run 558a138f54eb）；此类任务也可直接绕过"
+            " dispatch 由主会话亲自实现"
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_contract_integrity(self) -> SpecContract:

@@ -221,6 +221,7 @@ uv run adk web src --port 8000
 | `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关 |
 | `ADK_MAX_RETRIES` | `3` | 工兵自愈重试上限轮次 |
 | `ADK_WORKER_TIMEOUT` | `600` | 工兵执行超时时间（秒），超长任务可按项目定制 |
+| `ADK_WORKER_MAX_TURNS` | `15` | 工兵 CLI 交互轮次基线；spike 型任务自动取 4 倍且不低于 60 |
 | `ADK_WORKER_PROVIDER` | `codebuddy` | 工兵后端类型（`codebuddy` / `mock`） |
 | `ADK_WORKER_MODEL` | 空（跟随 CLI 默认） | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`） |
 | `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | Critic 独立审查模型（推荐 `glm-5.3-flash`） |
