@@ -12,6 +12,7 @@ from adk_dev_flow.enforcement import (
     check_branch_binding,
     extract_issue,
     find_flow_root,
+    install_pre_commit_hook,
 )
 
 HOOK_SCRIPT = Path(__file__).resolve().parents[1] / "plugin" / "adk-dev-flow" / "hooks" / "enforce_flow.py"
@@ -105,6 +106,84 @@ def _run_hook(payload: dict, cwd: Path) -> subprocess.CompletedProcess:
         cwd=str(cwd),
         timeout=30,
     )
+
+
+class TestPreCommitInstall(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, capture_output=True)
+        self.db = self.repo / ".adk" / "workflow.db"
+        (self.repo / ".adk").mkdir()
+        conn = sqlite3.connect(str(self.db))
+        conn.execute(
+            "CREATE TABLE runs (run_id TEXT PRIMARY KEY, issue_iid INTEGER, status TEXT NOT NULL)"
+        )
+        conn.close()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _hook_path(self) -> Path:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"], cwd=self.repo, capture_output=True, text=True
+        )
+        hooks = Path(res.stdout.strip())
+        if not hooks.is_absolute():
+            hooks = self.repo / hooks
+        return hooks / "pre-commit"
+
+    def test_install_creates_hook(self) -> None:
+        res = install_pre_commit_hook(self.repo)
+        self.assertTrue(res["installed"])
+        content = self._hook_path().read_text(encoding="utf-8")
+        self.assertIn("adk_dev_flow.enforcement", content)
+
+    def test_install_idempotent(self) -> None:
+        install_pre_commit_hook(self.repo)
+        again = install_pre_commit_hook(self.repo)
+        self.assertFalse(again["installed"])
+        self.assertEqual(again["reason"], "already installed")
+
+    def test_existing_foreign_hook_preserved(self) -> None:
+        hook = self._hook_path()
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\necho custom\n", encoding="utf-8")
+        res = install_pre_commit_hook(self.repo)
+        self.assertFalse(res["installed"])
+        self.assertEqual(res["reason"], "existing pre-commit hook preserved")
+        self.assertIn("custom", hook.read_text(encoding="utf-8"))
+
+    def test_end_to_end_commit_gate(self) -> None:
+        """Real pre-commit run: unregistered issue branch blocks, registered passes."""
+        install_pre_commit_hook(self.repo)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "-q", "-b", "77-gate-test"], cwd=self.repo, check=True, capture_output=True
+        )
+        blocked = subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "wip"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(blocked.returncode, 0, "unregistered issue branch must be blocked")
+        conn = sqlite3.connect(str(self.db))
+        conn.execute("INSERT INTO runs (run_id, issue_iid, status) VALUES ('r1', 77, 'ADOPTED')")
+        conn.commit()
+        conn.close()
+        passed = subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "wip2"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(passed.returncode, 0, "registered branch must commit cleanly")
 
 
 class TestHookScript(unittest.IsolatedAsyncioTestCase, unittest.TestCase):

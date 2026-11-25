@@ -198,6 +198,13 @@ class FlowService:
                 "向用户展示并获得明确确认后再调用 flow_lock_spec 或 flow_lock_spec_from_file。"
             ),
         }
+        # L2 backstop: install the git-side registration gate (best-effort)
+        try:
+            from adk_dev_flow.enforcement import install_pre_commit_hook
+
+            result["pre_commit_hook"] = install_pre_commit_hook(self.repo_root)
+        except Exception as exc:
+            result["pre_commit_hook"] = {"installed": False, "reason": str(exc)}
         if forge_warning:
             result["forge_warning"] = forge_warning
             result["gitlab_warning"] = forge_warning
@@ -246,6 +253,12 @@ class FlowService:
             evidence_type="post_hoc",
             spec_json=json.dumps(spec_note, ensure_ascii=False),
         )
+        try:
+            from adk_dev_flow.enforcement import install_pre_commit_hook
+
+            hook_info = install_pre_commit_hook(self.repo_root)
+        except Exception as exc:
+            hook_info = {"installed": False, "reason": str(exc)}
         result: dict[str, Any] = {
             "run_id": run_id,
             "status": "ADOPTED",
@@ -254,6 +267,7 @@ class FlowService:
             "evidence_type": "post_hoc",
             "repo_root": str(self.repo_root),
             "state_db_path": str(self.store.db_path),
+            "pre_commit_hook": hook_info,
             "next_step": (
                 "工作完成并提交后调用 flow_adopt_finalize(run_id=...) 完成登记；"
                 "放弃则调用 flow_abort(run_id=...)。大屏将以琥珀色徽章如实标注该 run 为后补登记。"

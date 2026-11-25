@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 # Branch declares an issue: "76-sqlite-only-..." or "adk/issue-66-5ff00b"
 ISSUE_BRANCH_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -85,9 +86,73 @@ def check_branch_binding(flow_root: Path, branch: str) -> tuple[bool, str]:
     return False, reason
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry for the L2 pre-commit hook: python -m adk_dev_flow.enforcement."""
+PRE_COMMIT_TEMPLATE = """#!/bin/sh
+# ADK deterministic dev flow — L2 registration gate (installed by flow_init/flow_adopt).
+# Enforces branch<->run registration/traceability ONLY; pipeline verification
+# (allowed_paths audit, test locks) lives inside flow worktrees and is NOT
+# duplicated here.
+# Exit 17 = deny (issue branch without a registered run); anything else
+# (including package-not-importable) = fail-open.
+python -c "import sys; import adk_dev_flow.enforcement as e; sys.exit(e.main())" 2>/dev/null
+rc=$?
+[ "$rc" -eq 17 ] && exit 1
+exit 0
+"""
+
+
+def install_pre_commit_hook(repo_root: Path) -> dict[str, Any]:
+    """Install the L2 pre-commit gate into the repo's git hooks dir.
+
+    Never clobbers an existing hook; idempotent. Best-effort: callers must
+    treat failures as non-fatal (the main flow operation proceeds).
+    """
     import subprocess
+
+    repo_root = Path(repo_root)
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return {"installed": False, "reason": f"git rev-parse failed: {exc}"}
+    if res.returncode != 0:
+        return {"installed": False, "reason": "not a git repository"}
+    hooks_dir = Path(res.stdout.strip())
+    if not hooks_dir.is_absolute():
+        hooks_dir = repo_root / hooks_dir
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    target = hooks_dir / "pre-commit"
+    if target.exists():
+        try:
+            content = target.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            content = ""
+        if "adk_dev_flow.enforcement" in content:
+            return {"installed": False, "reason": "already installed", "path": str(target)}
+        return {"installed": False, "reason": "existing pre-commit hook preserved", "path": str(target)}
+    target.write_text(PRE_COMMIT_TEMPLATE, encoding="utf-8")
+    try:
+        target.chmod(0o755)
+    except Exception:
+        pass
+    return {"installed": True, "path": str(target)}
+
+
+DENY_EXIT_CODE = 17  # distinct from generic failures so the L2 hook can tell deny apart from infra errors
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry for the L2 pre-commit hook: python -m adk_dev_flow.enforcement.
+
+    Exit codes: 0 allow, DENY_EXIT_CODE (17) deny, other non-zero = caller
+    should treat as unknown/fail-open.
+    """
+    import subprocess
+    import sys
 
     cwd = Path.cwd()
     flow_root = find_flow_root(cwd)
@@ -109,8 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     allowed, reason = check_branch_binding(flow_root, branch)
     if allowed:
         return 0
-    print(reason, file=__import__("sys").stderr)
-    return 1
+    print(reason, file=sys.stderr)
+    return DENY_EXIT_CODE
 
 
 if __name__ == "__main__":
