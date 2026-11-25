@@ -8,7 +8,7 @@ from adk_dev_flow.forge_client import (
     get_git_forge,
 )
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 def __getattr__(name: str):

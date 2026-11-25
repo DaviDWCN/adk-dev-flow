@@ -98,8 +98,11 @@ def test_dummy():
             branch=f"adk/issue-task-{run_id[:6]}",
         )
 
-        # 1. System reboots: FlowService starts up
-        reboot_service = FlowService(repo_root=self.repo_root, store=self.store, forge=self.mock_forge)
+        # 1. System reboots: FlowService starts up (grace period 0: the crash
+        #    happened long ago, do not treat the RUNNING run as still alive)
+        reboot_service = FlowService(
+            repo_root=self.repo_root, store=self.store, forge=self.mock_forge, recovery_grace_period=0.0
+        )
         self.assertIn(run_id, reboot_service.recovered_runs)
 
         run = self.store.get_run(run_id)

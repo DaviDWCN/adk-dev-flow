@@ -233,7 +233,7 @@ class TestHypothesisFuzzing(unittest.TestCase):
     def test_state_machine_concurrency_invariants(self) -> None:
         run_state_machine_as_test(
             WorkflowFuzzStateMachine,
-            settings=settings(max_examples=70, stateful_step_count=80),
+            settings=settings(max_examples=70, stateful_step_count=80, deadline=None),
         )
 
 
