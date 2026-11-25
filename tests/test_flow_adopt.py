@@ -24,6 +24,26 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
+def _current_branch(repo: Path) -> str:
+    res = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return res.stdout.strip()
+
+
+def _read_frontmatter(path: Path) -> dict:
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\n"), f"missing frontmatter: {path}"
+    end = text.index("\n---", 4)
+    return yaml.safe_load(text[4:end])
+
+
 class TestAdoptedLifecycle(unittest.TestCase):
     """ADOPTED status: state model invariants for the post-hoc adoption channel."""
 
@@ -137,6 +157,63 @@ class TestFlowAdoptService(unittest.IsolatedAsyncioTestCase):
     async def test_finalize_without_adopted_returns_error(self) -> None:
         done = await self.service.flow_adopt_finalize()
         self.assertIn("error", done)
+
+
+    async def test_finalize_writes_adopted_spec_doc(self) -> None:
+        _git(self.repo, "checkout", "-q", "-b", "76-doc-adr")
+        (self.repo / "ADR.md").write_text("adr body", encoding="utf-8")
+        _git(self.repo, "add", "ADR.md")
+        _git(self.repo, "commit", "-q", "-m", "ADR 0009: SQLite canonical (issue #76)")
+        res = await self.service.flow_adopt(issue_iid=76, branch="76-doc-adr", note="ADR 0009")
+        done = await self.service.flow_adopt_finalize(run_id=res["run_id"])
+        self.assertNotIn("error", done)
+        spec = done["adopted_spec"]
+        self.assertTrue(spec["written"])
+        self.assertEqual(spec["commits_recorded"], 1)
+        fm = _read_frontmatter(Path(spec["path"]))
+        self.assertEqual(fm["type"], "AdoptedSpec")
+        self.assertEqual(fm["status"], "finalized")
+        self.assertEqual(fm["issue_iid"], 76)
+        self.assertEqual(fm["branch"], "76-doc-adr")
+        self.assertEqual(fm["evidence_type"], "post_hoc")
+        self.assertTrue(fm["head_sha"])
+        self.assertIn("ADR 0009: SQLite canonical", Path(spec["path"]).read_text(encoding="utf-8"))
+
+    async def test_finalize_adopted_spec_falls_back_after_merge(self) -> None:
+        base = _current_branch(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "76-merged")
+        (self.repo / "w.md").write_text("w", encoding="utf-8")
+        _git(self.repo, "add", "w.md")
+        _git(self.repo, "commit", "-q", "-m", "post merge work (issue #76)")
+        _git(self.repo, "checkout", "-q", base)
+        _git(self.repo, "merge", "-q", "--no-ff", "-m", "merge branch 76", "76-merged")
+        res = await self.service.flow_adopt(issue_iid=76, branch="76-merged")
+        done = await self.service.flow_adopt_finalize(run_id=res["run_id"])
+        self.assertNotIn("error", done)
+        spec = done["adopted_spec"]
+        self.assertTrue(spec["written"])
+        # main..head is empty post-merge; the issue-reference grep recovers the commit
+        self.assertEqual(spec["commits_recorded"], 1)
+        self.assertIn("post merge work", Path(spec["path"]).read_text(encoding="utf-8"))
+
+    async def test_finalize_uses_adopted_suffix_when_devspec_exists(self) -> None:
+        specs = self.repo / ".adk" / "specs"
+        specs.mkdir(parents=True, exist_ok=True)
+        (specs / "issue-76.md").write_text(
+            "---\ntype: DevSpec\nstatus: active\n---\n\n# pipeline spec\n", encoding="utf-8"
+        )
+        _git(self.repo, "checkout", "-q", "-b", "76-another")
+        (self.repo / "x.md").write_text("x", encoding="utf-8")
+        _git(self.repo, "add", "x.md")
+        _git(self.repo, "commit", "-q", "-m", "adopted work (issue #76)")
+        res = await self.service.flow_adopt(issue_iid=76, branch="76-another")
+        done = await self.service.flow_adopt_finalize(run_id=res["run_id"])
+        self.assertNotIn("error", done)
+        spec = done["adopted_spec"]
+        self.assertTrue(spec["written"])
+        self.assertTrue(spec["path"].endswith("issue-76-adopted.md"))
+        self.assertIn("type: DevSpec", (specs / "issue-76.md").read_text(encoding="utf-8"))
+        self.assertEqual(_read_frontmatter(Path(spec["path"]))["type"], "AdoptedSpec")
 
 
 if __name__ == "__main__":

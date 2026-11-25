@@ -6,9 +6,11 @@ import os
 import re
 import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
 from fastmcp import FastMCP
 
 from adk_dev_flow.dashboard import get_dashboard_html
@@ -277,6 +279,119 @@ class FlowService:
             result["forge_warning"] = forge_warning
         return result
 
+    _ADOPTED_SPEC_BASE_REFS: tuple[str, ...] = ("main", "origin/main", "master")
+
+    async def _write_adopted_spec_doc(self, run: dict[str, Any], head: dict[str, str]) -> dict[str, Any]:
+        """Generate the OKF AdoptedSpec document for a finalized adoption.
+
+        Records facts only (what was done, which commits, when) — never a
+        pre-hoc contract: the work happened outside the pipeline and was not
+        Spec-locked / test-locked / worktree-audited. Best-effort: callers
+        proceed on failure.
+        """
+        issue = run.get("issue_iid")
+        branch = run.get("branch") or ""
+        sha = head.get("commit_sha", "")
+        short = head.get("short", "")
+        subject = head.get("subject", "")
+
+        # Commit list: base..head while the branch still diverges; after a
+        # merge the range is empty, fall back to the repo's issue-reference
+        # commit convention.
+        commits: list[str] = []
+        base_ref = ""
+        for ref in self._ADOPTED_SPEC_BASE_REFS:
+            probe = await run_subprocess_safe(
+                ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                cwd=self.repo_root,
+                timeout_sec=10.0,
+            )
+            if probe.returncode == 0 and (probe.stdout or "").strip():
+                base_ref = ref
+                break
+        if base_ref and sha:
+            res = await run_subprocess_safe(
+                ["git", "log", "--oneline", f"{base_ref}..{sha}"],
+                cwd=self.repo_root,
+                timeout_sec=10.0,
+            )
+            commits = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+        if not commits and issue is not None:
+            res = await run_subprocess_safe(
+                ["git", "log", "--oneline", "-n", "20", f"--grep=#{issue}"],
+                cwd=self.repo_root,
+                timeout_sec=10.0,
+            )
+            commits = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+
+        issue_info: dict[str, Any] | None = None
+        if issue is not None and self.gl.enabled:
+            try:
+                issue_info = await asyncio.to_thread(self.gl.get_issue, issue)
+            except Exception:
+                issue_info = None
+        title = str((issue_info or {}).get("title") or "")
+        if not title:
+            try:
+                note = json.loads(run.get("spec_json") or "{}")
+                title = str(note.get("title") or "")
+            except Exception:
+                title = ""
+        title = title or f"收编 #{issue}"
+        desc = str((issue_info or {}).get("description") or "")
+        if len(desc) > 800:
+            desc = desc[:800] + " …（截断）"
+
+        front: dict[str, Any] = {
+            "type": "AdoptedSpec",
+            "title": title,
+            "status": "finalized",
+            "issue_iid": issue,
+            "branch": branch,
+            "head_sha": sha,
+            "commit_range": f"{base_ref}..{short}" if base_ref and sha else "",
+            "evidence_type": "post_hoc",
+            "run_id": run["run_id"],
+            "adopted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        fm_text = yaml.safe_dump(front, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+        commit_lines = (
+            "\n".join(f"- {c}" for c in commits)
+            if commits
+            else "-（提交列表不可得：分支可能已合并且提交缺少 issue 引用）"
+        )
+        body = (
+            f"# {title}（issue #{issue}）\n\n"
+            "> `type: AdoptedSpec` — 后补事实记录（post_hoc）：该工作在流水线外完成，本文件记录既成事实，"
+            "不构成事前契约，未经 Spec 锁定 / 测试锁 / worktree 审计验证。\n\n"
+            f"## Issue 摘要\n\n{desc or '（未获取到 Issue 描述）'}\n\n"
+            f"## 提交记录\n\n{commit_lines}\n\n"
+            "## 登记证据\n\n"
+            f"- 分支尖端: `{short} {subject}`\n"
+            f"- Run: `{run['run_id']}`（ADOPTED → MR_READY）\n"
+            f"- 登记时间: {front['adopted_at']}\n"
+        )
+
+        specs_dir = self.repo_root / ".adk" / "specs"
+        specs_dir.mkdir(parents=True, exist_ok=True)
+        target = specs_dir / f"issue-{issue}.md"
+        if target.exists():
+            try:
+                m = re.match(r"^---\n(.*?)\n---", target.read_text(encoding="utf-8"), re.DOTALL)
+                etype = (yaml.safe_load(m.group(1)) or {}).get("type") if m else None
+                if etype == "DevSpec":
+                    target = specs_dir / f"issue-{issue}-adopted.md"
+            except Exception:
+                pass
+        target.write_text(f"---\n{fm_text}---\n\n{body}", encoding="utf-8")
+        return {
+            "written": True,
+            "path": str(target),
+            "commits_recorded": len(commits),
+            "commit_range": front["commit_range"],
+        }
+
     async def flow_adopt_finalize(
         self, run_id: str | None = None, repo_root: str | None = None
     ) -> dict[str, Any]:
@@ -309,6 +424,10 @@ class FlowService:
             evidence = f"[post_hoc] 收编完成（分支尖端读取失败: {exc}）"
 
         branch_head: dict[str, Any] = {"commit_sha": sha, "short": short, "subject": subject}
+        try:
+            adopted_spec = await self._write_adopted_spec_doc(run, branch_head)
+        except Exception as exc:
+            adopted_spec = {"written": False, "reason": str(exc)}
         ok = self.store.transition_run(
             run["run_id"],
             expected_statuses=("ADOPTED",),
@@ -327,7 +446,15 @@ class FlowService:
             "evidence_type": "post_hoc",
             "evidence": evidence,
             "branch_head": branch_head,
-            "note": "登记完成。该 run 仍标注 post_hoc：登记≠验证，流水线内门禁未被覆盖。",
+            "adopted_spec": adopted_spec,
+            "note": (
+                "登记完成。该 run 仍标注 post_hoc：登记≠验证，流水线内门禁未被覆盖。"
+                + (
+                    f" AdoptedSpec 已生成：{adopted_spec['path']}（建议随 docs(spec) 提交入库）。"
+                    if adopted_spec.get("written")
+                    else ""
+                )
+            ),
         }
 
     def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
