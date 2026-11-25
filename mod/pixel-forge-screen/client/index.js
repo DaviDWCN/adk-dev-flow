@@ -24,7 +24,8 @@ styles.insert(`.pfs{display:flex;flex-direction:column;gap:12px;max-width:1180px
 .pfs-led{width:10px;height:10px;border-radius:50%;background:#9ca3af}
 .pfs-led-on{background:#10b981;box-shadow:0 0 8px rgba(16,185,129,.6);animation:pfs-led 1.5s ease-in-out infinite}
 .pfs-badge{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid;font:600 11px var(--font-mono,monospace);white-space:nowrap}
-.pfs-chip{display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:3px 10px;border:1px solid var(--color-border-muted);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-secondary);font:600 11px var(--font-mono,monospace);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pfs-chip{display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:3px 10px;border:1px solid var(--color-border-muted);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-secondary);font:600 11px var(--font-mono,monospace);white-space:nowrap;overflow:hidden;.pfs-oab{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);border-radius:10px;color:#92400e;font-size:11px;flex-wrap:wrap}
+.pfs-chip-ma{color:#059669;border-color:rgba(5,150,105,.5);background:rgba(5,150,105,.08)}
 .pfs-select{max-width:260px;padding:4px 8px;border:1px solid var(--color-border-input);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-primary);font:11px var(--font-mono,monospace)}
 .pfs-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--color-border-default);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-primary);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
 .pfs-btn:hover{background:var(--color-bg-hover)}
@@ -578,13 +579,19 @@ h('div',{className:'pfs-row'},h('span',{className:'pfs-led'+(online?' pfs-led-on
 h('div',{className:'pfs-row'},
 d.repo_name?h('span',{className:'pfs-chip',title:t('run')},'🐙 ',d.repo_name):null,
 d.branch?h('span',{className:'pfs-chip',title:d.branch},'🌿 ',d.branch):null,
+d.merged_after_abort?h('span',{className:'pfs-chip pfs-chip-ma',title:'该 run 已中止，但其分支已合并进主分支'},'🔗 已合并 · 流程中止'):null,
 h('select',{'aria-label':t('currentRun'),className:'pfs-select',value:runId,onChange:e=>setRunId(e.target.value)},
 h('option',{key:'cur',value:''},t('currentRun')),
-runs.map(r=>h('option',{key:r.run_id,value:r.run_id},r.run_id+' ('+r.status+')'))),
+runs.map(r=>h('option',{key:r.run_id,value:r.run_id},r.run_id+' ('+r.status+(r.merged_after_abort?' · 已合并':'')+')'))),
 h('button',{type:'button',className:'pfs-btn',title:t('refresh'),'aria-label':t('refresh'),onClick:()=>setTick(x=>x+1)},'🔄'),
 h('button',{type:'button',className:'pfs-btn pfs-btn-pri',disabled:!online,onClick:openFull},t('openFull')),
 sim?h('button',{type:'button',className:'pfs-btn pfs-btn-warn',onClick:()=>play(0)},t('backLive')):null,
 h('button',{type:'button',className:'pfs-btn '+(auto?'pfs-btn-rose':'pfs-btn-indigo'),onClick:toggleAuto},auto?t('stopAuto'):t('autoPlay')))),
+d.outside_activity?h('div',{className:'pfs-oab',role:'note'},
+h('b',null,'⚠ 流程外工作'),
+h('span',null,(d.outside_activity.branch||'')+' @ '+(d.outside_activity.short_sha||'')),
+h('span',{className:'pfs-sub'},d.outside_activity.subject||''),
+h('span',{className:'pfs-sub'},d.outside_activity.hint||'')):null,
 h('section',{className:'pfs-hero',role:'region','aria-label':t('currentNode')},
 h('div',{className:'pfs-hero-main'},
 h('div',{className:'pfs-hero-beacon'},

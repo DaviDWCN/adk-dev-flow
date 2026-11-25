@@ -339,6 +339,85 @@ def create_dashboard_app(
     resolved_root = (repo_root or Path(os.environ.get("REPO_ROOT", os.getcwd()))).resolve()
     resolved_store = store or StateStore(resolved_root)
 
+    # --- git lookups with TTL cache (1s polling must not spawn git every tick) ---
+    _git_cache: dict[str, tuple[float, Any]] = {}
+
+    def _git_sync(args: list[str]) -> str | None:
+        try:
+            res = subprocess.run(
+                ["git", *args],
+                cwd=str(resolved_root),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            return None
+        return res.stdout.strip() if res.returncode == 0 else None
+
+    def _git_rc(args: list[str]) -> bool | None:
+        """True/False from exit code; None when git itself failed (unknown)."""
+        try:
+            res = subprocess.run(
+                ["git", *args],
+                cwd=str(resolved_root),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            return None
+        if res.returncode not in (0, 1, 128):
+            return None
+        return res.returncode == 0
+
+    async def _git_cached(key: str, ttl: float, fn, *args: Any) -> Any:
+        import time as _time
+
+        now = _time.monotonic()
+        hit = _git_cache.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+        value = await asyncio.to_thread(fn, *args)
+        _git_cache[key] = (now, value)
+        return value
+
+    async def _outside_activity() -> dict[str, Any] | None:
+        """Report work happening on a branch without any active flow run."""
+        branch = await _git_cached("oa_branch", 5.0, _git_sync, ["rev-parse", "--abbrev-ref", "HEAD"])
+        if not branch or branch == "HEAD":
+            return None
+        info = await _git_cached("oa_log", 5.0, _git_sync, ["log", "-1", "--format=%h%x09%ct%x09%s"])
+        if not info:
+            return None
+        parts = info.split("\t", 2)
+        short = parts[0] if parts else ""
+        subject = parts[2] if len(parts) > 2 else ""
+        when: int | None = None
+        if len(parts) > 1 and parts[1].isdigit():
+            when = int(parts[1])
+        return {
+            "branch": branch,
+            "short_sha": short,
+            "subject": subject,
+            "commit_time": when,
+            "hint": "该分支的工作未登记流程（无活跃 run）。调用 flow_adopt(issue, branch) 收编，或走完整 flow_init。",
+        }
+
+    async def _merged_after_abort(run: dict[str, Any]) -> bool | None:
+        """True when an ABORTED run's branch has nonetheless been merged into main."""
+        if run.get("status") != "ABORTED" or not run.get("branch"):
+            return None
+        branch = str(run["branch"])
+        exists = await _git_cached(
+            f"ma_exists:{branch}", 60.0, _git_sync, ["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"]
+        )
+        if not exists:
+            return None  # branch deleted (or unknown); cannot verify honestly
+        return await _git_cached(
+            f"ma_anc:{branch}", 60.0, _git_rc, ["merge-base", "--is-ancestor", branch, "main"]
+        )
+
     async def handle_index(request: Request) -> HTMLResponse:
         run_id = request.query_params.get("run_id")
         return HTMLResponse(get_dashboard_html(initial_run_id=run_id))
@@ -346,6 +425,7 @@ def create_dashboard_app(
     async def handle_status(request: Request) -> JSONResponse:
         run_id = request.query_params.get("run_id")
         run_data: dict[str, Any] | None = None
+        has_active = True
         if run_id:
             run_data = resolved_store.get_run(run_id)
         else:
@@ -353,28 +433,33 @@ def create_dashboard_app(
             if active_runs:
                 run_data = active_runs[0]
             else:
+                has_active = False
                 recent = resolved_store.list_runs(limit=1)
                 run_data = recent[0] if recent else None
 
         payload = _build_run_payload(run_data, resolved_root.name)
+        if run_data and run_data.get("status") == "ABORTED":
+            payload["merged_after_abort"] = await _merged_after_abort(run_data)
+        if not has_active:
+            payload["outside_activity"] = await _outside_activity()
         return JSONResponse(payload, status_code=200)
 
     async def handle_runs(request: Request) -> JSONResponse:
         runs = resolved_store.list_runs(limit=25)
-        return JSONResponse(
-            {
-                "runs": [
-                    {
-                        "run_id": r["run_id"],
-                        "status": r["status"],
-                        "branch": r.get("branch"),
-                        "attempt": r.get("attempt", 0),
-                        "updated_at": r.get("updated_at"),
-                    }
-                    for r in runs
-                ]
+        entries = []
+        for r in runs:
+            entry = {
+                "run_id": r["run_id"],
+                "status": r["status"],
+                "branch": r.get("branch"),
+                "attempt": r.get("attempt", 0),
+                "updated_at": r.get("updated_at"),
             }
-        )
+            merged = await _merged_after_abort(r)
+            if merged is not None:
+                entry["merged_after_abort"] = merged
+            entries.append(entry)
+        return JSONResponse({"runs": entries})
 
     async def event_generator(run_id: str | None) -> AsyncGenerator[str, None]:
         last_sig: str | None = None
@@ -392,6 +477,10 @@ def create_dashboard_app(
                         run_data = recent[0] if recent else None
 
                 payload = _build_run_payload(run_data, resolved_root.name)
+                if run_data and run_data.get("status") == "ABORTED":
+                    payload["merged_after_abort"] = await _merged_after_abort(run_data)
+                if not resolved_store.get_active_runs():
+                    payload["outside_activity"] = await _outside_activity()
                 sig = json.dumps(payload, sort_keys=True)
                 if sig != last_sig:
                     last_sig = sig
