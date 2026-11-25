@@ -456,7 +456,7 @@ WORK:{tone:'amber',badge:'⑤ 编码施工 · 目标全绿',pipes:['pipe-5-6'],n
 TEST:{tone:'purple',badge:'⑥ 自动化测试 · 跑道执行',pipes:['pipe-6-8'],node:'node-test',color:'#3b82f6',log:'[自动化测试] ⚙️ 防篡改审计 + ruff 静态检查 + pytest 验收（可选全量回归）',details:'确定性执行：未过退回工兵修复；全通放行送审'},
 CRITIC:{tone:'cyan',badge:'③ 前置审查 · 契约双审',pipes:['pipe-3-4'],node:'node-critic',color:'#0891b2',log:'[前置审查] 🧐 审查随契约起草内嵌执行，核对设计文档与验收用例一致性',details:'结论写入 spec.pre_critic_report；独立状态位预留，不单独流转'},
 MR:{tone:'emerald',badge:'⑧ 成果交付 · 任务竣工',pipes:['pipe-6-8'],node:'node-mr',color:'#10b981',log:'[成果交付] 🚀 成果安全存入代码库，自动发起 PR/MR',details:'全套测试存证完备，符合交付准入规范'},
-ESCALATE:{tone:'rose',badge:'⑨ 异常跳闸 · 熔断保护',pipes:['pipe-branch-escalate'],node:'node-escalate',color:'#ef4444',log:'[异常跳闸] 🚨 重试超限自动熔断停机，保护工作现场',details:'主干零污染，等待人工排障复位'},
+ESCALATE:{tone:'rose',badge:'🚨 熔断跳闸 · 自愈环停机',pipes:['pipe-branch-escalate'],node:'node-escalate',color:'#ef4444',log:'[熔断跳闸] 🚨 自愈重试超限自动熔断停机，保护工作现场',details:'主干零污染，等待人工排障复位'},
 ABORT:{tone:'rose',badge:'⛔ 已中止 · ABORTED',pipes:[],log:'[异常中止] ⛔ 任务已被人工中止或系统终止，现场已保护',details:'主干零污染；可 flow_dispatch 派发新任务，或在日志区回看中止前现场'}};
 const STEPS={
 1:{stage:'SPEC',nodes:{'node-spec':'#2563eb'},avatar:['svg-architect','#3b82f6'],pipes:['pipe-1-2'],log:'[1. 架构设计] 📐 架构师 AI 基于 AST 影响面推导产出设计文档与任务拆分',details:'推导影响面爆炸半径与受影响调用点，拆解原子任务清单'},
@@ -467,10 +467,10 @@ const STEPS={
 6:{stage:'TEST',nodes:{'node-test':'#7c3aed'},avatar:null,pipes:['pipe-6-8'],log:'[6. 自动测试] ⚙️ 机械跑道执行防篡改审计、ruff 静态检查与 pytest 验收跑测',details:'无副作用自动化测试，验证业务功能完整通过'},
 7:{stage:'WORK',nodes:{'node-work':'#d97706','node-escalate':'#f97316'},avatar:['svg-builder','#f59e0b'],pipes:['pipe-loop-tdd'],log:'[7. 自愈打回] 🔄 测试未通过，提取错误指纹打回开发工兵定向修复',details:'AST 影响点与异常回溯自愈，重试计数累计 (≤3次)'},
 8:{stage:'MR',nodes:{'node-mr':'#059669'},avatar:null,pipes:['pipe-6-8'],log:'[8. 成果交付] 🚀 AST 语义硬门禁一票否决校验通过，成果安全合入代码库并交付',details:'检查无破坏性变更与规则违背，准予合并交付主干'},
-9:{stage:'ESCALATE',nodes:{'node-escalate':'#dc2626'},avatar:null,pipes:['pipe-branch-escalate'],log:'[9. 异常跳闸] 🚨 重试超限触发物理熔断，启动保护机制',details:'避免无限循环与主干破坏，等待人工排障复位'}};
-const STEP_TITLE=['待命 · STANDBY','步骤 1/8 · 架构设计 AI (方案与任务拆分)','步骤 2/8 · 验收测试 AI (红灯预检·变异验真)','步骤 3/8 · 前置审查 (契约内嵌·一致性双审)','步骤 4/8 · 关键 HITL (人工签字锁定)','步骤 5/8 · 开发工兵 AI (沙箱编码施工)','步骤 6/8 · 自动化测试 (防篡改·lint·验收跑测)','步骤 7/8 · 定向自愈重试 (错误指纹打回)','步骤 8/8 · AST 硬门禁 + 成果交付代码库','步骤 9 · 异常跳闸 (熔断保护)'];
+9:{stage:'ESCALATE',nodes:{'node-escalate':'#dc2626'},avatar:null,pipes:['pipe-branch-escalate'],log:'[熔断跳闸] 🚨 自愈重试超限触发物理熔断，启动保护机制',details:'避免无限循环与主干破坏，等待人工排障复位'}};
+const STEP_TITLE=['待命 · STANDBY','步骤 1/8 · 架构设计 AI (方案与任务拆分)','步骤 2/8 · 验收测试 AI (红灯预检·变异验真)','步骤 3/8 · 前置审查 (契约内嵌·一致性双审)','步骤 4/8 · 关键 HITL (人工签字锁定)','步骤 5/8 · 开发工兵 AI (沙箱编码施工)','步骤 6/8 · 自动化测试 (防篡改·lint·验收跑测)','步骤 7/8 · 定向自愈重试 (错误指纹打回)','步骤 8/8 · AST 硬门禁 + 成果交付代码库','🚨 熔断跳闸 (自愈环保护停机)'];
 function derive(step,opt){
-const s=STEPS[step];
+const s=(opt&&opt.escalated&&step===7)?STEPS[9]:STEPS[step];
 let stage=STAGE[s?s.stage:'IDLE'];
 if(step===0&&opt&&opt.abort)stage=STAGE.ABORT;
 const nodes={},visible={},anim={};
@@ -489,7 +489,7 @@ return {nodes,visible,anim,avatar:avatar?avatar[0]:null,avatarColor:avatar?avata
 }
 const PILLS=[[1,'设计AI 📐','方案/拆分','1. 架构设计AI产出设计文档与任务拆分','#2563eb'],[2,'测试AI 🧪','红灯真测','2. 测试AI根据设计出红色测试用例(AST影响点)','#059669'],[3,'Critic 🧐','双审一致','3. 前置审查核对设计与用例一致性（随契约起草内嵌执行）','#0891b2'],[4,'HITL ✍️','签字锁定','4. 关键HITL确认任务和测试cases并锁定','#d97706'],[5,'开发AI 🔨','沙箱施工','5. 开发AI在受限沙箱开始编码','#d97706'],[6,'自动测试 ⚙️','真机跑测','6. 对开发结果自动化测试跑道真机验证','#7c3aed'],[7,'自愈打回 🔄','指纹修复','7. 测试不通过打回开发AI定向自愈重试','#ea580c'],[8,'仓库交付 🚀','硬门禁入库','8. AST硬门禁防线 + 交付主干仓库','#059669']];
 const GATES=[['👤 关卡-1','人工签字确认 (方案与测试审核)',[4],'amber','人工签字'],['🔒 门禁-1','验证测试真实有效 (必须报错防假需求)',[2],'blue','红灯验真'],['🔒 门禁-M','变异击杀率 ≥85% (锁定时强制，度量步骤2用例有效性)',[2,4],'cyan','变异验真'],['🔒 门禁-2','划分独立工位 (改动范围锁定防污染)',[5,7],'orange','沙箱隔离'],['🔒 门禁-3','机器自动测试 (全套用例真机跑通)',[6],'purple','机械跑道'],['👤 关卡-2','异常跳闸保护 (人工介入排障复位)',[9],'rose','异常复位']];
-const SIM=[['1.设计AI 📐','blue'],['2.测试AI 🧪','emerald'],['3.Critic 🧐','cyan'],['4.HITL ✍️','amber'],['5.开发AI 🔨','amber'],['6.自动测试 ⚙️','purple'],['7.自愈打回 🔄','orange'],['8.仓库交付 🚀','emerald'],['9.跳闸 🚨','rose']];
+const SIM=[['1.设计AI 📐','blue'],['2.测试AI 🧪','emerald'],['3.Critic 🧐','cyan'],['4.HITL ✍️','amber'],['5.开发AI 🔨','amber'],['6.自动测试 ⚙️','purple'],['7.自愈打回 🔄','orange'],['8.仓库交付 🚀','emerald'],['熔断 🚨','rose']];
 const STEP_HERO={
 0:{stage:'系统待命 · STANDBY',actor:'系统调度器',action:'流水线处于空闲待命状态，无活跃执行任务',waiting:'等待派发新任务 (flow_init / flow_dispatch)',station:'工位 0 · 待命区',tone:'slate',dot:'#64748b',badge:'⚡ 待命待发'},
 1:{stage:'步骤 1/8 · 架构蓝图与任务拆分',actor:'架构师 AI (Architect Agent)',action:'架构师 AI 正在分析代码依赖与 AST 影响面，起草设计文档与原子任务清单',waiting:'等待架构设计文档生成',station:'工位 1 · 架构设计工位',tone:'blue',dot:'#2563eb',badge:'📐 架构师方案起草中'},
@@ -500,7 +500,7 @@ const STEP_HERO={
 6:{stage:'步骤 6/8 · 自动化测试全量真机跑测',actor:'自动化测试跑道引擎 (Test Runner)',action:'机械跑道正在执行测试防篡改审计、Ruff 规范静态扫描与全量 Pytest 真机跑测',waiting:'等待自动化测试全绿通过',station:'工位 6 · 自动化测试跑道',tone:'purple',dot:'#7c3aed',badge:'⚙️ 自动化测试真机跑测中'},
 7:{stage:'步骤 7/8 · 错误指纹定向自愈回流',actor:'自愈修复工兵 (Self-Healing Worker)',action:'测试未通过，系统已提取错误指纹回路送回工兵工位进行定向修复 (≤3轮)',waiting:'等待工兵修复并重新送测',station:'工位 7 · 自愈回流环',tone:'orange',dot:'#ea580c',badge:'🔄 错误指纹定向自愈修复中'},
 8:{stage:'步骤 8/8 · AST 硬门禁 + 成果交付代码库',actor:'代码仓库评审人 (Code Reviewer)',action:'全套测试验证通过，代码已安全存入仓库，已生成 PR/MR 并附带全套存证，等待人工合并评审',waiting:'等待人工在 GitLab/GitHub 上评审并合并 PR/MR',station:'工位 8 · 成果交付代码库',tone:'emerald',dot:'#059669',badge:'🎉 成果交付就绪 · 等待合并评审'},
-9:{stage:'步骤 9 · 异常熔断跳闸保护',actor:'物理熔断保护器 (Circuit Breaker)',action:'自愈重试超限或出现严重异常，触发物理熔断机制强制停机，保护工作现场未受污染',waiting:'等待人工排障复位 (调用 flow_resume 或 flow_abort)',station:'工位 9 · 异常熔断安全区',tone:'rose',dot:'#dc2626',badge:'🚨 异常跳闸 · 等待人工排障'}
+9:{stage:'自愈环熔断 · 异常跳闸保护',actor:'物理熔断保护器 (Circuit Breaker)',action:'自愈重试超限或出现严重异常，自愈环触发熔断强制停机，保护工作现场未受污染',waiting:'等待人工排障复位 (调用 flow_resume 或 flow_abort)',station:'工位 7 · 自愈回流环',tone:'rose',dot:'#dc2626',badge:'🚨 异常跳闸 · 等待人工排障'}
 };
 const ACTIVE_PILL_SUB={1:'📐 起草方案',2:'🧪 编写/变异',3:'🧐 前置双审',4:'✍️ 契约待发',5:'🔨 正在编码',6:'⚙️ 正在跑测',7:'🔄 自愈修复',8:'🚀 交付就绪'};
 const call=(method,args)=>host.call('pixel_forge',method,args);
@@ -538,7 +538,7 @@ const openFull=()=>call('open').then(r=>setNotice(t('opened')+((r&&r.url)||'')),
 const start=()=>call('ensure').then(r=>{setStarting(Boolean(r&&r.starting));if(r&&r.up)setTick(x=>x+1);},e=>setFault({kind:'internal',text:reason(e)}));
 const faultText=!fault?'':fault.kind==='internal'?fault.text:(fault.url||'')+' · '+(fault.kind==='http'?'HTTP '+(fault.status||'?'):t('noResponse'));
 const liveStep=data&&typeof data.step==='number'?data.step:0,step=sim?sim.step:liveStep;
-const st=derive(step,{highlightCritic:Boolean(data&&data.highlight_critic),abort:Boolean(data&&data.status==='ABORTED')});
+const st=derive(step,{highlightCritic:Boolean(data&&data.highlight_critic),abort:Boolean(data&&data.status==='ABORTED'),escalated:Boolean(data&&data.status==='ESCALATED')});
 st.onStep=play;
 const d=data||{};
 const primary=sim?st.log:((data&&(d.last_log||d.message))||st.log);

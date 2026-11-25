@@ -22,7 +22,9 @@ RunStatus = Literal[
     "ABORTED",
 ]
 
-# Eight painted steps, plus 9 for the siren and 0 for a terminal abort.
+# Eight painted steps, plus 0 for a terminal abort. ESCALATED paints the
+# station it always halts in: the self-healing loop (step 7), with a red
+# alert badge on top — escalation is a state, not a separate station.
 # REVIEWING shares step 6 with VERIFYING; the board lights the Critic from
 # highlight_critic, because this review happens after implementation.
 LIFECYCLE_STEP: dict[RunStatus, int] = {
@@ -36,7 +38,7 @@ LIFECYCLE_STEP: dict[RunStatus, int] = {
     "REVIEWING": 6,
     "REPAIRING": 7,
     "MR_READY": 8,
-    "ESCALATED": 9,
+    "ESCALATED": 7,
     "ABORTED": 0,
 }
 

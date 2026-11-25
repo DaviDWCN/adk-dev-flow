@@ -793,7 +793,7 @@
             <span>🎮 交互式单步仿真控制台</span>
             <span class="text-[9px] text-slate-400 font-mono">点击按钮演练各工位流动</span>
           </div>
-          <div class="grid grid-cols-4 md:grid-cols-9 gap-1.5 text-[9px] font-mono">
+          <div class="grid grid-cols-4 md:grid-cols-8 gap-1.5 text-[9px] font-mono">
             <button onclick="setStep(1)" class="p-1.5 rounded-lg bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-slate-800 hover:text-blue-700 transition-all text-center truncate shadow-2xs font-bold">1.设计AI 📐</button>
             <button onclick="setStep(2)" class="p-1.5 rounded-lg bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50 text-slate-800 hover:text-emerald-700 transition-all text-center truncate shadow-2xs font-bold">2.测试AI 🧪</button>
             <button onclick="setStep(3)" class="p-1.5 rounded-lg bg-white border border-slate-200 hover:border-cyan-400 hover:bg-cyan-50/50 text-slate-800 hover:text-cyan-700 transition-all text-center truncate shadow-2xs font-bold">3.Critic 🧐</button>
@@ -802,7 +802,7 @@
             <button onclick="setStep(6)" class="p-1.5 rounded-lg bg-purple-50 border border-purple-300 text-purple-800 hover:bg-purple-100 transition-all text-center truncate shadow-2xs font-bold">6.自动测试 ⚙️</button>
             <button onclick="setStep(7)" class="p-1.5 rounded-lg bg-orange-50 border border-orange-300 text-orange-800 hover:bg-orange-100 transition-all text-center truncate shadow-2xs font-bold">7.自愈打回 🔄</button>
             <button onclick="setStep(8)" class="p-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition-all text-center truncate shadow-2xs font-bold">8.仓库交付 🚀</button>
-            <button onclick="setStep(9)" class="p-1.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-100 transition-all text-center truncate shadow-2xs font-bold">9.跳闸 🚨</button>
+            <button onclick="setStage('ESCALATE')" class="p-1.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-100 transition-all text-center truncate shadow-2xs font-bold">熔断 🚨</button>
           </div>
         </div>
       </div>
@@ -977,15 +977,6 @@
         waiting_for: '等待人工在 GitLab/GitHub 上评审并合并 PR/MR',
         station_name: '工位 8 · 成果交付代码库',
         tone: 'green'
-      },
-      9: {
-        badge_text: '🚨 异常跳闸 · 等待人工排障',
-        badge_style: 'bg-rose-50 text-rose-700 border-rose-300 ring-2 ring-rose-500/50 animate-pulse',
-        actor_role: '物理熔断保护器 (Circuit Breaker)',
-        current_action: '自愈重试超限或出现严重异常，触发物理熔断机制强制停机，保护工作现场未受污染',
-        waiting_for: '等待人工排障复位 (调用 flow_resume 或 flow_abort)',
-        station_name: '工位 9 · 异常熔断安全区',
-        tone: 'rose'
       }
     };
 
@@ -1109,7 +1100,7 @@
         '步骤 6/8 · 自动化测试 (全量真机跑测)',
         '步骤 7/8 · 定向自愈重试 (错误指纹回流)',
         '步骤 8/8 · AST 硬门禁 + 成果交付代码库',
-        '🚨 异常跳闸熔断 (物理保护停机等待排障)'
+        '🚨 异常跳闸熔断 (自愈环熔断停机等待排障)'
       ];
       if (activeBadge) {
         if (options && options.node_info && options.node_info.stage_name) {
@@ -1216,7 +1207,7 @@
           showPipe('pipe-6-8');
           break;
         case 9:
-          setStage('ESCALATE', customLog || '[9. 异常跳闸] 🚨 重试超限触发物理熔断，启动保护机制', customDetails || '避免无限循环与主干破坏，等待人工排障复位');
+          setStage('ESCALATE', customLog || '[熔断跳闸] 🚨 自愈重试超限触发物理熔断，启动保护机制', customDetails || '避免无限循环与主干破坏，等待人工排障复位');
           activateSvgNode('node-escalate', '#dc2626');
           highlightAvatar(null, null);
           showPipe('pipe-branch-escalate');
@@ -1462,6 +1453,14 @@
         const activeBadge = document.getElementById('active-step-badge');
         if (activeBadge) activeBadge.textContent = '⛔ 任务已中止';
         if (data.node_info) updateStageBanner(data.node_info);
+      } else if (data.status === 'ESCALATED') {
+        // Escalation paints the station it halts in: step 7 (self-healing loop)
+        // pills + red circuit-breaker styling on the same SVG node.
+        setStep(7, data.last_log || data.message, data.details, {
+          highlightCritic: !!data.highlight_critic,
+          node_info: data.node_info,
+        });
+        setStage('ESCALATE', data.last_log || data.message, data.details);
       } else if (typeof data.step === "number") {
         setStep(data.step, data.last_log || data.message, data.details, {
           highlightCritic: !!data.highlight_critic,
