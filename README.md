@@ -86,10 +86,12 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 15 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 17 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
+| `flow_create_issue` | 异步 | 在 GitLab / GitHub（或本地离线模式）创建新 Issue，作为确定性开发闭环的前置追踪工单 |
+| `flow_plan_issues` | 异步 | 将宏观需求 / PRD 拆解为原子 Issue 清单（支持预览或 `auto_create=True` 一键批量建单） |
 | `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
 | `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈） |
 | `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
