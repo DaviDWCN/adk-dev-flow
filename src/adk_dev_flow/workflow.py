@@ -807,6 +807,7 @@ def build_dev_workflow(
             locked_tests=[spec.acceptance_test_path],
         )
         node_input["worker_summary"] = result.get("summary", "")
+        node_input["worker_changed_files"] = list(result.get("changed_files") or [])
         return node_input
 
     async def verify_python_node(node_input: dict[str, Any]) -> Event:
@@ -949,6 +950,12 @@ def build_dev_workflow(
                 "audit_passed": audit.ok,
             }
             # Physical tests all green; remain in VERIFYING until publish_mr_node finalizes Step 8 MR_READY
+            store.log_attempt(
+                run_id,
+                attempt,
+                worker_summary=str(node_input.get("worker_summary") or ""),
+                changed_files=list(node_input.get("worker_changed_files") or []),
+            )
             store.update_run(
                 run_id,
                 last_error_log="[Verification] ✅ 物理跑测全绿，正在执行 AST 静态门禁与交付入库",
@@ -966,6 +973,14 @@ def build_dev_workflow(
         node_input["attempt"] = next_attempt
         node_input["prev_error_sig"] = err_sig
         node_input["last_error_log"] = combined_err
+        store.log_attempt(
+            run_id,
+            attempt,
+            err_sig=err_sig,
+            combined_err=combined_err[-4000:],
+            worker_summary=str(node_input.get("worker_summary") or ""),
+            changed_files=list(node_input.get("worker_changed_files") or []),
+        )
         store.update_run(
             run_id,
             attempt=next_attempt,

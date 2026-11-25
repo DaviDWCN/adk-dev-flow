@@ -527,6 +527,7 @@ class FlowService:
             "review": json.loads(run["review_json"]) if run["review_json"] else None,
             "human_hint": run.get("human_hint"),
             "last_error_log": (run["last_error_log"] or "")[-1500:],
+            "attempt_history": self.store.list_attempt_logs(run_id, limit=5),
             "is_holding_lock": is_holding_lock,
             "current_locked_run_id": active_run_id,
             "updated_at": run["updated_at"],

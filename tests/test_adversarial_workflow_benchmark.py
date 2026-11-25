@@ -335,6 +335,13 @@ def outer_service_factory():
             self.assertIsNotNone(run)
             self.assertIn("[zero_change VIOLATION]", run["last_error_log"])
             self.assertTrue(run["last_error_sig"])
+
+            # The failed round must be persisted as per-attempt evidence
+            history = store.list_attempt_logs(run_id)
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history[0]["attempt"], 0)
+            self.assertEqual(history[0]["err_sig"], run["last_error_sig"])
+            self.assertIn("[zero_change VIOLATION]", history[0]["combined_err"])
         finally:
             tmp.cleanup()
 

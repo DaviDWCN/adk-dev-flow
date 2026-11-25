@@ -183,6 +183,23 @@ class StateStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS attempt_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    err_sig TEXT,
+                    combined_err TEXT,
+                    worker_summary TEXT,
+                    changed_files TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attempt_logs_run ON attempt_logs(run_id, attempt)"
+            )
             # Auto-migrate older v1 SQLite schemas cleanly.
             existing_cols = {
                 row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
@@ -264,6 +281,54 @@ class StateStore:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             return dict(row) if row else None
+
+    def log_attempt(
+        self,
+        run_id: str,
+        attempt: int,
+        *,
+        err_sig: str | None = None,
+        combined_err: str | None = None,
+        worker_summary: str | None = None,
+        changed_files: list[str] | None = None,
+    ) -> None:
+        """Persist per-round self-heal evidence (fingerprint, error log, worker output).
+
+        Only the last round used to survive in the runs row, making post-mortems
+        impossible when signatures drifted (lesson: run 558a138f54eb).
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO attempt_logs
+                    (run_id, attempt, err_sig, combined_err, worker_summary, changed_files, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    attempt,
+                    err_sig,
+                    combined_err,
+                    worker_summary,
+                    json.dumps(changed_files or [], ensure_ascii=False),
+                    now,
+                ),
+            )
+
+    def list_attempt_logs(self, run_id: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Return the most recent attempt logs (latest first) for a run."""
+        safe_limit = max(1, min(int(limit), 50))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, attempt, err_sig, combined_err, worker_summary, changed_files, created_at
+                FROM attempt_logs WHERE run_id = ?
+                ORDER BY attempt DESC, id DESC LIMIT ?
+                """,
+                (run_id, safe_limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), 100))

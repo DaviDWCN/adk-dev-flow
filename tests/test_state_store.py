@@ -23,6 +23,47 @@ class TestStateStore(unittest.TestCase):
             mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
         self.assertEqual(mode.lower(), "wal")
 
+    def test_attempt_logs_roundtrip_and_ordering(self) -> None:
+        """Per-round self-heal evidence must persist and read back latest-first.
+
+        Lesson: run 558a138f54eb — only the last round survived in the runs row,
+        making signature-drift post-mortems impossible.
+        """
+        run_id = "logs-run-001"
+        self.store.create_run(run_id, issue_iid=1)
+        self.store.log_attempt(
+            run_id,
+            0,
+            err_sig="sig-round0",
+            combined_err="[pytest exit=1]\nImportError: boom",
+            worker_summary="explored the repo",
+            changed_files=[],
+        )
+        self.store.log_attempt(
+            run_id,
+            1,
+            err_sig="sig-round1",
+            combined_err="[pytest exit=1]\nImportError: boom",
+            worker_summary="wrote src/x.py",
+            changed_files=["src/x.py"],
+        )
+        self.store.log_attempt(run_id, 2, worker_summary="green round")
+
+        logs = self.store.list_attempt_logs(run_id, limit=5)
+        self.assertEqual([l["attempt"] for l in logs], [2, 1, 0])
+        self.assertEqual(logs[0]["worker_summary"], "green round")
+        self.assertIsNone(logs[0]["err_sig"])
+        self.assertEqual(logs[1]["err_sig"], "sig-round1")
+        self.assertEqual(json.loads(logs[1]["changed_files"]), ["src/x.py"])
+        self.assertIn("ImportError", logs[1]["combined_err"])
+
+        limited = self.store.list_attempt_logs(run_id, limit=2)
+        self.assertEqual([l["attempt"] for l in limited], [2, 1])
+
+        # Logs are scoped per run
+        self.store.create_run("logs-run-002", issue_iid=2)
+        self.assertEqual(self.store.list_attempt_logs("logs-run-002"), [])
+
     def test_v1_schema_auto_migration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
