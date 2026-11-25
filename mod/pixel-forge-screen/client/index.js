@@ -514,12 +514,13 @@ const [sim,setSim]=React.useState(null),[auto,setAuto]=React.useState(false),[ti
 React.useEffect(()=>{
 let alive=true,timer=null,n=0;
 function fail(f){if(!alive)return;setOnline(false);setFault(f);timer=setTimeout(loop,3000);}
+let ensured=false;
 async function loop(){
 try{
 const status=await call('status',[runId]);
 if(!alive)return;
-if(!status||status.ok!==true){fail({kind:status&&status.reason,status:status&&status.status,url:status&&status.url});return;}
-setData(status.data);setOnline(true);setFault(null);setStarting(false);
+if(!status||status.ok!==true){const unreach=!status||status.reason==='unreachable';if(unreach&&!ensured){ensured=true;setStarting(true);call('ensure').then(r=>{if(!alive)return;setStarting(Boolean(r&&!r.up));timer=setTimeout(loop,2500);},e=>{if(!alive)return;setStarting(false);fail({kind:'internal',text:reason(e)});});return;}fail({kind:status&&status.reason,status:status&&status.status,url:status&&status.url});return;}
+setData(status.data);setOnline(true);setFault(null);setStarting(false);ensured=false;
 if(n%5===0){const list=await call('runs');if(!alive)return;setRuns((list&&list.ok&&list.data&&list.data.runs)||[]);}
 n++;timer=setTimeout(loop,1000);
 }catch(e){fail({kind:'internal',text:reason(e)});}
