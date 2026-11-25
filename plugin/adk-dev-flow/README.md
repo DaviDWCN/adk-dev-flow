@@ -3,7 +3,7 @@
 面向所有 Agent 的确定性研发流水线插件包。
 
 ## 核心特性
-- 🛠️ **17 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_preflight_test`, `flow_dispatch`, `flow_dashboard` 等。
+- 🛠️ **19 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_preflight_test`, `flow_dispatch`, `flow_dashboard` 等。
 - 🌲 **AST 代码图谱与影响面分析**：自动推导修改的爆炸半径与测试集。
 - 🎨 **像素工坊工位动画看板**：支持 Aux Pane 侧边栏（Sidecar / MCP App）及内联与独立 Web 渲染。
 - 🛡️ **物理沙箱与 TDD Red 强制契约**：杜绝非白名单越权修改与非确定性 AI 输出破坏生产。

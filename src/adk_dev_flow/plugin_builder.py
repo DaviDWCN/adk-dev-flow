@@ -38,7 +38,7 @@ def write_codebuddy_marketplace_manifest(repo_root: Path, version: str) -> Path:
             {
                 "name": "adk-dev-flow",
                 "source": "./plugin/adk-dev-flow",
-                "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 17 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
+                "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 19 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
                 "version": version,
             }
         ],
@@ -142,7 +142,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
         "name": "adk-dev-flow",
         "displayName": "ADK Deterministic Dev Flow",
         "version": version,
-        "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 17 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
+        "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 19 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
         "logo": "assets/logo.svg",
         "suggestedPrompts": [
           "按照确定性研发流程处理当前的开发需求",
@@ -252,6 +252,15 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     else:
         (rules_dir / "AGENTS.md").write_text("# Engineering Invariants\n", encoding="utf-8")
 
+    # 5b. hooks/ — PreToolUse commit gate (L1'): hooks.json + standalone script
+    hooks_dir = target / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    src_hooks = root / "src" / "adk_dev_flow" / "templates" / "hooks"
+    for hook_file in ("hooks.json", "enforce_flow.py"):
+        src_hook = src_hooks / hook_file
+        if src_hook.exists():
+            shutil.copy2(src_hook, hooks_dir / hook_file)
+
     # 6. sidecars/dashboard/sidecar.json (Antigravity Aux Pane UI Extension)
     sidecar_dir = target / "sidecars" / "dashboard"
     sidecar_dir.mkdir(parents=True, exist_ok=True)
@@ -292,7 +301,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
 面向所有 Agent 的确定性研发流水线插件包。
 
 ## 核心特性
-- 🛠️ **17 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_preflight_test`, `flow_dispatch`, `flow_dashboard` 等。
+- 🛠️ **19 个 FastMCP 原子工具**：包括 `flow_init`, `flow_lock_spec`, `flow_analyze_impact`, `flow_preflight_test`, `flow_dispatch`, `flow_dashboard` 等。
 - 🌲 **AST 代码图谱与影响面分析**：自动推导修改的爆炸半径与测试集。
 - 🎨 **像素工坊工位动画看板**：支持 Aux Pane 侧边栏（Sidecar / MCP App）及内联与独立 Web 渲染。
 - 🛡️ **物理沙箱与 TDD Red 强制契约**：杜绝非白名单越权修改与非确定性 AI 输出破坏生产。
@@ -313,6 +322,8 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
             "assets/logo.svg",
             "assets/dashboard.html",
             "sidecars/dashboard/sidecar.json",
+            "hooks/hooks.json",
+            "hooks/enforce_flow.py",
             "skills/deterministic-dev/SKILL.md",
             "rules/AGENTS.md",
             "README.md",

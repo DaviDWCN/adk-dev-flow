@@ -1,0 +1,17 @@
+{
+  "description": "ADK deterministic dev flow: gate git commit on issue branches without a registered run (L1')",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CODEBUDDY_PLUGIN_ROOT}/hooks/enforce_flow.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
