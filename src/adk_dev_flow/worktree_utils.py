@@ -21,6 +21,15 @@ _HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{6,16}")
 _ISO_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL | re.IGNORECASE)
 _LINE_NUM_RE = re.compile(r"(?::\d+)+")
+# Volatile pytest session/tmpdir counters: every run increments them, e.g.
+# `.pytest_cache/.../pytest-412` or `/tmp/pytest-of-user/pytest-42/...`.
+# Without masking, identical failures produce different fingerprints each round
+# and the repeated-fingerprint circuit breaker never fires (run 558a138f54eb).
+_PYTEST_COUNTER_RE = re.compile(r"pytest-\d+")
+_UUID_RE = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
+_TMPNAME_RE = re.compile(r"\btmp[A-Za-z0-9]{7,12}\b")
 
 
 def get_preferred_python_interpreter() -> str:
@@ -40,7 +49,8 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def normalize_error_for_signature(err_text: str, worktree: Path | None = None) -> str:
-    """Normalize volatile tokens (timings, ANSI, hex addresses, worktree path, line numbers) before hashing."""
+    """Normalize volatile tokens (timings, ANSI, hex addresses, worktree path, line numbers,
+    pytest tmpdir counters, UUIDs, tempfile random names) before hashing."""
     text = _ANSI_RE.sub("", err_text)
     if worktree is not None:
         wt_str = str(worktree.resolve())
@@ -49,6 +59,9 @@ def normalize_error_for_signature(err_text: str, worktree: Path | None = None) -
     text = _DURATION_RE.sub("in <DURATION>", text)
     text = _TIMING_PAREN_RE.sub("(<TIME>)", text)
     text = _HEX_ADDR_RE.sub("0x<ADDR>", text)
+    text = _UUID_RE.sub("<UUID>", text)
+    text = _PYTEST_COUNTER_RE.sub("pytest-<N>", text)
+    text = _TMPNAME_RE.sub("<TMP>", text)
     text = _LINE_NUM_RE.sub(":<LINE>", text)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines)

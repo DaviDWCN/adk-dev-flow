@@ -46,6 +46,44 @@ class TestWorktreeUtils(unittest.IsolatedAsyncioTestCase):
             compute_error_signature(err_diff, worktree=wt),
         )
 
+    def test_error_signature_ignores_pytest_counters_uuid_and_tmpnames(self) -> None:
+        """Volatile pytest tmpdir counters / UUIDs / tempfile names must not change the fingerprint.
+
+        Lesson: run 558a138f54eb — identical import failures produced different
+        fingerprints every round (pytest-412 incrementing), so the
+        repeated-fingerprint circuit breaker never fired.
+        """
+        err1 = (
+            "[pytest exit=1]\n"
+            "ImportError: cannot import name 'runtime_bridge' from 'uwra.api'\n"
+            "tmpdir: /tmp/pytest-of-user/pytest-412/test_collect0\n"
+            "cache: C:/tmp/tmpab12cd34/.pytest_cache\n"
+            "session: 0195abcd-12ab-78cd-34ef-056789abcdef\n"
+            "5 failed in 0.87s\n"
+        )
+        err2 = (
+            "[pytest exit=1]\n"
+            "ImportError: cannot import name 'runtime_bridge' from 'uwra.api'\n"
+            "tmpdir: /tmp/pytest-of-user/pytest-413/test_collect0\n"
+            "cache: C:/tmp/tmpxyz98765/.pytest_cache\n"
+            "session: 0195fedc-98ba-76dc-54ba-109876fedcba\n"
+            "5 failed in 1.02s\n"
+        )
+        err_diff = (
+            "[pytest exit=1]\n"
+            "ImportError: cannot import name 'session_service' from 'uwra.api'\n"
+            "tmpdir: /tmp/pytest-of-user/pytest-412/test_collect0\n"
+            "5 failed in 0.87s\n"
+        )
+        self.assertEqual(
+            compute_error_signature(err1),
+            compute_error_signature(err2),
+        )
+        self.assertNotEqual(
+            compute_error_signature(err1),
+            compute_error_signature(err_diff),
+        )
+
     def test_parse_review_verdict_fail_closed(self) -> None:
         # Valid dict
         v_ok = parse_review_verdict_dict({"approved": True, "blocking_issues": [], "summary": "LGTM"})
