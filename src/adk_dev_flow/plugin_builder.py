@@ -208,7 +208,9 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     mcp_config_data = {
         "mcpServers": {
             "adk-dev-flow": {
-                "command": "python",
+                # pythonw: GUI-subsystem interpreter — no console window flash on
+                # Windows when the host spawns us repeatedly (session start / reload).
+                "command": "pythonw",
                 "args": [
                     "-m",
                     "adk_dev_flow.mcp_server"
@@ -265,7 +267,7 @@ def build_plugin_bundle(repo_root: Path, target_dir: Path) -> dict[str, Any]:
     sidecar_dir = target / "sidecars" / "dashboard"
     sidecar_dir.mkdir(parents=True, exist_ok=True)
     sidecar_data = {
-        "command": "python",
+        "command": "pythonw",
         "args": [
             "-m",
             "adk_dev_flow.dashboard",

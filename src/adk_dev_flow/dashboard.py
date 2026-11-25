@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import webbrowser
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -17,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from adk_dev_flow.state_store import StateStore, lifecycle_highlight_critic, lifecycle_step
+from adk_dev_flow.state_store import ACTIVE_STATUSES, StateStore, lifecycle_highlight_critic, lifecycle_step
 
 
 def resolve_node_status_info(
@@ -295,6 +296,16 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
     mr_url = run_data.get("mr_url")
     node_info = resolve_node_status_info(status, attempt=attempt, last_log=last_log, mr_url=mr_url)
 
+    stale_minutes: int | None = None
+    if status in ACTIVE_STATUSES and run_data.get("updated_at"):
+        try:
+            updated_dt = datetime.fromisoformat(str(run_data["updated_at"]))
+            if updated_dt.tzinfo is None:
+                updated_dt = updated_dt.replace(tzinfo=timezone.utc)
+            stale_minutes = max(0, int((datetime.now(timezone.utc) - updated_dt).total_seconds() // 60))
+        except Exception:
+            stale_minutes = None
+
     return {
         "run_id": run_data["run_id"],
         "status": status,
@@ -315,6 +326,7 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         "mr_url": mr_url,
         "last_log": last_log,
         "updated_at": run_data.get("updated_at"),
+        "stale_minutes": stale_minutes,
         "repo_name": repo_name,
         "allowed_paths": spec.get("allowed_paths", []),
         "locked_test": spec.get("acceptance_test_path", ""),
@@ -382,10 +394,21 @@ def create_dashboard_app(
         _git_cache[key] = (now, value)
         return value
 
-    async def _outside_activity() -> dict[str, Any] | None:
-        """Report work happening on a branch without any active flow run."""
+    async def _outside_activity(active_runs: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+        """Report work happening on a branch that no active flow run claims.
+
+        Fires even when stale/zombie runs exist — their presence must not mask
+        unregistered work (the original ``no active runs`` condition did exactly that).
+        """
         branch = await _git_cached("oa_branch", 5.0, _git_sync, ["rev-parse", "--abbrev-ref", "HEAD"])
         if not branch or branch == "HEAD":
+            return None
+        if branch in ("main", "master"):
+            # Landing zone: compliant merges land here and MR_READY runs (terminal,
+            # hence not in active_runs) would otherwise look like outside work.
+            return None
+        claimed = {str(r["branch"]) for r in (active_runs or []) if r.get("branch")}
+        if branch in claimed:
             return None
         info = await _git_cached("oa_log", 5.0, _git_sync, ["log", "-1", "--format=%h%x09%ct%x09%s"])
         if not info:
@@ -401,7 +424,7 @@ def create_dashboard_app(
             "short_sha": short,
             "subject": subject,
             "commit_time": when,
-            "hint": "该分支的工作未登记流程（无活跃 run）。调用 flow_adopt(issue, branch) 收编，或走完整 flow_init。",
+            "hint": "该分支的工作未被任何活跃流程 run 认领。调用 flow_adopt(issue, branch) 收编，或走完整 flow_init。",
         }
 
     async def _merged_after_abort(run: dict[str, Any]) -> bool | None:
@@ -425,7 +448,6 @@ def create_dashboard_app(
     async def handle_status(request: Request) -> JSONResponse:
         run_id = request.query_params.get("run_id")
         run_data: dict[str, Any] | None = None
-        has_active = True
         if run_id:
             run_data = resolved_store.get_run(run_id)
         else:
@@ -433,15 +455,13 @@ def create_dashboard_app(
             if active_runs:
                 run_data = active_runs[0]
             else:
-                has_active = False
                 recent = resolved_store.list_runs(limit=1)
                 run_data = recent[0] if recent else None
 
         payload = _build_run_payload(run_data, resolved_root.name)
         if run_data and run_data.get("status") == "ABORTED":
             payload["merged_after_abort"] = await _merged_after_abort(run_data)
-        if not has_active:
-            payload["outside_activity"] = await _outside_activity()
+        payload["outside_activity"] = await _outside_activity(resolved_store.get_active_runs())
         return JSONResponse(payload, status_code=200)
 
     async def handle_runs(request: Request) -> JSONResponse:
@@ -479,8 +499,7 @@ def create_dashboard_app(
                 payload = _build_run_payload(run_data, resolved_root.name)
                 if run_data and run_data.get("status") == "ABORTED":
                     payload["merged_after_abort"] = await _merged_after_abort(run_data)
-                if not resolved_store.get_active_runs():
-                    payload["outside_activity"] = await _outside_activity()
+                payload["outside_activity"] = await _outside_activity(resolved_store.get_active_runs())
                 sig = json.dumps(payload, sort_keys=True)
                 if sig != last_sig:
                     last_sig = sig

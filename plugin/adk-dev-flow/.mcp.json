@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "adk-dev-flow": {
-      "command": "python",
+      "command": "pythonw",
       "args": [
         "-m",
         "adk_dev_flow.mcp_server"

@@ -1,5 +1,5 @@
 {
-  "command": "python",
+  "command": "pythonw",
   "args": [
     "-m",
     "adk_dev_flow.dashboard",

@@ -136,6 +136,72 @@ class TestDashboardSuite(unittest.TestCase):
         self.assertEqual(res_active["structuredContent"]["status"], "VERIFYING")
         self.assertEqual(res_active["structuredContent"]["attempt"], 2)
 
+    def _init_git_repo(self) -> None:
+        """Turn the tmp dir into a real git repo with one commit on main."""
+        import subprocess as sp
+
+        def g(*args: str) -> None:
+            sp.run(["git", *args], cwd=str(self.repo_root), check=True, capture_output=True)
+
+        g("init")
+        g("config", "user.email", "t@example.com")
+        g("config", "user.name", "t")
+        (self.repo_root / "f.txt").write_text("x", encoding="utf-8")
+        g("add", ".")
+        g("commit", "-m", "init")
+        g("branch", "-m", "main")
+
+    def test_outside_activity_not_masked_by_zombie_runs(self) -> None:
+        """Regression: zombie SPEC_DRAFTING runs must not hide unregistered branch work."""
+        import subprocess as sp
+
+        self._init_git_repo()
+        sp.run(
+            ["git", "checkout", "-b", "feat/rogue"],
+            cwd=str(self.repo_root),
+            check=True,
+            capture_output=True,
+        )
+        (self.repo_root / "f.txt").write_text("y", encoding="utf-8")
+        sp.run(["git", "commit", "-am", "rogue work"], cwd=str(self.repo_root), check=True, capture_output=True)
+
+        # Zombie run: SPEC_DRAFTING forever, claims no branch.
+        self.store.create_run("run_zombie_1", issue_iid=71)
+
+        app = create_dashboard_app(repo_root=self.repo_root, store=self.store)
+        client = TestClient(app)
+        data = client.get("/api/status").json()
+        oa = data["outside_activity"]
+        self.assertIsNotNone(oa)
+        self.assertEqual(oa["branch"], "feat/rogue")
+        self.assertIn("flow_adopt", oa["hint"])
+
+        # Once a run claims the branch, the banner disappears.
+        self.store.create_run("run_claim_1", issue_iid=72)
+        self.store.update_run("run_claim_1", status="RUNNING", branch="feat/rogue")
+        data = client.get("/api/status").json()
+        self.assertIsNone(data["outside_activity"])
+
+    def test_outside_activity_silent_on_main_branch(self) -> None:
+        """main is the landing zone: compliant merges from MR_READY runs land there."""
+        self._init_git_repo()  # HEAD stays on main
+        self.store.create_run("run_zombie_2", issue_iid=70)
+
+        app = create_dashboard_app(repo_root=self.repo_root, store=self.store)
+        client = TestClient(app)
+        data = client.get("/api/status").json()
+        self.assertIsNone(data["outside_activity"])
+
+    def test_stale_minutes_computed_for_active_runs(self) -> None:
+        """Payload carries stale_minutes so clients can flag stalled runs honestly."""
+        self.store.create_run("run_stale_1", issue_iid=73)
+
+        app = create_dashboard_app(repo_root=self.repo_root, store=self.store)
+        client = TestClient(app)
+        data = client.get("/api/status?run_id=run_stale_1").json()
+        self.assertIsInstance(data["stale_minutes"], int)
+        self.assertGreaterEqual(data["stale_minutes"], 0)
+
     def test_dashboard_detach_spawns_server_without_blocking(self) -> None:
         with mock.patch.object(dashboard.subprocess, "Popen") as popen:
             code = dashboard.main(["--detach", "--port", "8099", "--repo", str(self.repo_root)])

@@ -62,7 +62,7 @@ class TestPluginBuilder(unittest.TestCase):
             mcp_data = json.loads(mcp_json_file.read_text(encoding="utf-8"))
             self.assertIn("adk-dev-flow", mcp_data["mcpServers"])
             server_cfg = mcp_data["mcpServers"]["adk-dev-flow"]
-            self.assertEqual(server_cfg["command"], "python")
+            self.assertEqual(server_cfg["command"], "pythonw")
             self.assertEqual(server_cfg["args"], ["-m", "adk_dev_flow.mcp_server"])
 
             # 2b. .mcp.json — CodeBuddy's plugin MCP discovery file

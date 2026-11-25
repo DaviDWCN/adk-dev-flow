@@ -24,7 +24,7 @@ styles.insert(`.pfs{display:flex;flex-direction:column;gap:12px;max-width:1180px
 .pfs-led{width:10px;height:10px;border-radius:50%;background:#9ca3af}
 .pfs-led-on{background:#10b981;box-shadow:0 0 8px rgba(16,185,129,.6);animation:pfs-led 1.5s ease-in-out infinite}
 .pfs-badge{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid;font:600 11px var(--font-mono,monospace);white-space:nowrap}
-.pfs-chip{display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:3px 10px;border:1px solid var(--color-border-muted);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-secondary);font:600 11px var(--font-mono,monospace);white-space:nowrap;overflow:hidden;.pfs-oab{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);border-radius:10px;color:#92400e;font-size:11px;flex-wrap:wrap}
+.pfs-chip{display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:3px 10px;border:1px solid var(--color-border-muted);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-secondary);font:600 11px var(--font-mono,monospace);white-space:nowrap;overflow:hidden;.pfs-oab{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #f59e0b;background:rgba(245,158,11,.08);border-radius:10px;color:#92400e;font-size:11px;flex-wrap:wrap}.pfs-stall{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid #f59e0b;border-radius:999px;background:rgba(245,158,11,.12);color:#92400e;font-size:11px;font-weight:600}
 .pfs-chip-ma{color:#059669;border-color:rgba(5,150,105,.5);background:rgba(5,150,105,.08)}
 .pfs-select{max-width:260px;padding:4px 8px;border:1px solid var(--color-border-input);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-primary);font:11px var(--font-mono,monospace)}
 .pfs-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--color-border-default);border-radius:8px;background:var(--color-bg-input);color:var(--color-text-primary);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -561,6 +561,9 @@ const rev=d.review,issues=(rev&&(rev.blocking_issues||[]))||[];
 const heroToneMap={WORK:'amber',TEST:'purple',MR:'emerald',ESCALATE:'rose',CRITIC:'cyan',SPEC:'blue',IDLE:'slate'};
 const heroDotMap={amber:'#d97706',purple:'#7c3aed',emerald:'#059669',rose:'#dc2626',cyan:'#0891b2',blue:'#2563eb',slate:'#64748b'};
 const dNode=d.node_info;
+const stallMin=d.stale_minutes||0;
+const stallTxt=stallMin>=120?(stallMin/60).toFixed(1)+' 小时':stallMin+' 分钟';
+const stalled=!sim&&stallMin>=30;
 const hero=sim?STEP_HERO[sim.step]:dNode?{
 stage:dNode.stage_name||st.stepTitle,
 actor:dNode.actor_role||d.active_actor,
@@ -601,8 +604,9 @@ h('div',{className:'pfs-hero-content'},
 h('div',{className:'pfs-hero-top'},
 h('span',{className:'pfs-hero-lbl'},t('currentNode')),
 h('span',{className:'pfs-hero-stage pfs-t-'+hero.tone},hero.badge||hero.stage),
-hero.actor?h('span',{className:'pfs-hero-actor'},t('activeActor')+': '+hero.actor):null),
-h('div',{className:'pfs-hero-action'},hero.action))),
+hero.actor?h('span',{className:'pfs-hero-actor'},t('activeActor')+': '+hero.actor):null,
+stalled?h('span',{className:'pfs-stall'},'⏸ 已停滞 '+stallTxt):null),
+h('div',{className:'pfs-hero-action'},stalled?('⏸ 无进展更新已 '+stallTxt+'——该 run 可能已中断，或工作已转到流程外分支'):hero.action))),
 h('div',{className:'pfs-hero-side'},
 hero.waiting?h('div',{className:'pfs-hero-box'},
 h('span',{className:'pfs-hero-box-lbl'},t('waitingFor')+':'),

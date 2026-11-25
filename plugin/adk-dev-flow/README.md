@@ -1,4 +1,4 @@
-# ADK Deterministic Dev Flow Plugin (v0.2.2)
+# ADK Deterministic Dev Flow Plugin (v0.2.3)
 
 面向所有 Agent 的确定性研发流水线插件包。
 
