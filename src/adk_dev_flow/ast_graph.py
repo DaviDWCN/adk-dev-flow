@@ -373,6 +373,10 @@ class CodeGraph:
 
     def __init__(self, repo_root: Path | str, store: CpgStore | None = None) -> None:
         self.repo_root = Path(repo_root).resolve()
+        if store is None:
+            # Default: enable CAS storage under the repo-local cache directory
+            # (created on demand) so sync_git / analyze_impact hit the cache.
+            store = CpgStore(self.repo_root / ".adk" / "cache" / "cpg_cache.db")
         self.store = store
         self.file_index: dict[str, FileAstInfo] = {}
         self.file_cpgs: dict[str, FileCpg] = {}
@@ -595,6 +599,21 @@ class CodeGraph:
         Only modified or new blobs trigger AST/CFG/DFG extraction.
         """
         import subprocess
+        import sys
+
+        # Windows: launch git child processes without a console window.
+        # On POSIX the creationflags key is not passed at all.
+        run_kwargs: dict[str, Any] = (
+            {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+        )
+
+        # 0. Guard: repo_root must be a git repository root (i.e. contain .git).
+        # A plain directory, or a sub-directory of a repo (where ls-tree output
+        # would be relative to that sub-directory), is not syncable via the git
+        # tree — fall back to a full working-tree index instead.
+        if not (self.repo_root / ".git").exists():
+            self.index_repo()
+            return {"parsed_files": len(self.file_index), "cached_hits": 0, "total_files": len(self.file_index)}
 
         # 1. Resolve commit SHA
         if not commit_sha:
@@ -604,6 +623,7 @@ class CodeGraph:
                     cwd=str(self.repo_root),
                     capture_output=True,
                     check=True,
+                    **run_kwargs,
                 )
                 commit_sha = res.stdout.decode("ascii").strip()
             except Exception:
@@ -617,6 +637,7 @@ class CodeGraph:
                 cwd=str(self.repo_root),
                 capture_output=True,
                 check=True,
+                **run_kwargs,
             )
             raw_output = res.stdout
         except Exception:
@@ -627,11 +648,6 @@ class CodeGraph:
         parsed_files = 0
         cached_hits = 0
         current_tree_blobs: dict[str, str] = {}
-
-        if self.store is None:
-            db_dir = self.repo_root / ".adk" / "cache"
-            db_dir.mkdir(parents=True, exist_ok=True)
-            self.store = CpgStore(db_dir / "code_graph.sqlite")
 
         entries = raw_output.split(b"\0")
         current_repo_files: set[str] = set()
@@ -671,26 +687,23 @@ class CodeGraph:
                     self.file_index[rel_path] = ast_info
                 self.file_cpgs[rel_path] = cached_cpg
             else:
-                # Cache miss: parse file
+                # Cache miss: fetch the committed content from the git object
+                # store via cat-file. Never read the working tree — dirty
+                # content must not enter the cache under a clean blob OID
+                # (cache poisoning). On cat-file failure degrade to "" so this
+                # file simply fails to parse instead of poisoning the cache.
                 parsed_files += 1
-                full_path = self.repo_root / rel_path
-                code = None
-                if full_path.is_file():
-                    try:
-                        code = full_path.read_text(encoding="utf-8", errors="replace")
-                    except Exception:
-                        code = None
-                if code is None:
-                    try:
-                        cat_res = subprocess.run(
-                            ["git", "cat-file", "-p", blob_oid],
-                            cwd=str(self.repo_root),
-                            capture_output=True,
-                            check=True,
-                        )
-                        code = cat_res.stdout.decode("utf-8", errors="replace")
-                    except Exception:
-                        code = ""
+                try:
+                    cat_res = subprocess.run(
+                        ["git", "cat-file", "-p", blob_oid],
+                        cwd=str(self.repo_root),
+                        capture_output=True,
+                        check=True,
+                        **run_kwargs,
+                    )
+                    code = cat_res.stdout.decode("utf-8", errors="replace")
+                except Exception:
+                    code = ""
 
                 info, cpg = self.scan_file_cpg(rel_path, code=code, blob_oid=blob_oid)
                 self.file_index[rel_path] = info
@@ -743,7 +756,13 @@ class CodeGraph:
     def analyze_impact(self, target_paths_or_symbols: list[str]) -> ImpactReport:
         """Compute the blast radius / impacted files and tests for modified paths/symbols."""
         if not self.file_index:
-            self.index_repo()
+            if self.store is not None:
+                # First visit goes through sync_git (CAS-backed incremental sync);
+                # it internally falls back to index_repo for non-git repos or
+                # when git is unavailable.
+                self.sync_git()
+            else:
+                self.index_repo()
 
         matched_files: set[str] = set()
         matched_symbols: set[str] = set()
