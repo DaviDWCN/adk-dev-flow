@@ -240,6 +240,9 @@ class CpgBuilder:
                         DfgEdge(source_var=v, target_var=f"cond@{line}", source_line=var_defs[v], target_line=line, kind="def_use")
                     )
 
+            # Trace call arguments into DFG (taint reaches flattened condition)
+            self._trace_call_args(stmt.test, var_defs, line)
+
             # True branch
             body_first = True
             curr_true = cond_node
@@ -290,6 +293,12 @@ class CpgBuilder:
             loop_node = self._alloc_node(f"loop_head", line, "loop_cond")
             if prev:
                 self.cfg_edges.append(CfgEdge(source=prev.id, target=loop_node.id, kind="next"))
+
+            # Trace call arguments into DFG (taint reaches flattened loop iteration/condition)
+            if isinstance(stmt, ast.For):
+                self._trace_call_args(stmt.iter, var_defs, line)
+            else:
+                self._trace_call_args(stmt.test, var_defs, line)
 
             curr = loop_node
             loop_first = True
