@@ -836,17 +836,17 @@ def build_dev_workflow(
             prompt += okf_rules
 
         provider = get_worker_provider()
-        # Spike (discovery-type) tasks need a much larger exploration budget:
-        # a 15-turn free flash model spends it all on reverse-engineering and
-        # exits before ever writing a file (lesson: run 558a138f54eb).
-        max_turns = 15
+        # Worker turn budget applies to every run (discovery-type tasks on a
+        # cheap model spend a small budget on reverse-engineering and exit
+        # before ever writing a file — lesson: run 558a138f54eb). Spike runs
+        # multiply the configured base by 4 (floor 60) and double the timeout.
+        try:
+            max_turns = int(os.environ.get("ADK_WORKER_MAX_TURNS", "15"))
+        except ValueError:
+            max_turns = 15
         worker_timeout: int | None = None
         if spec.spike:
-            try:
-                base_turns = int(os.environ.get("ADK_WORKER_MAX_TURNS", "15"))
-            except ValueError:
-                base_turns = 15
-            max_turns = max(60, base_turns * 4)
+            max_turns = max(60, max_turns * 4)
             try:
                 base_timeout = int(os.environ.get("ADK_WORKER_TIMEOUT", "300"))
             except ValueError:

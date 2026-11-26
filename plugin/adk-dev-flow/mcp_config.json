@@ -10,7 +10,8 @@
         "PYTHONUNBUFFERED": "1",
         "REPO_ROOT": ".",
         "ADK_LINT_CMD": "skip",
-        "ADK_WORKER_TIMEOUT": "600"
+        "ADK_WORKER_TIMEOUT": "600",
+        "ADK_WORKER_MAX_TURNS": "100"
       }
     }
   }
