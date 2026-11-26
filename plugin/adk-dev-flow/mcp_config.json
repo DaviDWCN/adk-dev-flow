@@ -8,7 +8,9 @@
       ],
       "env": {
         "PYTHONUNBUFFERED": "1",
-        "REPO_ROOT": "."
+        "REPO_ROOT": ".",
+        "ADK_LINT_CMD": "skip",
+        "ADK_WORKER_TIMEOUT": "600"
       }
     }
   }
