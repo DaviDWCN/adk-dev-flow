@@ -936,6 +936,50 @@ def generate_skeleton(code: str, file_path: str = "") -> str:
         return code
 
 
+_SHELL_EXECUTABLES = frozenset(
+    {
+        "sh",
+        "bash",
+        "zsh",
+        "dash",
+        "ksh",
+        "csh",
+        "fish",
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+    }
+)
+
+
+def _is_safe_subprocess_run(node: ast.Call) -> bool:
+    """Return True for non-shell subprocess.run([...]) calls with a fixed non-shell program."""
+    if (_get_call_name(node.func) or "") != "subprocess.run":
+        return False
+
+    cmd_arg: ast.AST | None = node.args[0] if node.args else None
+    for kw in node.keywords:
+        if kw.arg == "shell":
+            if not (isinstance(kw.value, ast.Constant) and kw.value.value is False):
+                return False
+        elif kw.arg == "args" and cmd_arg is None:
+            cmd_arg = kw.value
+
+    if not isinstance(cmd_arg, (ast.List, ast.Tuple)) or not cmd_arg.elts:
+        return False
+
+    first = cmd_arg.elts[0]
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        return False
+    prog = first.value.strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if not prog or prog in _SHELL_EXECUTABLES:
+        return False
+    return True
+
+
 def audit_ast_diff(
     base_code: str,
     new_code: str,
@@ -988,6 +1032,8 @@ def audit_ast_diff(
         lineno = getattr(node, "lineno", -1)
         return lineno in suppressed_lines
 
+    safe_subprocess_lines: set[int] = set()
+
     for node in ast.walk(new_tree):
         if _is_node_suppressed(node):
             continue
@@ -995,6 +1041,9 @@ def audit_ast_diff(
         if isinstance(node, ast.Call):
             call_name = _get_call_name(node.func) or ""
             if call_name in allowed_calls:
+                continue
+            if _is_safe_subprocess_run(node):
+                safe_subprocess_lines.add(getattr(node, "lineno", -1))
                 continue
             if call_name in dangerous_calls or any(
                 f"[{d!r}]" in call_name for d in ("eval", "exec", "system", "popen")
@@ -1004,12 +1053,12 @@ def audit_ast_diff(
                 target_mod = _get_call_name(node.args[0]) or ""
                 attr_arg = node.args[1]
                 if isinstance(attr_arg, ast.Constant) and isinstance(attr_arg.value, str):
-                    if attr_arg.value in ("system", "popen", "eval", "exec", "spawn", "__builtins__"):
+                    if attr_arg.value in ("system", "popen", "eval", "exec", "spawn", "__builtins__"):  # noqa: adk-ast
                         report.dangerous_nodes.append(
                             f"发现反射危险函数调用 `getattr({target_mod}, '{attr_arg.value}')` (line {node.lineno})"
                         )
                 elif isinstance(attr_arg, (ast.BinOp, ast.JoinedStr, ast.Call)):
-                    if target_mod in ("os", "subprocess", "builtins", "__builtins__", "sys"):
+                    if target_mod in ("os", "subprocess", "builtins", "__builtins__", "sys"):  # noqa: adk-ast
                         report.dangerous_nodes.append(
                             f"发现敏感模块上的动态反射调用 `getattr({target_mod}, <dynamic>)` (line {node.lineno})"
                         )
@@ -1017,9 +1066,9 @@ def audit_ast_diff(
                 report.dangerous_nodes.append(
                     f"发现全局作用域反射或内建提权访问 `{call_name}()` (line {node.lineno})"
                 )
-        elif isinstance(node, ast.Name) and node.id == "__builtins__":
+        elif isinstance(node, ast.Name) and node.id == "__builtins__":  # noqa: adk-ast
             report.dangerous_nodes.append(f"发现内建提权命名空间访问 `__builtins__` (line {node.lineno})")
-        elif isinstance(node, ast.Constant) and node.value == "__builtins__":
+        elif isinstance(node, ast.Constant) and node.value == "__builtins__":  # noqa: adk-ast
             report.dangerous_nodes.append(f"发现敏感内建属性索引 `'__builtins__'` (line {node.lineno})")
         elif isinstance(node, ast.Import):
             for alias in node.names:
@@ -1095,6 +1144,8 @@ def audit_ast_diff(
                         nxt = edge.target_var
                         abs_line = edge.target_line
                         if abs_line in suppressed_lines:
+                            continue
+                        if nxt.startswith("call:subprocess.run@") and abs_line in safe_subprocess_lines:
                             continue
                         if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):
                             report.dangerous_nodes.append(
