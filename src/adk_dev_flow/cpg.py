@@ -138,6 +138,18 @@ def _get_call_name(node: ast.AST) -> str | None:
     return None
 
 
+def iter_arg_names(args: ast.arguments) -> list[str]:
+    """Return all formal parameter names from an ast.arguments node in declaration order."""
+    names: list[str] = []
+    for arg in (*getattr(args, "posonlyargs", ()), *args.args, *args.kwonlyargs):
+        if arg.arg not in names:
+            names.append(arg.arg)
+    for star_arg in (args.vararg, args.kwarg):
+        if star_arg is not None and star_arg.arg not in names:
+            names.append(star_arg.arg)
+    return names
+
+
 class CpgBuilder:
     """Constructs intra-procedural CFG and DFG from a Python AST."""
 
@@ -179,8 +191,8 @@ class CpgBuilder:
 
         # Record parameter definitions in DFG
         var_defs: dict[str, int] = {}
-        for arg in fn.args.args:
-            var_defs[arg.arg] = fn.lineno
+        for arg_name in iter_arg_names(fn.args):
+            var_defs[arg_name] = fn.lineno
 
         prev = entry
         for stmt in fn.body:
@@ -202,7 +214,8 @@ class CpgBuilder:
             if isinstance(sub, ast.Call):
                 call_name = _get_call_name(sub.func) or ""
                 call_label = f"call:{call_name}@{line}" if call_name else f"call@{line}"
-                for arg in sub.args:
+                call_arg_nodes = [*sub.args, *(kw.value for kw in sub.keywords)]
+                for arg in call_arg_nodes:
                     for u in self._extract_names(arg):
                         if u in var_defs:
                             self.dfg_edges.append(

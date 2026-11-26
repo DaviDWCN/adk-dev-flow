@@ -55,6 +55,10 @@ class TestGuard(unittest.TestCase):
             ".codebuddy/settings.json",
             str(self.cwd / ".codebuddy" / "hooks" / "workflow_guard.py"),
             ".adk/active_run.json",
+            ".adk/workflow.db",
+            ".adk/workflow.db-wal",
+            ".adk/env.json",
+            ".adk/exemptions.log",
             "tools/adk_dev_flow/workflow.py",
             "mcp.json",
         ]
@@ -90,6 +94,11 @@ class TestGuard(unittest.TestCase):
         marker = self.cwd / ".adk" / "active_run.json"
         ok_before, _ = evaluate_file_edit("src/api/app.py", cwd=self.cwd, env={})
         self.assertTrue(ok_before)
+
+        for db_file in (".adk/workflow.db", ".adk/workflow.db-wal"):
+            ok_db, reason_db = evaluate_file_edit(db_file, cwd=self.cwd, env={})
+            self.assertFalse(ok_db, f"Expected workflow DB path to be blocked outside active flow: {db_file}")
+            self.assertIn("内部运行状态", reason_db)
 
         marker.write_text('{"run_id": "abc", "status": "RUNNING"}', encoding="utf-8")
         ok_after, reason = evaluate_file_edit("src/api/app.py", cwd=self.cwd, env={})

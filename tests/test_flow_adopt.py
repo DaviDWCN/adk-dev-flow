@@ -139,6 +139,23 @@ class TestFlowAdoptService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run["status"], "MR_READY")
         self.assertIn("[post_hoc] 收编完成 @", run["last_error_log"])
 
+    async def test_finalize_reads_adopted_branch_tip_even_when_head_is_on_main(self) -> None:
+        base = _current_branch(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "76-side-branch")
+        (self.repo / "side.md").write_text("side", encoding="utf-8")
+        _git(self.repo, "add", "side.md")
+        _git(self.repo, "commit", "-q", "-m", "side branch work (issue #76)")
+        side_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        _git(self.repo, "checkout", "-q", base)
+
+        res = await self.service.flow_adopt(issue_iid=76, branch="76-side-branch")
+        done = await self.service.flow_adopt_finalize(run_id=res["run_id"])
+        self.assertNotIn("error", done)
+        self.assertEqual(done["branch_head"]["commit_sha"], side_sha)
+        self.assertIn("side branch work", done["branch_head"]["subject"])
+
     async def test_finalize_picks_latest_adopted_run(self) -> None:
         await self.service.flow_adopt(issue_iid=1, branch="1-a")
         await self.service.flow_adopt(issue_iid=2, branch="2-b")

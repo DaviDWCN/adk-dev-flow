@@ -683,13 +683,14 @@ def build_dev_workflow(
             if commit_res.returncode != 0:
                 raise RuntimeError(f"提交锁定验收测试失败: {commit_res.stderr.strip()}")
 
+            # Save and commit OKF spec contract BEFORE capturing locked_test_commit_sha
+            # so pipeline-generated .adk/specs/ commits precede the worker diff boundary.
+            await save_and_commit_spec_in_worktree(spec, worktree=worktree, run_id=run_id)
+
             lock_sha_res = await _git(["rev-parse", "HEAD"], worktree)
             if lock_sha_res.returncode != 0:
                 raise RuntimeError(f"读取锁定测试 commit SHA 失败: {lock_sha_res.stderr.strip()}")
             locked_test_commit_sha = lock_sha_res.stdout.strip()
-
-            # Save and commit OKF spec contract into the worktree branch
-            await save_and_commit_spec_in_worktree(spec, worktree=worktree, run_id=run_id)
 
             if spec.extra_dependencies:
                 dep_ok, dep_msg = await sync_worktree_dependencies(

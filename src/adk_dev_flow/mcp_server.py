@@ -16,7 +16,7 @@ from fastmcp import FastMCP
 from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
-from adk_dev_flow.state_store import PRE_LOCK_STATUSES, StateStore
+from adk_dev_flow.state_store import ACTIVE_STATUSES, PRE_LOCK_STATUSES, StateStore
 from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
 
@@ -119,6 +119,10 @@ class FlowService:
         self.gl: BaseGitForge = forge or gl or get_git_forge(self.repo_root)
         self.forge: BaseGitForge = self.gl
         self.bg_tasks: dict[str, asyncio.Task[None]] = {}
+        self._root_cache: dict[Path, tuple[StateStore, BaseGitForge]] = {
+            self.repo_root: (self.store, self.gl)
+        }
+        self._run_roots: dict[str, Path] = {}
         if recovery_grace_period is None:
             try:
                 recovery_grace_period = float(os.environ.get("ADK_RECOVERY_GRACE_PERIOD", ""))
@@ -136,7 +140,13 @@ class FlowService:
 
         task.add_done_callback(_cleanup)
 
-    def _ensure_repo_root(self, repo_override: str | None = None) -> None:
+    def _resolve_context(
+        self,
+        *,
+        run_id: str | None = None,
+        repo_override: str | None = None,
+    ) -> tuple[Path, StateStore, BaseGitForge]:
+        """Resolve (repo_root, store, forge) without losing earlier multi-repo run bindings."""
         if repo_override:
             p = Path(repo_override).resolve()
             curr = p
@@ -146,11 +156,31 @@ class FlowService:
                     break
                 curr = curr.parent
             if (p / ".git").exists() or p.exists():
+                cached = self._root_cache.get(p)
+                if cached is None:
+                    cached = (StateStore(p), get_git_forge(p))
+                    self._root_cache[p] = cached
                 self.repo_root = p
-                self.store = StateStore(p)
-                self.gl = get_git_forge(p)
+                self.store, self.gl = cached
                 self.forge = self.gl
-                return
+                return p, cached[0], cached[1]
+
+        if run_id:
+            known_root = self._run_roots.get(run_id)
+            if known_root is not None and known_root in self._root_cache:
+                store_k, forge_k = self._root_cache[known_root]
+                return known_root, store_k, forge_k
+            if self.store.get_run(run_id) is not None:
+                return self.repo_root, self.store, self.gl
+            for r_path, (r_store, r_forge) in self._root_cache.items():
+                if r_store.get_run(run_id) is not None:
+                    self._run_roots[run_id] = r_path
+                    return r_path, r_store, r_forge
+
+        return self.repo_root, self.store, self.gl
+
+    def _ensure_repo_root(self, repo_override: str | None = None) -> None:
+        self._resolve_context(repo_override=repo_override)
 
     async def flow_init(
         self,
@@ -192,6 +222,7 @@ class FlowService:
                 )
 
         self.store.create_run(run_id=run_id, issue_iid=issue_iid)
+        self._run_roots[run_id] = self.repo_root
         result: dict[str, Any] = {
             "run_id": run_id,
             "status": "SPEC_DRAFTING",
@@ -260,6 +291,7 @@ class FlowService:
             evidence_type="post_hoc",
             spec_json=json.dumps(spec_note, ensure_ascii=False),
         )
+        self._run_roots[run_id] = self.repo_root
         try:
             from adk_dev_flow.enforcement import install_pre_commit_hook
 
@@ -414,8 +446,18 @@ class FlowService:
                 return {"error": "没有 ADOPTED 状态的收编 run 可完成（可先调用 flow_adopt 登记）。"}
 
         try:
+            log_target = "HEAD"
+            branch_ref = str(run.get("branch") or "").strip()
+            if branch_ref:
+                probe_branch = await run_subprocess_safe(
+                    ["git", "rev-parse", "--verify", "--quiet", f"{branch_ref}^{{commit}}"],
+                    cwd=self.repo_root,
+                    timeout_sec=10.0,
+                )
+                if probe_branch.returncode == 0 and (probe_branch.stdout or "").strip():
+                    log_target = branch_ref
             res = await run_subprocess_safe(
-                ["git", "log", "-1", "--format=%H%n%h%n%s"],
+                ["git", "log", "-1", "--format=%H%n%h%n%s", log_target],
                 cwd=self.repo_root,
                 timeout_sec=15.0,
             )
@@ -463,8 +505,8 @@ class FlowService:
         }
 
     def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
-        self._ensure_repo_root()
-        run = self.store.get_run(run_id)
+        root, store, _ = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
@@ -479,7 +521,7 @@ class FlowService:
                 target_sources: list[tuple[str, str]] = []
                 for task in spec.tasks:
                     for tf in task.target_files:
-                        full_p = (self.repo_root / tf).resolve()
+                        full_p = (root / tf).resolve()
                         if full_p.is_file() and full_p.suffix == ".py":
                             try:
                                 src = full_p.read_text(encoding="utf-8")
@@ -506,7 +548,7 @@ class FlowService:
                             "mutation_report": mutation_dict,
                         }
 
-        ok = self.store.transition_run(
+        ok = store.transition_run(
             run_id,
             expected_statuses=PRE_LOCK_STATUSES,
             new_status="SPEC_LOCKED",
@@ -524,7 +566,7 @@ class FlowService:
         try:
             from adk_dev_flow.ast_graph import CodeGraph
 
-            cg = CodeGraph(self.repo_root)
+            cg = CodeGraph(root)
             report = cg.analyze_impact(spec.allowed_paths)
             ast_impact = {
                 "impacted_production_files": report.impacted_production_files,
@@ -562,13 +604,14 @@ class FlowService:
 
     def _record_preflight_status(self, run_id: str) -> dict[str, Any]:
         """Move a drafting run to TEST_GENERATED. Leave any later status untouched."""
-        run = self.store.get_run(run_id)
+        _, store, _ = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {
                 "status_updated": False,
                 "status_error": f"未知 run_id: {run_id}",
             }
-        moved = self.store.transition_run(
+        moved = store.transition_run(
             run_id,
             expected_statuses=PRE_LOCK_STATUSES,
             new_status="TEST_GENERATED",
@@ -588,7 +631,7 @@ class FlowService:
         self, test_path: str, test_code: str, run_id: str | None = None
     ) -> dict[str, Any]:
         """Pre-flight test runner on baseline repository to verify TDD Red validity."""
-        self._ensure_repo_root()
+        root, _, _ = self._resolve_context(run_id=run_id)
         import ast
         import subprocess
         import sys
@@ -606,7 +649,7 @@ class FlowService:
                 "error": f"测试代码存在 Python 语法错误 (line {exc.lineno}): {exc.msg}",
             }
 
-        target_file = (self.repo_root / test_path).resolve()
+        target_file = (root / test_path).resolve()
         target_file.parent.mkdir(parents=True, exist_ok=True)
         old_content: bytes | None = None
         if target_file.is_file():
@@ -620,8 +663,8 @@ class FlowService:
             cmd = resolve_tool_command(
                 "pytest",
                 ["-q", str(target_file)],
-                worktree=self.repo_root,
-                repo_root=self.repo_root,
+                worktree=root,
+                repo_root=root,
                 env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
                 placeholder_vars={"test_path": test_path},
             )
@@ -630,7 +673,7 @@ class FlowService:
 
             proc = subprocess.run(
                 cmd,
-                cwd=str(self.repo_root),
+                cwd=str(root),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -690,10 +733,10 @@ class FlowService:
                     pass
 
     def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
-        self._ensure_repo_root()
+        root, _, _ = self._resolve_context(run_id=run_id)
         p = Path(spec_file_path)
         if not p.is_absolute():
-            p = (self.repo_root / p).resolve()
+            p = (root / p).resolve()
         if not p.is_file():
             return {"error": f"规约文件未找到: {spec_file_path} (resolved: {p})"}
         try:
@@ -703,13 +746,13 @@ class FlowService:
         return self.flow_lock_spec(run_id=run_id, spec=spec)
 
     async def flow_dispatch(self, run_id: str) -> dict[str, Any]:
-        self._ensure_repo_root()
-        run = self.store.get_run(run_id)
+        root, store, gl = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
         # Atomic CAS transition prevents duplicate concurrent launches.
-        ok = self.store.transition_run(
+        ok = store.transition_run(
             run_id,
             expected_statuses=("SPEC_LOCKED",),
             new_status="RUNNING",
@@ -720,7 +763,7 @@ class FlowService:
             }
 
         task = asyncio.create_task(
-            execute_workflow_run(self.repo_root, self.store, self.gl, run_id)
+            execute_workflow_run(root, store, gl, run_id)
         )
         self._register_task(run_id, task)
         return {
@@ -734,13 +777,14 @@ class FlowService:
         if not hint:
             return {"error": "请提供非空的补充指令 (instruction) 后再恢复执行。"}
 
-        run = self.store.get_run(run_id)
+        root, store, gl = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
         if not run.get("spec_json"):
             return {"error": f"run_id={run_id} 尚未锁定 Spec，无法恢复执行。"}
 
-        ok = self.store.transition_run(
+        ok = store.transition_run(
             run_id,
             expected_statuses=("ESCALATED",),
             new_status="RUNNING",
@@ -755,7 +799,7 @@ class FlowService:
 
         task = asyncio.create_task(
             execute_workflow_run(
-                self.repo_root, self.store, self.gl, run_id, human_hint=hint
+                root, store, gl, run_id, human_hint=hint
             )
         )
         self._register_task(run_id, task)
@@ -766,11 +810,11 @@ class FlowService:
         }
 
     def flow_status(self, run_id: str) -> dict[str, Any]:
-        self._ensure_repo_root()
-        run = self.store.get_run(run_id)
+        _, store, _ = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
-        marker = self.store.read_active_marker()
+        marker = store.read_active_marker()
         active_run_id = (marker.get("run_id") or marker.get("active_run_id")) if marker else None
         active_ids = marker.get("active_run_ids", []) if marker else []
         is_holding_lock = bool(marker and (active_run_id == run_id or run_id in active_ids))
@@ -787,7 +831,7 @@ class FlowService:
             "review": json.loads(run["review_json"]) if run["review_json"] else None,
             "human_hint": run.get("human_hint"),
             "last_error_log": (run["last_error_log"] or "")[-1500:],
-            "attempt_history": self.store.list_attempt_logs(run_id, limit=5),
+            "attempt_history": store.list_attempt_logs(run_id, limit=5),
             "is_holding_lock": is_holding_lock,
             "current_locked_run_id": active_run_id,
             "updated_at": run["updated_at"],
@@ -800,28 +844,26 @@ class FlowService:
         return res
 
     def flow_unlock(self, run_id: str | None = None, force: bool = False) -> dict[str, Any]:
-        """安全解除主工作区的只读锁定。清除 .adk/active_run.json 并同步运行状态。"""
-        marker = self.store.read_active_marker()
+        """安全解除主工作区的只读锁定。按 run_id 精确取消/同步，多任务并发时不误删其他锁。"""
+        _, store, _ = self._resolve_context(run_id=run_id)
+        marker = store.read_active_marker()
         marker_run_id = (marker.get("run_id") or marker.get("active_run_id")) if marker else None
         target_id = run_id or marker_run_id
 
         if target_id:
-            run = self.store.get_run(target_id)
-            if run and run["status"] in (
-                "SPEC_DRAFTING",
-                "SPEC_LOCKED",
-                "RUNNING",
-                "VERIFYING",
-                "REPAIRING",
-                "REVIEWING",
-            ):
-                self.store.update_run(
+            task = self.bg_tasks.pop(target_id, None)
+            if task and not task.done():
+                task.cancel()
+            run = store.get_run(target_id)
+            if run and run["status"] in ACTIVE_STATUSES:
+                store.update_run(
                     target_id,
                     status="ESCALATED",
                     last_error_log="\n[系统解锁] 用户调用 flow_unlock 解除工作区只读锁定。",
                 )
 
-        self.store.clear_active_run()
+        if force or not run_id or not store.get_active_runs():
+            store.clear_active_run()
         return {
             "unlocked": True,
             "cleared_marker_for": target_id,
@@ -845,11 +887,12 @@ class FlowService:
         ]
         return {"runs": items, "count": len(items)}
 
-    async def _remove_worktree(self, worktree_path: str) -> str | None:
+    async def _remove_worktree(self, worktree_path: str, repo_root: Path | None = None) -> str | None:
+        root = repo_root or self.repo_root
         wt_p = Path(worktree_path)
         res = await run_subprocess_safe(
             ["git", "worktree", "remove", "--force", worktree_path],
-            cwd=self.repo_root,
+            cwd=root,
             timeout_sec=30.0,
         )
         if wt_p.exists():
@@ -859,7 +902,7 @@ class FlowService:
                 pass
         await run_subprocess_safe(
             ["git", "worktree", "prune"],
-            cwd=self.repo_root,
+            cwd=root,
             timeout_sec=15.0,
         )
         if wt_p.exists():
@@ -867,7 +910,8 @@ class FlowService:
         return None
 
     async def flow_finalize(self, run_id: str, remove_worktree: bool = True) -> dict[str, Any]:
-        run = self.store.get_run(run_id)
+        root, store, gl = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
         if run["status"] != "MR_READY":
@@ -876,19 +920,19 @@ class FlowService:
             }
 
         result: dict[str, Any] = {"run_id": run_id, "status": "MR_READY"}
-        if run.get("mr_iid") and self.gl.enabled:
+        if run.get("mr_iid") and gl.enabled:
             try:
-                result["mr"] = await asyncio.to_thread(self.gl.mark_mr_ready, run["mr_iid"])
+                result["mr"] = await asyncio.to_thread(gl.mark_mr_ready, run["mr_iid"])
             except Exception as exc:
-                return {"error": f"移除 {self.gl.platform_name.upper()} PR/MR Draft 标记失败: {exc}"}
+                return {"error": f"移除 {gl.platform_name.upper()} PR/MR Draft 标记失败: {exc}"}
 
         if remove_worktree and run.get("worktree_path"):
-            wt_err = await self._remove_worktree(run["worktree_path"])
+            wt_err = await self._remove_worktree(run["worktree_path"], repo_root=root)
             result["worktree_removed"] = wt_err is None
             if wt_err:
                 result["worktree_warning"] = wt_err
 
-        self.store._sync_active_marker()
+        store._sync_active_marker()
         return result
 
     async def flow_close_issue(self, run_id: str, repo_root: str | None = None) -> dict[str, Any]:
@@ -897,8 +941,8 @@ class FlowService:
         先验证 run 分支 tip 是当前 HEAD 的祖先（合并确实落地），再附证据评论并关闭。
         forge 不可用或合并未落地时拒绝关闭，绝不假装成功。
         """
-        self._ensure_repo_root(repo_root)
-        run = self.store.get_run(run_id)
+        root, store, gl = self._resolve_context(run_id=run_id, repo_override=repo_root)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
         if run["status"] != "MR_READY":
@@ -911,7 +955,7 @@ class FlowService:
         if not head_sha and run.get("branch"):
             probe = await run_subprocess_safe(
                 ["git", "rev-parse", "--verify", f"{run['branch']}^{{commit}}"],
-                cwd=self.repo_root,
+                cwd=root,
             )
             if probe.returncode == 0:
                 head_sha = probe.stdout.strip() or None
@@ -922,7 +966,7 @@ class FlowService:
 
         merge = await run_subprocess_safe(
             ["git", "merge-base", "--is-ancestor", head_sha, "HEAD"],
-            cwd=self.repo_root,
+            cwd=root,
         )
         if merge.returncode != 0:
             return {
@@ -933,18 +977,18 @@ class FlowService:
                 "reason": "fail-closed：分支 tip 不是当前 HEAD 的祖先，合并尚未落地，拒绝关闭 issue",
             }
 
-        if not self.gl.enabled:
+        if not gl.enabled:
             return {
                 "closed": False,
                 "run_id": run_id,
                 "issue_iid": issue_iid,
                 "head_sha": head_sha,
                 "merge_verified": True,
-                "reason": f"forge 不可用（{self.gl.platform_name} 离线），拒绝假装关闭；合并已验证落地，可人工关闭",
+                "reason": f"forge 不可用（{gl.platform_name} 离线），拒绝假装关闭；合并已验证落地，可人工关闭",
             }
 
         try:
-            issue = await asyncio.to_thread(self.gl.get_issue, issue_iid)
+            issue = await asyncio.to_thread(gl.get_issue, issue_iid)
             if issue.get("state") == "closed":
                 return {
                     "closed": True,
@@ -973,7 +1017,7 @@ class FlowService:
         if base_sha:
             log = await run_subprocess_safe(
                 ["git", "log", "--oneline", f"{base_sha}..{head_sha}"],
-                cwd=self.repo_root,
+                cwd=root,
             )
             if log.returncode == 0 and log.stdout.strip():
                 lines.append("")
@@ -985,11 +1029,11 @@ class FlowService:
         failures: list[str] = []
         issue_url = ""
         try:
-            await asyncio.to_thread(self.gl.post_issue_comment, issue_iid, body)
+            await asyncio.to_thread(gl.post_issue_comment, issue_iid, body)
         except Exception as exc:
             failures.append(f"评论失败: {exc}")
         try:
-            closed = await asyncio.to_thread(self.gl.close_issue, issue_iid)
+            closed = await asyncio.to_thread(gl.close_issue, issue_iid)
             issue_url = closed.get("web_url", "")
         except Exception as exc:
             failures.append(f"关闭失败: {exc}")
@@ -1007,7 +1051,8 @@ class FlowService:
         return result
 
     async def flow_abort(self, run_id: str, remove_worktree: bool = False) -> dict[str, Any]:
-        run = self.store.get_run(run_id)
+        root, store, _ = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
@@ -1021,9 +1066,9 @@ class FlowService:
 
         wt_warning: str | None = None
         if remove_worktree and run.get("worktree_path"):
-            wt_warning = await self._remove_worktree(run["worktree_path"])
+            wt_warning = await self._remove_worktree(run["worktree_path"], repo_root=root)
 
-        self.store.update_run(run_id, status="ABORTED")
+        store.update_run(run_id, status="ABORTED")
         result: dict[str, Any] = {"run_id": run_id, "status": "ABORTED"}
         if wt_warning:
             result["worktree_warning"] = wt_warning

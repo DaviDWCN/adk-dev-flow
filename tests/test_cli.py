@@ -26,6 +26,8 @@ class TestCliInit(unittest.TestCase):
             self.assertTrue(settings_cfg.is_file())
             self.assertTrue(ci_cfg.is_file())
             self.assertIn(".adk/state.db*", gitignore.read_text(encoding="utf-8"))
+            self.assertIn(".adk/workflow.db*", gitignore.read_text(encoding="utf-8"))
+            self.assertIn(".adk/exemptions.log", gitignore.read_text(encoding="utf-8"))
             self.assertIn(".adk/worktrees/", gitignore.read_text(encoding="utf-8"))
 
             # Verify valid JSON templates and secure defaults

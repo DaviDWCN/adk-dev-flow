@@ -155,6 +155,27 @@ class TestMultiProjectCoexistence(unittest.TestCase):
             self.assertEqual(server_env.get("REPO_ROOT"), ".")
             self.assertEqual(server_env.get("PYTHONUNBUFFERED"), "1")
 
+    def test_mcp_service_tracks_run_roots_across_repos(self) -> None:
+        """Switching repo_root in flow_init must not lose track of earlier runs in other repos."""
+        import asyncio
+
+        with tempfile.TemporaryDirectory() as td1, tempfile.TemporaryDirectory() as td2:
+            repo1 = Path(td1)
+            repo2 = Path(td2)
+            subprocess.run(["git", "init", "-q"], cwd=repo1, check=True)
+            subprocess.run(["git", "init", "-q"], cwd=repo2, check=True)
+
+            _, service = create_mcp_server(repo_root=repo1)
+            r1 = asyncio.run(service.flow_init("Req 1", repo_root=str(repo1)))["run_id"]
+            r2 = asyncio.run(service.flow_init("Req 2", repo_root=str(repo2)))["run_id"]
+
+            st1 = service.flow_status(r1)
+            st2 = service.flow_status(r2)
+            self.assertNotIn("error", st1, f"Lost track of repo1 run_id: {st1}")
+            self.assertNotIn("error", st2)
+            self.assertEqual(st1["run_id"], r1)
+            self.assertEqual(st2["run_id"], r2)
+
 
 if __name__ == "__main__":
     unittest.main()

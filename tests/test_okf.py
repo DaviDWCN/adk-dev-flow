@@ -232,6 +232,70 @@ class TestOkfContract(unittest.TestCase):
             )
             self.assertIn("不存在于", " ".join(_errors(validate_repo(repo))))
 
+    def test_cross_machine_committed_verdict_with_git_provenance_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _git_cmd(repo, "init", "-q")
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            _git_cmd(repo, "add", "README.md")
+            _git_cmd(repo, "commit", "-q", "-m", "base")
+            base_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+            ).stdout.strip()
+
+            (repo / ".adk" / "audit").mkdir(parents=True)
+            (repo / ".adk" / "audit" / "review_other123.md").write_text(
+                "---\n"
+                "type: ReviewVerdict\n"
+                "run_id: other123\n"
+                "approved: true\n"
+                "verified: process:acceptance_gate_passed\n"
+                "status: passed\n"
+                "blocking_issues: []\n"
+                "timestamp: '2026-11-26T00:00:00+00:00'\n"
+                "provenance:\n"
+                f"  base_sha: {base_sha}\n"
+                f"  locked_test_commit_sha: {base_sha}\n"
+                "---\n\n# Review\n",
+                encoding="utf-8",
+            )
+            _git_cmd(repo, "add", "-f", ".adk/audit/review_other123.md")
+            _git_cmd(repo, "commit", "-q", "-m", "docs(audit): record other123")
+
+            # Local DB exists on a second machine, so `other123` is absent locally.
+            StateStore(repo)
+            report = validate_repo(repo)
+            self.assertTrue(report["valid"], f"unexpected errors: {_errors(report)}")
+            self.assertEqual(report["warnings"], [])
+
+    def test_committed_verdict_with_fake_provenance_is_still_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _git_cmd(repo, "init", "-q")
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            _git_cmd(repo, "add", "README.md")
+            _git_cmd(repo, "commit", "-q", "-m", "base")
+
+            (repo / ".adk" / "audit").mkdir(parents=True)
+            (repo / ".adk" / "audit" / "review_fake123.md").write_text(
+                "---\n"
+                "type: ReviewVerdict\n"
+                "run_id: fake123\n"
+                "approved: true\n"
+                "verified: process:acceptance_gate_passed\n"
+                "status: passed\n"
+                "blocking_issues: []\n"
+                "timestamp: '2026-11-26T00:00:00+00:00'\n"
+                "provenance:\n"
+                "  base_sha: '0000000000000000000000000000000000000000'\n"
+                "---\n\n# Fake Review\n",
+                encoding="utf-8",
+            )
+            _git_cmd(repo, "add", "-f", ".adk/audit/review_fake123.md")
+            _git_cmd(repo, "commit", "-q", "-m", "docs(audit): fake")
+            StateStore(repo)
+            self.assertIn("不存在于", " ".join(_errors(validate_repo(repo))))
+
     def test_unknown_type_and_extra_keys_are_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

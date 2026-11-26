@@ -19,6 +19,7 @@ from adk_dev_flow.cpg import (
     FileCpg,
     compute_content_hash,
     compute_git_blob_oid,
+    iter_arg_names,
 )
 
 
@@ -1047,33 +1048,42 @@ def audit_ast_diff(
                                 )
 
     # 3b. CPG DFG-based taint flow analysis.
-    # Taint is scoped per top-level function: sources, adjacency table and
-    # sink checks are confined to a single function's subgraph, so same-name
-    # parameters of different functions cannot cross-talk through a
-    # file-level graph. Module-level code has no formal parameters and
-    # yields no taint.
-    source_lines = new_code.splitlines()
+    # Taint is scoped per top-level function or class method: sources,
+    # adjacency table and sink checks are confined to a single callable's
+    # subgraph, so same-name parameters of different functions/methods cannot
+    # cross-talk through a file-level graph. Module-level code has no formal
+    # parameters and yields no taint.
+    def _collect_callable_scopes(
+        stmts: list[ast.stmt], *, in_class: bool = False
+    ) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, bool]]:
+        scopes: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, bool]] = []
+        for stmt in stmts:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scopes.append((stmt, in_class))
+            elif isinstance(stmt, ast.ClassDef):
+                scopes.extend(_collect_callable_scopes(stmt.body, in_class=True))
+        return scopes
+
     try:
-        for fn_node in new_tree.body:
-            if not isinstance(fn_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            snippet = "\n".join(source_lines[fn_node.lineno - 1 : fn_node.end_lineno])
-            fn_tree = ast.parse(snippet, filename=file_path)
-            builder = CpgBuilder(snippet, file_path=file_path)
-            _, _, dfg_edges = builder.build(fn_tree)
+        for fn_node, is_method in _collect_callable_scopes(new_tree.body):
+            fn_module = ast.Module(body=[fn_node], type_ignores=[])
+            builder = CpgBuilder(new_code, file_path=file_path)
+            _, _, dfg_edges = builder.build(fn_module)
 
             adj: dict[str, list[DfgEdge]] = {}
             for edge in dfg_edges:
                 adj.setdefault(edge.source_var, []).append(edge)
 
-            # Formal parameters defined within this function scope are the
+            # Formal parameters defined within this callable scope are the
             # only taint sources (nested defs stay inside this subgraph).
             param_sources: list[str] = []
-            for item in ast.walk(fn_tree):
+            for item in ast.walk(fn_node):
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    for arg in item.args.args:
-                        if arg.arg not in param_sources:
-                            param_sources.append(arg.arg)
+                    for arg_name in iter_arg_names(item.args):
+                        if is_method and item is fn_node and arg_name in ("self", "cls"):
+                            continue
+                        if arg_name not in param_sources:
+                            param_sources.append(arg_name)
 
             # Trace reachable targets from parameters within this scope
             for p in param_sources:
@@ -1083,8 +1093,7 @@ def audit_ast_diff(
                     curr = queue.pop(0)
                     for edge in adj.get(curr, []):
                         nxt = edge.target_var
-                        # DFG lines are snippet-relative; map back to file lines
-                        abs_line = fn_node.lineno - 1 + edge.target_line
+                        abs_line = edge.target_line
                         if abs_line in suppressed_lines:
                             continue
                         if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):

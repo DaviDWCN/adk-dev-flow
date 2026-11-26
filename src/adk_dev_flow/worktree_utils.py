@@ -315,7 +315,7 @@ def _is_ephemeral_runtime_artifact(norm_path: str) -> bool:
     """Filter out non-source runtime artifacts produced during tests/lints."""
     parts = norm_path.split("/")
     if any(
-        p in ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".hypothesis", ".venv", "venv", ".adk")
+        p in ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".hypothesis", ".venv", "venv")
         for p in parts
     ):
         return True

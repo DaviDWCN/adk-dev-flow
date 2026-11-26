@@ -87,6 +87,8 @@ def init_target_repo(
             root,
             [
                 ".adk/state.db*",
+                ".adk/workflow.db*",
+                ".adk/exemptions.log",
                 ".adk/active_run.json",
                 ".adk/worktrees/",
                 ".adk/locks/",

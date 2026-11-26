@@ -10,6 +10,13 @@ PROTECTED_PATHS: tuple[str, ...] = (
     ".gitlab-ci.yml",
     ".codebuddy",
     ".adk/state.db",
+    ".adk/workflow.db",
+    ".adk/workflow.db-wal",
+    ".adk/workflow.db-shm",
+    ".adk/workflow.db-journal",
+    ".adk/env.json",
+    ".adk/config.local.json",
+    ".adk/exemptions.log",
     ".adk/active_run.json",
     ".adk/worktrees",
     ".adk/locks",
@@ -127,14 +134,14 @@ def evaluate_file_edit(
         except Exception:
             marker_status = ""
 
-        if marker_status == "SPEC_DRAFTING":
+        if marker_status in ("SPEC_DRAFTING", "SPEC_DESIGNED", "TEST_GENERATED", "PRE_CRITIC_REVIEWED"):
             if is_protected_path(rel):
                 return False, f"禁止修改受保护的门禁或框架文件: {rel}"
             if any(is_path_under(rel, p) for p in OKF_WRITABLE_PATHS):
                 return True, ""
             return (
                 False,
-                "当前处于 SPEC_DRAFTING 阶段，仅允许起草或修改 .adk/specs/ 与 .adk/knowledge/ 规约文件；"
+                f"当前处于 {marker_status} 阶段，仅允许起草或修改 .adk/specs/ 与 .adk/knowledge/ 规约文件；"
                 "严禁在主工作区修改业务代码，请在 Spec 确认后通过 flow_dispatch 调度至沙箱 Worktree 执行。",
             )
 
@@ -148,7 +155,19 @@ def evaluate_file_edit(
 
     # Outside active flow: developers are free to edit project files (pyproject.toml, etc.)
     # Protect only raw internal database / runtime state if present
-    if any(is_path_under(rel, p) for p in (".adk/state.db", ".adk/active_run.json", ".adk/worktrees", ".git")):
+    if any(
+        is_path_under(rel, p)
+        for p in (
+            ".adk/state.db",
+            ".adk/workflow.db",
+            ".adk/workflow.db-wal",
+            ".adk/workflow.db-shm",
+            ".adk/workflow.db-journal",
+            ".adk/active_run.json",
+            ".adk/worktrees",
+            ".git",
+        )
+    ):
         return False, f"禁止直接修改系统内部运行状态文件: {rel}"
 
     return True, ""

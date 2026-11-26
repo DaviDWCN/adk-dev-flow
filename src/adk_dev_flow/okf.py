@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from adk_dev_flow.state_store import StateStore
+from adk_dev_flow.subproc import no_window_kwargs
 
 OKF_VERSION = "1.0"
 
@@ -289,6 +291,75 @@ def _iter_markdown_files(repo_root: Path) -> list[Path]:
     return files
 
 
+def _is_git_commit(repo_root: Path, sha: str) -> bool:
+    """Return True iff sha resolves to an existing commit object in repo_root."""
+    clean = sha.strip()
+    if not re.match(r"^[0-9a-fA-F]{4,64}$", clean):
+        return False
+    try:
+        res = subprocess.run(
+            ["git", "cat-file", "-t", clean],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            **no_window_kwargs(),
+        )
+        return res.returncode == 0 and res.stdout.strip() == "commit"
+    except Exception:
+        return False
+
+
+def _has_git_provenance(repo_root: Path, rel: str, shas: list[str]) -> bool:
+    """Verify an OKF audit/adopted record committed on another machine via Git history.
+
+    Requires BOTH that the record itself is committed at HEAD:<rel> and that at least
+    one recorded provenance/head commit SHA resolves to a real commit in this repo.
+    """
+    if not (repo_root / ".git").exists():
+        return False
+    candidates = [str(s).strip() for s in shas if s and str(s).strip()]
+    if not candidates:
+        return False
+    try:
+        in_head = subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{rel}"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            **no_window_kwargs(),
+        )
+        if in_head.returncode != 0:
+            return False
+    except Exception:
+        return False
+    return any(_is_git_commit(repo_root, sha) for sha in candidates)
+
+
+def _check_run_cross_reference(
+    repo_root: Path,
+    rel: str,
+    rid: str,
+    shas: list[str],
+    run_ids: set[str] | None,
+    issues: list[OkfIssue],
+) -> None:
+    """Validate run_id against local DB, falling back to Git provenance for committed records."""
+    if run_ids is None or rid in run_ids:
+        return
+    if _has_git_provenance(repo_root, rel, shas):
+        issues.append(
+            OkfIssue(
+                "info",
+                rel,
+                f"run_id '{rid}' 不在本地 .adk/workflow.db，但已通过 Git 提交与 provenance 溯源校验",
+            )
+        )
+        return
+    issues.append(OkfIssue("error", rel, f"跨引用失败: run_id '{rid}' 不存在于 .adk/workflow.db"))
+
+
 def _load_run_ids(db_path: Path) -> set[str] | None:
     """Return run_ids in the local workflow DB, or None when there is none."""
     if not db_path.is_file():
@@ -400,12 +471,28 @@ def validate_repo(repo_root: Path) -> dict[str, Any]:
             if meta.get("verified") != expected_verified:
                 issues.append(OkfIssue("error", rel, f"内部矛盾: verified 应为 '{expected_verified}'"))
             rid = str(meta.get("run_id") or "")
-            if run_ids is not None and rid not in run_ids:
-                issues.append(OkfIssue("error", rel, f"跨引用失败: run_id '{rid}' 不存在于 .adk/workflow.db"))
+            prov = meta.get("provenance") if isinstance(meta.get("provenance"), dict) else {}
+            _check_run_cross_reference(
+                repo_root,
+                rel,
+                rid,
+                [
+                    str(prov.get("base_sha") or ""),
+                    str(prov.get("locked_test_commit_sha") or ""),
+                ],
+                run_ids,
+                issues,
+            )
         elif doc_type == "AdoptedSpec":
             rid = str(meta.get("run_id") or "")
-            if run_ids is not None and rid not in run_ids:
-                issues.append(OkfIssue("error", rel, f"跨引用失败: run_id '{rid}' 不存在于 .adk/workflow.db"))
+            _check_run_cross_reference(
+                repo_root,
+                rel,
+                rid,
+                [str(meta.get("head_sha") or "")],
+                run_ids,
+                issues,
+            )
         elif doc_type == "ADR":
             adr_no = int(meta.get("adr"))
             forward = [(t, False) for t in meta.get("supersedes", [])] + [

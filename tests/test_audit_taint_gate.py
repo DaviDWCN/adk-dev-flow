@@ -73,6 +73,50 @@ class TestTaintSinkCoverage(unittest.TestCase):
             f"return 语句里的污点汇点被漏报: {report.dangerous_nodes}",
         )
 
+    def test_sink_in_class_method_is_detected(self) -> None:
+        code = (
+            "import subprocess\n"
+            "class Runner:\n"
+            "    def execute(self, cmd):\n"
+            "        out = subprocess.getoutput(cmd)\n"
+            "        return out\n"
+        )
+        report = audit_ast_diff("", code, "t.py")
+        self.assertTrue(
+            any("污点" in s and "`cmd`" in s for s in report.dangerous_nodes),
+            f"类方法内的污点汇点被漏报: {report.dangerous_nodes}",
+        )
+
+    def test_sink_via_keyword_argument_is_detected(self) -> None:
+        code = (
+            "import subprocess\n"
+            "def run(cmd):\n"
+            "    return subprocess.check_output(args=cmd)\n"
+        )
+        report = audit_ast_diff("", code, "t.py")
+        self.assertTrue(
+            any("污点" in s and "`cmd`" in s for s in report.dangerous_nodes),
+            f"关键字参数传递的污点汇点被漏报: {report.dangerous_nodes}",
+        )
+
+    def test_kwonly_and_vararg_taint_is_detected(self) -> None:
+        code = (
+            "import subprocess\n"
+            "def run_kw(*, cmd):\n"
+            "    return subprocess.getoutput(cmd)\n"
+            "def run_var(*cmds):\n"
+            "    return subprocess.getoutput(cmds)\n"
+        )
+        report = audit_ast_diff("", code, "t.py")
+        self.assertTrue(
+            any("污点" in s and "`cmd`" in s for s in report.dangerous_nodes),
+            f"kwonlyargs 形参污点被漏报: {report.dangerous_nodes}",
+        )
+        self.assertTrue(
+            any("污点" in s and "`cmds`" in s for s in report.dangerous_nodes),
+            f"vararg 形参污点被漏报: {report.dangerous_nodes}",
+        )
+
 
 class TestTaintScopeIsolation(unittest.TestCase):
     """根因 2：污点源与邻接表按文件全局收集，不同函数的同名形参互相串扰。"""
@@ -95,6 +139,34 @@ class TestTaintScopeIsolation(unittest.TestCase):
         self.assertTrue(
             any("`data`" in s for s in report.dangerous_nodes),
             f"processor 的 data 污点必须仍被检出: {report.dangerous_nodes}",
+        )
+
+    def test_class_methods_same_name_params_do_not_cross_talk(self) -> None:
+        code = (
+            "import subprocess\n"
+            "class Pipeline:\n"
+            "    def __init__(self, repo_root):\n"
+            "        self.repo_root = repo_root\n"
+            "    def reader(self, path):\n"
+            "        data = open(path).read()\n"
+            "        return data\n"
+            "    def processor(self, data):\n"
+            "        return subprocess.getoutput(data)\n"
+            "    def safe_git(self):\n"
+            "        return subprocess.check_output(['git', 'status'], cwd=str(self.repo_root))\n"
+        )
+        report = audit_ast_diff("", code, "t.py")
+        self.assertFalse(
+            any("`path`" in s for s in report.dangerous_nodes),
+            f"reader 的 path 参数被跨方法串扰误报: {report.dangerous_nodes}",
+        )
+        self.assertFalse(
+            any("`self`" in s for s in report.dangerous_nodes),
+            f"self 不应被当作不可信外部形参污点源: {report.dangerous_nodes}",
+        )
+        self.assertTrue(
+            any("`data`" in s for s in report.dangerous_nodes),
+            f"processor 的 data 污点必须检出: {report.dangerous_nodes}",
         )
 
 

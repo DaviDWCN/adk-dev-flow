@@ -247,6 +247,20 @@ class TestWorktreeUtils(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(audit_protected.ok)
             self.assertTrue(any("受保护" in v and ".gitlab-ci.yml" in v for v in audit_protected.violations))
 
+            # 5) Worker modifies protected .adk/env.json -> must NOT be skipped as ephemeral .adk artifact
+            (repo / ".gitlab-ci.yml").write_text("stages: [test]\n", encoding="utf-8")
+            (repo / ".adk").mkdir(exist_ok=True)
+            (repo / ".adk" / "env.json").write_text('{"ADK_LINT_CMD": "skip"}\n', encoding="utf-8")
+            audit_adk = await audit_worktree_changes(
+                repo,
+                allowed_paths=["src"],
+                acceptance_test_path=test_path,
+                locked_test_sha256=locked_sha,
+                locked_test_commit_sha=lock_commit,
+            )
+            self.assertFalse(audit_adk.ok)
+            self.assertTrue(any(".adk/env.json" in v for v in audit_adk.violations), audit_adk.violations)
+
 
 if __name__ == "__main__":
     unittest.main()
