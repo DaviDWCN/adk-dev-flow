@@ -382,6 +382,10 @@ class CpgBuilder:
 class CpgStore:
     """SQLite-based Content-Addressable Storage (CAS) for AST, CFG, and DFG code properties."""
 
+    # Bump this when the cached serialization format changes. A store opened
+    # with a different recorded version is fully rebuilt (no row-level migration).
+    SCHEMA_VERSION = 1
+
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,6 +410,33 @@ class CpgStore:
         with conn:
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS cpg_store_meta (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """
+            )
+            row = conn.execute(
+                "SELECT value FROM cpg_store_meta WHERE key = 'schema_version'"
+            ).fetchone()
+            if row is None or row[0] != str(self.SCHEMA_VERSION):
+                # Version missing (legacy store) or mismatched: drop everything
+                # and rebuild from scratch — no row-level migration.
+                conn.executescript(
+                    """
+                    DROP TABLE IF EXISTS cpg_blob_cache;
+                    DROP TABLE IF EXISTS cpg_edges;
+                    DROP TABLE IF EXISTS cpg_commit_snapshots;
+                    DROP TABLE IF EXISTS cpg_store_meta;
+                    """
+                )
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS cpg_store_meta (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS cpg_blob_cache (
                     blob_oid        TEXT PRIMARY KEY,
                     file_path       TEXT NOT NULL,
@@ -432,6 +463,10 @@ class CpgStore:
                 CREATE INDEX IF NOT EXISTS idx_cpg_edges_target ON cpg_edges (target_symbol);
                 CREATE INDEX IF NOT EXISTS idx_cpg_edges_blob ON cpg_edges (source_blob);
                 """
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO cpg_store_meta (key, value) VALUES ('schema_version', ?)",
+                (str(self.SCHEMA_VERSION),),
             )
 
     def get_blob_cpg(self, blob_oid: str, ast_info_cls: Any = None) -> FileCpg | None:
@@ -535,6 +570,14 @@ class CpgStore:
             except Exception:
                 pass
             self._conn = None
+
+    def __del__(self) -> None:
+        # Release the sqlite file handle deterministically (CPython refcounting)
+        # so the db file is not locked after the owner goes out of scope.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def __enter__(self) -> CpgStore:
         return self
