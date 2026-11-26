@@ -170,6 +170,65 @@ class TestTaintScopeIsolation(unittest.TestCase):
         )
 
 
+class TestIssue6GateFalsePositives(unittest.TestCase):
+    """Issue #6: 污点/AST 门禁三类误报（列表参数 subprocess.run、门禁自审字面量、测试助手参数）。"""
+
+    def test_safe_list_literal_subprocess_run_allowed(self) -> None:
+        code = (
+            "import subprocess\n"
+            "def git_cat(blob_oid):\n"
+            "    return subprocess.run(['git', 'cat-file', '-p', blob_oid], capture_output=True)\n"
+        )
+        report = audit_ast_diff("", code, "src/svc.py")
+        self.assertFalse(
+            report.has_issues,
+            f"列表字面量非 shell 的 subprocess.run 不应触发阻断: {report.dangerous_nodes}",
+        )
+
+    def test_dangerous_subprocess_run_variants_still_blocked(self) -> None:
+        cases = [
+            ("shell=True", "import subprocess\ndef f(cmd):\n    return subprocess.run(cmd, shell=True)\n"),
+            ("list + shell=True", "import subprocess\ndef f(cmd):\n    return subprocess.run(['echo', cmd], shell=True)\n"),
+            ("sh -c wrapper", "import subprocess\ndef f(cmd):\n    return subprocess.run(['sh', '-c', cmd])\n"),
+            ("cmd /c wrapper", "import subprocess\ndef f(cmd):\n    return subprocess.run(['cmd.exe', '/c', cmd])\n"),
+            ("string arg", "import subprocess\ndef f(cmd):\n    return subprocess.run(cmd)\n"),
+            ("dynamic prog", "import subprocess\ndef f(prog):\n    return subprocess.run([prog, '--version'])\n"),
+        ]
+        for label, code in cases:
+            report = audit_ast_diff("", code, "src/bad.py")
+            self.assertTrue(
+                report.has_issues,
+                f"危险 subprocess.run 模式 ({label}) 必须仍被拦截!",
+            )
+
+    def test_helper_function_params_into_safe_git_list_allowed(self) -> None:
+        code = (
+            "import subprocess\n"
+            "from pathlib import Path\n"
+            "def _git(repo: Path, *args: str) -> str:\n"
+            "    res = subprocess.run(\n"
+            "        ['git', '-C', str(repo), '-c', 'user.name=t', *args],\n"
+            "        capture_output=True, text=True, check=True,\n"
+            "    )\n"
+            "    return res.stdout.strip()\n"
+        )
+        report = audit_ast_diff("", code, "tests/test_sync_git_cas_cache.py")
+        self.assertFalse(
+            report.has_issues,
+            f"测试助手向安全列表 subprocess.run 传参不应被误报为污点: {report.dangerous_nodes}",
+        )
+
+    def test_ast_graph_and_sync_test_self_audit_clean(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        for rel in ("src/adk_dev_flow/ast_graph.py", "tests/test_sync_git_cas_cache.py"):
+            code = (root / rel).read_text(encoding="utf-8")
+            report = audit_ast_diff("", code, rel)
+            self.assertFalse(
+                report.has_issues,
+                f"{rel} 自审发现误报: {report.dangerous_nodes}",
+            )
+
+
 class TestTaintGateFailsClosed(unittest.TestCase):
     """根因 4：except Exception: pass 吞掉内部错误。"""
 

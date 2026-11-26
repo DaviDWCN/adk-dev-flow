@@ -212,8 +212,9 @@ class CpgBuilder:
         """Trace call arguments into DFG as param_pass edges (taint propagation)."""
         for sub in ast.walk(node):
             if isinstance(sub, ast.Call):
+                call_line = getattr(sub, "lineno", line)
                 call_name = _get_call_name(sub.func) or ""
-                call_label = f"call:{call_name}@{line}" if call_name else f"call@{line}"
+                call_label = f"call:{call_name}@{call_line}" if call_name else f"call@{call_line}"
                 call_arg_nodes = [*sub.args, *(kw.value for kw in sub.keywords)]
                 for arg in call_arg_nodes:
                     for u in self._extract_names(arg):
@@ -223,7 +224,7 @@ class CpgBuilder:
                                     source_var=u,
                                     target_var=call_label,
                                     source_line=var_defs[u],
-                                    target_line=line,
+                                    target_line=call_line,
                                     kind="param_pass",
                                 )
                             )
