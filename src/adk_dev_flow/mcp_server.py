@@ -17,7 +17,7 @@ from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.state_store import PRE_LOCK_STATUSES, StateStore
-from adk_dev_flow.subproc import run_subprocess_safe
+from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
 
 
@@ -635,6 +635,7 @@ class FlowService:
                 stderr=subprocess.PIPE,
                 text=True,
                 timeout=60,
+                **no_window_kwargs(),
             )
             combined_out = f"{proc.stdout}\n{proc.stderr}"
             try:

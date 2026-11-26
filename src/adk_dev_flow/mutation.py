@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from adk_dev_flow.subproc import run_subprocess_safe
+from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
 from adk_dev_flow.worktree_utils import get_preferred_python_interpreter
 
 
@@ -398,6 +398,7 @@ def evaluate_test_against_mutants_sync(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=timeout_sec,
+                    **no_window_kwargs(),
                     env=env,
                 )
                 if res.returncode != 0:

@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from adk_dev_flow.subproc import no_window_kwargs
+
 _DRAFT_PREFIX_RE = re.compile(r"^(?:draft|wip)\s*:\s*", re.IGNORECASE)
 _GITHUB_REMOTE_RE = re.compile(
     r"(?:git@[\w.-]+:|https?://[^/]+/)([\w.-]+/[\w.-]+?)(?:\.git)?$", re.IGNORECASE
@@ -42,6 +44,7 @@ def get_git_remote_url(repo_root: Path | None = None) -> str:
             text=True,
             check=False,
             timeout=5,
+            **no_window_kwargs(),
         )
         if res.returncode == 0:
             return res.stdout.strip()
@@ -415,6 +418,7 @@ class GitHubClient(BaseGitForge):
                 text=True,
                 timeout=15,
                 cwd=str(repo_root) if repo_root else None,
+                **no_window_kwargs(),
             )
             if proc.returncode != 0:
                 return ""

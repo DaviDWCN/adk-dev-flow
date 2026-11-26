@@ -135,6 +135,19 @@ async def _terminate_process_tree(proc: asyncio.subprocess.Process, job_handle: 
         pass
 
 
+def no_window_kwargs() -> dict[str, int]:
+    """Extra subprocess kwargs that suppress console windows on Windows.
+
+    Raw subprocess.run/Popen call sites that bypass run_subprocess_safe must
+    spread these kwargs: a console-subsystem child (git, pytest, node) spawned
+    from a windowless parent (pythonw service) would otherwise flash a cmd
+    window per call.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": _subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 async def run_subprocess_safe(
     cmd: list[str],
     *,

@@ -19,6 +19,7 @@ from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from adk_dev_flow.state_store import ACTIVE_STATUSES, StateStore, lifecycle_highlight_critic, lifecycle_step
+from adk_dev_flow.subproc import no_window_kwargs
 
 
 def resolve_node_status_info(
@@ -362,6 +363,7 @@ def create_dashboard_app(
                 capture_output=True,
                 text=True,
                 timeout=10,
+                **no_window_kwargs(),
             )
         except Exception:
             return None
@@ -376,6 +378,7 @@ def create_dashboard_app(
                 capture_output=True,
                 text=True,
                 timeout=10,
+                **no_window_kwargs(),
             )
         except Exception:
             return None

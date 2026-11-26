@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from adk_dev_flow.subproc import no_window_kwargs
+
 # Branch declares an issue: "76-sqlite-only-..." or "adk/issue-66-5ff00b"
 ISSUE_BRANCH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^(\d+)-"),
@@ -149,6 +151,7 @@ def install_pre_commit_hook(repo_root: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
             timeout=10,
+            **no_window_kwargs(),
         )
     except Exception as exc:
         return {"installed": False, "reason": f"git rev-parse failed: {exc}"}
@@ -198,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             capture_output=True,
             text=True,
             timeout=10,
+            **no_window_kwargs(),
         )
         branch = res.stdout.strip()
     except Exception:

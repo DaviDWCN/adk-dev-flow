@@ -109,12 +109,18 @@ def main() -> int:
         return 0  # exempt, but traced
 
     try:
+        # Standalone hook: no package imports — inline the Windows no-window
+        # flag (CREATE_NO_WINDOW = 0x08000000) instead of subproc helpers.
+        extra_kwargs = (
+            {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+        )
         res = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=str(cwd),
             capture_output=True,
             text=True,
             timeout=10,
+            **extra_kwargs,
         )
         branch = res.stdout.strip()
     except Exception:
