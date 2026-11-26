@@ -49,7 +49,7 @@ related_adrs: [1]
   - **三图合一**：统一抽取抽象语法树（AST）、过程内控制流图（CFG，分支/循环/跳转）与数据流图（DFG，定义-使用链/参数传递/污点追踪）。
   - **Git Blob CAS 存储**：基于 Git Blob OID（`git hash-object` 标准 SHA-1）与 SHA-256 内容寻址，压缩持久化至本地 SQLite WAL 缓存（`.adk/cache/code_graph.sqlite`）。
   - **增量同步 (`CodeGraph.sync_git`)**：利用 `git ls-tree -r -z` 直接匹配提交树 Blob OID，未变更文件 100% 缓存命中，不重新解析。注意：`flow_analyze_impact`、锁定反馈和派发上下文目前走的是不带缓存的全量 `index_repo()`，尚未接入这条路径。
-  - **影响面（爆炸半径）推导**：根据目标文件或符号名，按文件导入关系推导一跳和两跳的依赖方，按符号名列出直接调用方，并推荐 `allowed_paths`。精度是文件级；符号表以裸名做键，不同模块的同名符号会互相覆盖。
+  - **影响面（爆炸半径）推导**：根据目标文件或符号名，按文件导入关系推导一跳和两跳的依赖方，按模块限定符号表列出直接调用方（调用归属按「同文件定义 ➔ 全局唯一裸名 ➔ 未解析」逐级收敛），并推荐 `allowed_paths`。精度是文件级；裸名唯一时精确匹配，裸名重名时全部命中并在 `ImpactReport.ambiguous_symbols` 标出歧义来源，支持 `module:symbol` / `module.symbol` / `path:symbol` 限定查询收窄到指定模块。
   - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，递归保留类继承、嵌套闭包工具签名、完整类型注解与 Docstring，减少工兵的上下文 Token（设计时估计可省 65% 以上，未复核）并杜绝接口幻觉。
   - **静态 AST Diff 与 DFG 污点安全门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及 DFG 污点检查，提供确定性硬约束。污点检查目前只在 sink 调用是独立表达式语句时生效；`return eval(p)`、赋值右侧、经辅助函数间接到达等写法靠前面的危险函数直接调用检查拦截。
   - 内建 `scripts/deep_ast_audit.py` 自检脚本（`sys.settrace` 动态调用轨迹与静态影响面的召回率、精确率对比，骨架的可编译性与幂等性检查，10 组对抗样本）。

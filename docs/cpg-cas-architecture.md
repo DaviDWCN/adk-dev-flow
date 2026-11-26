@@ -147,7 +147,7 @@ flowchart TD
 其他边界：
 
 - **影响面是文件级**：按导入关系取一跳和两跳的依赖方。本仓库改 `mutation.py` 会报出 15 个测试文件，其中提到它的只有 1 个。
-- **符号表以裸名做键**：本仓库 65 个 `.py` 文件的 241 个顶层名里有 10 个重名，后扫描的文件覆盖先扫描的。例如 `cli_main` 只指向 `plugin_builder.py`，`ast_graph.py` 里的同名函数会丢。
+- **符号表采用模块限定主键 + 裸名多值索引**：`qualified_symbol_to_file` 以 `module:symbol` 为键精确定位，`symbol_to_files` 保留裸名到所有定义文件的映射（实测全库 871 个独立符号名中 16 个重名，如 `main`、`cli_main`、`_get_call_name`）。裸名重名时 `analyze_impact` 命中全部定义并在 `ambiguous_symbols` 标出歧义，支持 `module:symbol` / `module.symbol` / `path:symbol` 限定查询；调用方归属遵循「同文件定义 ➔ 全局唯一裸名 ➔ 记入 `unresolved_calls`」规则。
 - **只收 `.py`**：`mod/` 下的 TypeScript、JavaScript 和看板 HTML 既不在图里，也不在门禁里。
 - **没有跨函数的边**：CFG 和 DFG 都止于函数边界，调用关系只有符号名级的 `reverse_symbol_calls`。
 
