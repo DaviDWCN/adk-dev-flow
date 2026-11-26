@@ -44,7 +44,13 @@ def get_max_diff_chars() -> int:
 MAX_REPAIR_ATTEMPTS = int(os.environ.get("ADK_MAX_RETRIES", "3"))
 MAX_DIFF_CHARS = get_max_diff_chars()
 GIT_TIMEOUT_SEC = float(os.environ.get("ADK_GIT_TIMEOUT", "60"))
-VERIFY_TIMEOUT_SEC = float(os.environ.get("ADK_VERIFY_TIMEOUT", "180"))
+
+
+def get_verify_timeout_sec() -> float:
+    """Verify-gate timeout, read at call time so project .adk/env.json wins
+    over import order (ADK_VERIFY_TIMEOUT was previously frozen at module
+    import, before load_project_config applied project env — issue seen 2026-11-26)."""
+    return float(os.environ.get("ADK_VERIFY_TIMEOUT", "180"))
 
 
 def assemble_diff_blocks(
@@ -541,13 +547,15 @@ async def run_tdd_red_preflight(
     spec: SpecContract,
     worktree: Path,
     repo_root: Path,
-    timeout_sec: float = VERIFY_TIMEOUT_SEC,
+    timeout_sec: float | None = None,
 ) -> None:
     """Pre-flight TDD Red verification on the clean baseline worktree.
 
     Fails closed if pytest cannot be resolved, if execution crashes, or if the test passes (exit 0).
     Requires a genuine assertion failure on baseline to prove the test is effective.
     """
+    if timeout_sec is None:
+        timeout_sec = get_verify_timeout_sec()
     red_cmd = resolve_tool_command(
         "pytest",
         ["-q", spec.acceptance_test_path],
@@ -933,7 +941,7 @@ def build_dev_workflow(
             )
             if lint_cmd is not None:
                 lint_res = await run_subprocess_safe(
-                    lint_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
+                    lint_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                 )
                 if lint_res.returncode != 0:
                     failure_sections.append(
@@ -951,7 +959,7 @@ def build_dev_workflow(
             )
             if test_cmd is not None:
                 test_res = await run_subprocess_safe(
-                    test_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
+                    test_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                 )
                 if test_res.returncode != 0:
                     failure_sections.append(
@@ -972,7 +980,7 @@ def build_dev_workflow(
                 )
                 if reg_cmd is not None:
                     reg_res = await run_subprocess_safe(
-                        reg_cmd, cwd=worktree, env=subproc_env, timeout_sec=VERIFY_TIMEOUT_SEC
+                        reg_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                     )
                     if reg_res.returncode != 0:
                         failure_sections.append(
