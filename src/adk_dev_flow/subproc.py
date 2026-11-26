@@ -10,6 +10,7 @@ from typing import Mapping
 
 if sys.platform == "win32":
     import ctypes
+    import subprocess as _subprocess
     from ctypes import wintypes
 
     class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
@@ -152,6 +153,9 @@ async def run_subprocess_safe(
     }
     if os.name == "posix":
         kwargs["start_new_session"] = True
+    elif sys.platform == "win32":
+        # Suppress the console window that cmd.exe shims would otherwise open.
+        kwargs["creationflags"] = _subprocess.CREATE_NO_WINDOW
 
     proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)  # type: ignore[arg-type]
     job_handle = _assign_process_to_new_job_object(proc.pid) if sys.platform == "win32" else None
