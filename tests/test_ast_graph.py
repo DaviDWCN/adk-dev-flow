@@ -301,5 +301,203 @@ def factory(base_val: int):
         self.assertIn("src/pkg/consumer.py", lock_res["ast_impact"]["impacted_production_files"])
 
 
+class TestQualifiedSymbolGraph(unittest.TestCase):
+    """Issue #5: 模块限定符号表、裸名歧义全匹配与调用点归属规则。"""
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmpdir.name)
+        (self.repo / "src" / "pkg").mkdir(parents=True)
+        (self.repo / "tests").mkdir(parents=True)
+        (self.repo / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+
+        (self.repo / "src" / "pkg" / "mod_a.py").write_text(
+            "def dup_fn(x: int) -> int:\n"
+            "    return x + 1\n\n"
+            "def caller_a() -> int:\n"
+            "    return dup_fn(1)\n\n"
+            "def unique_a(v: str) -> str:\n"
+            "    return v.upper()\n",
+            encoding="utf-8",
+        )
+        (self.repo / "src" / "pkg" / "mod_b.py").write_text(
+            "def dup_fn(x: int) -> int:\n"
+            "    return x + 2\n\n"
+            "def caller_b() -> int:\n"
+            "    return dup_fn(2)\n",
+            encoding="utf-8",
+        )
+        (self.repo / "src" / "pkg" / "outside.py").write_text(
+            "from pkg.mod_a import unique_a\n\n"
+            "def caller_unique() -> str:\n"
+            "    return unique_a('hi')\n\n"
+            "def caller_ambig() -> int:\n"
+            "    return dup_fn(3)\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def test_file_path_query_matches_exact_file_and_scoped_callers(self) -> None:
+        with CodeGraph(self.repo) as cg:
+            report = cg.analyze_impact(["src/pkg/mod_a.py"])
+        self.assertIn("src/pkg/mod_a.py", report.impacted_production_files)
+        self.assertNotIn("src/pkg/mod_b.py", report.impacted_production_files)
+        self.assertEqual(report.ambiguous_symbols, {})
+        # Same-file caller_a and unique_a caller_unique belong to mod_a, NOT caller_b from mod_b
+        callers_joined = " ".join(report.impacted_callers)
+        self.assertIn("caller_a", callers_joined)
+        self.assertIn("caller_unique", callers_joined)
+        self.assertNotIn("caller_b", callers_joined)
+        self.assertNotIn("caller_ambig", callers_joined)
+
+    def test_unique_bare_symbol_query_unchanged_and_not_ambiguous(self) -> None:
+        with CodeGraph(self.repo) as cg:
+            report = cg.analyze_impact(["unique_a"])
+        self.assertEqual(report.impacted_production_files, ["src/pkg/mod_a.py", "src/pkg/outside.py"])
+        self.assertEqual(report.ambiguous_symbols, {})
+        self.assertTrue(any("caller_unique" in c for c in report.impacted_callers))
+
+    def test_ambiguous_bare_symbol_matches_all_defining_files(self) -> None:
+        with CodeGraph(self.repo) as cg:
+            report = cg.analyze_impact(["dup_fn"])
+        self.assertIn("src/pkg/mod_a.py", report.impacted_production_files)
+        self.assertIn("src/pkg/mod_b.py", report.impacted_production_files)
+        self.assertIn("src/pkg/mod_a.py", report.suggested_allowed_paths)
+        self.assertIn("src/pkg/mod_b.py", report.suggested_allowed_paths)
+        self.assertIn("dup_fn", report.ambiguous_symbols)
+        self.assertEqual(
+            sorted(report.ambiguous_symbols["dup_fn"]),
+            ["src/pkg/mod_a.py", "src/pkg/mod_b.py"],
+        )
+
+    def test_qualified_symbol_query_narrows_to_single_module(self) -> None:
+        with CodeGraph(self.repo) as cg:
+            for qual in ("pkg.mod_a:dup_fn", "src/pkg/mod_a.py:dup_fn", "pkg.mod_a.dup_fn"):
+                report = cg.analyze_impact([qual])
+                self.assertIn("src/pkg/mod_a.py", report.impacted_production_files, f"query={qual}")
+                self.assertNotIn("src/pkg/mod_b.py", report.impacted_production_files, f"query={qual}")
+                self.assertEqual(report.ambiguous_symbols, {}, f"query={qual}")
+                callers_joined = " ".join(report.impacted_callers)
+                self.assertIn("caller_a", callers_joined)
+                self.assertNotIn("caller_b", callers_joined)
+                self.assertNotIn("caller_ambig", callers_joined)
+
+    def test_unresolved_ambiguous_calls_recorded_not_misattributed(self) -> None:
+        with CodeGraph(self.repo) as cg:
+            cg.index_repo()
+            unresolved_for_outside = cg.unresolved_calls.get("pkg.outside:caller_ambig", set())
+        self.assertIn("dup_fn", unresolved_for_outside)
+
+    def test_full_module_aliases_backslash_and_context_generation(self) -> None:
+        (self.repo / "tests" / "test_mod_a.py").write_text(
+            "from pkg.mod_a import unique_a\n\n"
+            "def test_unique_a_case() -> None:\n"
+            "    assert unique_a('abc') == 'ABC'\n",
+            encoding="utf-8",
+        )
+        (self.repo / "sub_pkg_tests").mkdir()
+        (self.repo / "sub_pkg_tests" / "helper_test.py").write_text(
+            "import pkg.mod_a.sub\n\n"
+            "def test_sub_import() -> None:\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+        from adk_dev_flow.cpg import CpgStore
+
+        with CpgStore(self.repo / ".adk" / "cpg.db") as store, CodeGraph(self.repo, store=store) as cg:
+            self.assertEqual(cg._path_to_module(r"src\pkg\mod_a.py"), ("pkg.mod_a", "src.pkg.mod_a"))
+            win_report = cg.analyze_impact([r"src\pkg\mod_a.py"])
+            self.assertIn("src/pkg/mod_a.py", win_report.impacted_production_files)
+            self.assertIn("tests/test_mod_a.py", win_report.impacted_test_files)
+            self.assertIn("sub_pkg_tests/helper_test.py", win_report.impacted_test_files)
+            self.assertEqual(
+                win_report.summary,
+                "目标路径包含 1 个核心文件与 0 个符号；AST 分析共检测到 2 个关联生产文件与 2 个受影响测试套件，识别出 3 个直接调用点。",
+            )
+
+            for full_alias in ("src.pkg.mod_a:dup_fn", "src.pkg.mod_a.dup_fn"):
+                full_rep = cg.analyze_impact([full_alias])
+                self.assertEqual(full_rep.impacted_production_files, ["src/pkg/mod_a.py", "src/pkg/outside.py"])
+
+            ctx_qual = cg.get_test_generation_context(["pkg.mod_a:dup_fn"])
+            self.assertEqual(set(ctx_qual.keys()), {"impact", "target_skeletons", "impacted_caller_skeletons", "impacted_tests_info"})
+            self.assertIn("src/pkg/mod_a.py", ctx_qual["target_skeletons"])
+            self.assertIn("pkg.mod_a:caller_a", ctx_qual["impacted_caller_skeletons"])
+            self.assertTrue(
+                ctx_qual["impacted_caller_skeletons"]["pkg.mod_a:caller_a"].startswith("src/pkg/mod_a.py:4 ")
+            )
+
+            ctx_bare = cg.get_test_generation_context(["dup_fn"])
+            self.assertEqual(sorted(ctx_bare["target_skeletons"].keys()), ["src/pkg/mod_a.py", "src/pkg/mod_b.py"])
+
+            ctx_win = cg.get_test_generation_context([r"src\pkg\mod_a.py"])
+            self.assertIn("src/pkg/mod_a.py", ctx_win["target_skeletons"])
+
+            ctx_unique = cg.get_test_generation_context(["unique_a"])
+            self.assertEqual(
+                ctx_unique["impacted_tests_info"],
+                {
+                    "sub_pkg_tests/helper_test.py": ["test_sub_import"],
+                    "tests/test_mod_a.py": ["test_unique_a_case"],
+                },
+            )
+
+    def test_short_module_collision_falls_back_to_full_module(self) -> None:
+        (self.repo / "pkg").mkdir()
+        (self.repo / "pkg" / "mod_a.py").write_text(
+            "def dup_fn(x: int) -> int:\n    return x + 10\n",
+            encoding="utf-8",
+        )
+        with CodeGraph(self.repo) as cg:
+            cg.index_repo()
+            self.assertEqual(cg.qualified_symbol_to_file["pkg.mod_a:dup_fn"], "pkg/mod_a.py")
+            self.assertEqual(cg.qualified_symbol_to_file["src.pkg.mod_a:dup_fn"], "src/pkg/mod_a.py")
+            rep_src = cg.analyze_impact(["src.pkg.mod_a:dup_fn"])
+            self.assertEqual(rep_src.impacted_production_files, ["src/pkg/mod_a.py", "src/pkg/outside.py"])
+            rep_root = cg.analyze_impact(["pkg.mod_a:dup_fn"])
+            self.assertEqual(rep_root.impacted_production_files, ["pkg/mod_a.py"])
+            self.assertNotIn("pkg.mod_a.dup_fn", cg._qualified_aliases)
+
+    def test_classification_class_methods_and_two_part_prefix_imports(self) -> None:
+        (self.repo / "src" / "solo.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.repo / "src" / "pkg" / "tests").mkdir(parents=True)
+        (self.repo / "tests" / "helper_only.py").write_text(
+            "from pkg.mod_a import unique_a\n\ndef check() -> str:\n    return unique_a('a')\n",
+            encoding="utf-8",
+        )
+        (self.repo / "src" / "pkg" / "tests" / "spec_mod.py").write_text(
+            "from pkg.mod_a import unique_a\n\ndef run_spec() -> str:\n    return unique_a('b')\n",
+            encoding="utf-8",
+        )
+        (self.repo / "src" / "pkg" / "test_util.py").write_text(
+            "from pkg.mod_a import unique_a\n\ndef helper() -> str:\n    return unique_a('c')\n",
+            encoding="utf-8",
+        )
+        (self.repo / "tests" / "test_cls.py").write_text(
+            "from pkg.mod_a import unique_a\n\nclass TestCls:\n    def test_in_cls(self) -> None:\n        assert unique_a('d') == 'D'\n",
+            encoding="utf-8",
+        )
+        (self.repo / "src" / "use_solo.py").write_text(
+            "import solo.missing\n",
+            encoding="utf-8",
+        )
+        with CodeGraph(self.repo) as cg:
+            rep = cg.analyze_impact(["src/pkg/mod_a.py"])
+            self.assertIn("tests/helper_only.py", rep.impacted_test_files)
+            self.assertIn("src/pkg/tests/spec_mod.py", rep.impacted_test_files)
+            self.assertIn("src/pkg/test_util.py", rep.impacted_test_files)
+            self.assertNotIn("tests/helper_only.py", rep.impacted_production_files)
+            self.assertNotIn("src/pkg/tests/spec_mod.py", rep.impacted_production_files)
+            self.assertNotIn("src/pkg/test_util.py", rep.impacted_production_files)
+
+            ctx = cg.get_test_generation_context(["src/pkg/mod_a.py"])
+            self.assertEqual(ctx["impacted_tests_info"]["tests/test_cls.py"], ["TestCls.test_in_cls"])
+
+            solo_rep = cg.analyze_impact(["src/solo.py"])
+            self.assertIn("src/use_solo.py", solo_rep.impacted_production_files)
+
+
 if __name__ == "__main__":
     unittest.main()

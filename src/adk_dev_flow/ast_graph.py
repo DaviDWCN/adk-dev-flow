@@ -128,6 +128,7 @@ class ImpactReport:
     suggested_allowed_paths: list[str] = field(default_factory=list)
     impacted_callers: list[str] = field(default_factory=list)
     summary: str = ""
+    ambiguous_symbols: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +138,7 @@ class ImpactReport:
             "suggested_allowed_paths": self.suggested_allowed_paths,
             "impacted_callers": self.impacted_callers,
             "summary": self.summary,
+            "ambiguous_symbols": {k: list(v) for k, v in self.ambiguous_symbols.items()},
         }
 
 
@@ -383,10 +385,16 @@ class CodeGraph:
         self.file_cpgs: dict[str, FileCpg] = {}
         # file_path -> set of file_paths that import it
         self.reverse_file_deps: dict[str, set[str]] = {}
-        # symbol_name -> file_path
+        # bare symbol_name -> primary file_path (legacy compat); multi-value index in symbol_to_files
         self.symbol_to_file: dict[str, str] = {}
-        # symbol_name -> set of caller symbol names
+        self.symbol_to_files: dict[str, list[str]] = {}
+        self.qualified_symbol_to_file: dict[str, str] = {}
+        self._qualified_aliases: dict[str, str] = {}
+        self._file_def_to_qual: dict[tuple[str, str], str] = {}
+        # qualified_target_symbol -> set of qualified caller symbol names
         self.reverse_symbol_calls: dict[str, set[str]] = {}
+        # qualified_caller_symbol -> set of unresolved called names
+        self.unresolved_calls: dict[str, set[str]] = {}
 
     def close(self) -> None:
         """Close backing CPG store if open."""
@@ -511,28 +519,68 @@ class CodeGraph:
         self.file_cpgs[rel_path] = cpg
         return info
 
+    @staticmethod
+    def _path_to_module(rel_path: str) -> tuple[str, str]:
+        """Return (short_module, full_dotted_module) for a repository-relative Python path."""
+        no_ext = rel_path[:-3] if rel_path.endswith(".py") else rel_path
+        dotted = no_ext.replace("/", ".").replace("\\", ".")
+        short = dotted[4:] if dotted.startswith("src.") else dotted
+        return short, dotted
+
     def _build_dependencies(self) -> None:
-        """Resolve imports, build reverse dependencies and reverse symbol calls."""
+        """Resolve imports, build module-qualified symbol tables and reverse symbol calls."""
         self.reverse_file_deps.clear()
         self.symbol_to_file.clear()
+        self.symbol_to_files.clear()
+        self.qualified_symbol_to_file.clear()
+        self._qualified_aliases.clear()
+        self._file_def_to_qual.clear()
         self.reverse_symbol_calls.clear()
+        self.unresolved_calls.clear()
 
-        # Build symbol_to_file
-        for rel, info in self.file_index.items():
+        # Build module-qualified symbol table and multi-value bare index
+        ambiguous_dot_aliases: set[str] = set()
+        for rel, info in sorted(self.file_index.items()):
+            short_mod, full_mod = self._path_to_module(rel)
             for sym_name in info.definitions.keys():
+                qual_name = f"{short_mod}:{sym_name}"
+                if qual_name in self.qualified_symbol_to_file:
+                    qual_name = f"{full_mod}:{sym_name}"
+                if qual_name in self.qualified_symbol_to_file:
+                    qual_name = f"{rel}:{sym_name}"
+
+                self.qualified_symbol_to_file[qual_name] = rel
+                self._file_def_to_qual[(rel, sym_name)] = qual_name
+                self.symbol_to_files.setdefault(sym_name, []).append(rel)
+                self.symbol_to_file[qual_name] = rel
                 self.symbol_to_file[sym_name] = rel
+
+                for alias in (
+                    qual_name,
+                    f"{short_mod}:{sym_name}",
+                    f"{full_mod}:{sym_name}",
+                    f"{rel}:{sym_name}",
+                ):
+                    self._qualified_aliases.setdefault(alias, qual_name)
+
+                for dot_alias in (f"{short_mod}.{sym_name}", f"{full_mod}.{sym_name}"):
+                    if dot_alias in self._qualified_aliases and self._qualified_aliases[dot_alias] != qual_name:
+                        ambiguous_dot_aliases.add(dot_alias)
+                    else:
+                        self._qualified_aliases[dot_alias] = qual_name
+
+        for bad_dot in ambiguous_dot_aliases:
+            self._qualified_aliases.pop(bad_dot, None)
 
         # Build module-to-file resolver map
         module_to_file: dict[str, str] = {}
-        for rel in self.file_index.keys():
-            no_ext = rel[:-3] if rel.endswith(".py") else rel
-            dotted = no_ext.replace("/", ".").replace("\\", ".")
-            module_to_file[dotted] = rel
-            if dotted.startswith("src."):
-                module_to_file[dotted[4:]] = rel
+        for rel in sorted(self.file_index.keys()):
+            short_mod, full_mod = self._path_to_module(rel)
+            module_to_file[full_mod] = rel
+            module_to_file[short_mod] = rel
 
         # Resolve imports and build reverse dependencies
-        for rel, info in self.file_index.items():
+        for rel, info in sorted(self.file_index.items()):
             info.internal_imports.clear()
             for imp in info.imports:
                 matched_file: str | None = None
@@ -550,17 +598,39 @@ class CodeGraph:
                     info.internal_imports.append(matched_file)
                     self.reverse_file_deps.setdefault(matched_file, set()).add(rel)
 
-            # Build reverse symbol calls
+            # Build reverse symbol calls with rule:
+            # 1. Definition in the caller's own file
+            # 2. Globally unique bare name across the repository
+            # 3. Otherwise record as unresolved
             for sym_name, sym in info.definitions.items():
+                caller_qual = self._file_def_to_qual[(rel, sym_name)]
                 for called in sym.calls:
-                    target_sym = called
-                    if target_sym not in self.symbol_to_file:
-                        matches = [s for s in self.symbol_to_file if s.endswith(f".{called}") or s == called]
-                        if len(matches) == 1:
-                            target_sym = matches[0]
+                    target_qual: str | None = None
 
-                    if target_sym in self.symbol_to_file:
-                        self.reverse_symbol_calls.setdefault(target_sym, set()).add(sym_name)
+                    if called in info.definitions:
+                        target_qual = self._file_def_to_qual[(rel, called)]
+                    else:
+                        local_matches = [s for s in info.definitions if s.endswith(f".{called}")]
+                        if len(local_matches) == 1:
+                            target_qual = self._file_def_to_qual[(rel, local_matches[0])]
+
+                    if target_qual is None:
+                        global_files = self.symbol_to_files.get(called)
+                        if global_files and len(global_files) == 1:
+                            target_qual = self._file_def_to_qual[(global_files[0], called)]
+                        elif not global_files:
+                            suffix_matches = [
+                                q_key
+                                for (f_rel, b_sym), q_key in self._file_def_to_qual.items()
+                                if b_sym.endswith(f".{called}")
+                            ]
+                            if len(suffix_matches) == 1:
+                                target_qual = suffix_matches[0]
+
+                    if target_qual is not None:
+                        self.reverse_symbol_calls.setdefault(target_qual, set()).add(caller_qual)
+                    else:
+                        self.unresolved_calls.setdefault(caller_qual, set()).add(called)
 
     def index_repo(self, subdirs: list[str] | None = None) -> None:
         """Scan and build code graph across the repository."""
@@ -767,6 +837,7 @@ class CodeGraph:
 
         matched_files: set[str] = set()
         matched_symbols: set[str] = set()
+        ambiguous_symbols: dict[str, list[str]] = {}
 
         for item in target_paths_or_symbols:
             clean = item.strip().replace("\\", "/")
@@ -780,9 +851,19 @@ class CodeGraph:
                 matching_files = [f for f in self.file_index if f == clean or f.endswith(f"/{clean}")]
                 if matching_files:
                     matched_files.update(matching_files)
-                elif clean in self.symbol_to_file:
-                    matched_symbols.add(clean)
-                    matched_files.add(self.symbol_to_file[clean])
+                elif clean in self._qualified_aliases:
+                    qual_sym = self._qualified_aliases[clean]
+                    matched_symbols.add(qual_sym)
+                    matched_files.add(self.qualified_symbol_to_file[qual_sym])
+                elif clean in self.symbol_to_files:
+                    def_files = sorted(self.symbol_to_files[clean])
+                    if len(def_files) > 1:
+                        ambiguous_symbols[clean] = def_files
+                    for f_rel in def_files:
+                        matched_files.add(f_rel)
+                        qual_sym = self._file_def_to_qual.get((f_rel, clean))
+                        if qual_sym:
+                            matched_symbols.add(qual_sym)
 
         # Find impacted files via imports (1-hop and 2-hop)
         impacted_files: set[str] = set(matched_files)
@@ -803,19 +884,24 @@ class CodeGraph:
             callers = self.reverse_symbol_calls.get(sym, set())
             impacted_callers.update(callers)
             for c in callers:
-                if c in self.symbol_to_file:
-                    impacted_files.add(self.symbol_to_file[c])
+                c_file = self.qualified_symbol_to_file.get(c) or self.symbol_to_file.get(c)
+                if c_file:
+                    impacted_files.add(c_file)
 
-        # Also find all symbols defined in matched_files
+        # Also find all symbols defined in matched_files (module-qualified so collisions stay isolated)
         for f in matched_files:
             info = self.file_index.get(f)
             if info:
                 for sym_name in info.definitions:
-                    callers = self.reverse_symbol_calls.get(sym_name, set())
+                    qual_sym = self._file_def_to_qual.get((f, sym_name))
+                    if not qual_sym:
+                        continue
+                    callers = self.reverse_symbol_calls.get(qual_sym, set())
                     impacted_callers.update(callers)
                     for c in callers:
-                        if c in self.symbol_to_file:
-                            impacted_files.add(self.symbol_to_file[c])
+                        c_file = self.qualified_symbol_to_file.get(c) or self.symbol_to_file.get(c)
+                        if c_file:
+                            impacted_files.add(c_file)
 
         # Classify into production files and test files
         production_files: list[str] = []
@@ -844,6 +930,7 @@ class CodeGraph:
             suggested_allowed_paths=suggested_allowed,
             impacted_callers=sorted(list(impacted_callers)),
             summary=summary,
+            ambiguous_symbols=ambiguous_symbols,
         )
 
     def get_test_generation_context(self, target_paths_or_symbols: list[str]) -> dict[str, Any]:
@@ -861,6 +948,11 @@ class CodeGraph:
         for f in report.target_paths:
             norm = f.strip().replace("\\", "/")
             matching = [p for p in self.file_index if p == norm or p.endswith(f"/{norm}")]
+            if not matching:
+                if norm in self._qualified_aliases:
+                    matching = [self.qualified_symbol_to_file[self._qualified_aliases[norm]]]
+                elif norm in self.symbol_to_files:
+                    matching = list(self.symbol_to_files[norm])
             for m in matching:
                 p = self.repo_root / m
                 if p.is_file():
@@ -872,12 +964,12 @@ class CodeGraph:
 
         caller_skeletons: dict[str, str] = {}
         for caller in report.impacted_callers:
-            if caller in self.symbol_to_file:
-                c_file = self.symbol_to_file[caller]
-                info = self.file_index.get(c_file)
-                if info and caller in info.definitions:
-                    sym = info.definitions[caller]
-                    caller_skeletons[caller] = f"{c_file}:{sym.line_start} {sym.signature}"
+            c_file = self.qualified_symbol_to_file.get(caller) or self.symbol_to_file.get(caller)
+            bare_caller = caller.split(":", 1)[1] if ":" in caller else caller
+            info = self.file_index.get(c_file) if c_file else None
+            if info and bare_caller in info.definitions:
+                sym = info.definitions[bare_caller]
+                caller_skeletons[caller] = f"{c_file}:{sym.line_start} {sym.signature}"
 
         impacted_tests_info: dict[str, list[str]] = {}
         for tf in report.impacted_test_files:
