@@ -14,3 +14,6 @@ build/
 .coverage
 htmlcov/
 .m-cpg/m_cpg.db
+
+# transient dashboard spawn debug logs
+.dash_spawn*.log
