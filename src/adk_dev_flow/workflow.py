@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 from datetime import datetime, timezone
 import fnmatch
@@ -17,6 +18,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.workflow import START
 from google.genai import types
 
+from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
 from adk_dev_flow.codebuddy_bridge import run_codebuddy_worker
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
@@ -1122,8 +1124,16 @@ def build_dev_workflow(
                         "has_issues": True,
                     })
                 verification_state["ast_findings"] = ast_findings
-            except Exception:
-                pass
+            except Exception as exc:
+                # Fail-closed: 审计器内部错误（解析/审计/IO 异常）绝不允许静默吞掉后放行，
+                # 必须熔断为 ESCALATED 拦截发布。
+                err_msg = f"[AST 审计器内部错误，fail-closed 拦截发布] {type(exc).__name__}: {exc}"
+                store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
+                return {
+                    "run_id": run_id,
+                    "status": "ESCALATED",
+                    "error": err_msg,
+                }
 
         # 3. 检查输入中是否携带 mock/override ast_findings (如对抗性测试注入)
         if isinstance(node_input, dict):

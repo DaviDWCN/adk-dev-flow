@@ -1027,40 +1027,56 @@ def audit_ast_diff(
                                     f"疑似混淆还原敏感凭据 `{target.id} = {val_fn}(...)` (line {node.lineno})"
                                 )
 
-    # 3b. CPG DFG-based taint flow analysis
+    # 3b. CPG DFG-based taint flow analysis.
+    # Taint is scoped per top-level function: sources, adjacency table and
+    # sink checks are confined to a single function's subgraph, so same-name
+    # parameters of different functions cannot cross-talk through a
+    # file-level graph. Module-level code has no formal parameters and
+    # yields no taint.
+    source_lines = new_code.splitlines()
     try:
-        builder = CpgBuilder(new_code, file_path=file_path)
-        _, _, dfg_edges = builder.build(new_tree)
-        adj: dict[str, list[DfgEdge]] = {}
-        for edge in dfg_edges:
-            adj.setdefault(edge.source_var, []).append(edge)
+        for fn_node in new_tree.body:
+            if not isinstance(fn_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            snippet = "\n".join(source_lines[fn_node.lineno - 1 : fn_node.end_lineno])
+            fn_tree = ast.parse(snippet, filename=file_path)
+            builder = CpgBuilder(snippet, file_path=file_path)
+            _, _, dfg_edges = builder.build(fn_tree)
 
-        # Identify function arguments as potential taint sources
-        param_sources: set[str] = set()
-        for item in ast.walk(new_tree):
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                for arg in item.args.args:
-                    param_sources.add(arg.arg)
+            adj: dict[str, list[DfgEdge]] = {}
+            for edge in dfg_edges:
+                adj.setdefault(edge.source_var, []).append(edge)
 
-        # Trace reachable targets from parameters
-        for p in param_sources:
-            visited = {p}
-            queue = [p]
-            while queue:
-                curr = queue.pop(0)
-                for edge in adj.get(curr, []):
-                    nxt = edge.target_var
-                    if edge.target_line in suppressed_lines:
-                        continue
-                    if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):
-                        report.dangerous_nodes.append(
-                            f"检测到污点变量 `{p}` 流入危险函数 `{nxt}` (line {edge.target_line})"
-                        )
-                    if nxt not in visited:
-                        visited.add(nxt)
-                        queue.append(nxt)
-    except Exception:
-        pass
+            # Formal parameters defined within this function scope are the
+            # only taint sources (nested defs stay inside this subgraph).
+            param_sources: list[str] = []
+            for item in ast.walk(fn_tree):
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for arg in item.args.args:
+                        if arg.arg not in param_sources:
+                            param_sources.append(arg.arg)
+
+            # Trace reachable targets from parameters within this scope
+            for p in param_sources:
+                visited = {p}
+                queue = [p]
+                while queue:
+                    curr = queue.pop(0)
+                    for edge in adj.get(curr, []):
+                        nxt = edge.target_var
+                        # DFG lines are snippet-relative; map back to file lines
+                        abs_line = fn_node.lineno - 1 + edge.target_line
+                        if abs_line in suppressed_lines:
+                            continue
+                        if any(d in nxt for d in ("call:eval", "call:exec", "call:os.system", "call:subprocess")):
+                            report.dangerous_nodes.append(
+                                f"检测到污点变量 `{p}` 流入危险函数 `{nxt}` (line {abs_line})"
+                            )
+                        if nxt not in visited:
+                            visited.add(nxt)
+                            queue.append(nxt)
+    except Exception as exc:
+        raise RuntimeError(f"AST audit internal error in {file_path}: {exc}") from exc
 
     # 4. Breaking change detection against base code
     if base_tree:

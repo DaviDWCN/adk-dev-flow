@@ -196,6 +196,25 @@ class CpgBuilder:
                 names.add(sub.id)
         return names
 
+    def _trace_call_args(self, node: ast.AST, var_defs: dict[str, int], line: int) -> None:
+        """Trace call arguments into DFG as param_pass edges (taint propagation)."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                call_name = _get_call_name(sub.func) or ""
+                call_label = f"call:{call_name}@{line}" if call_name else f"call@{line}"
+                for arg in sub.args:
+                    for u in self._extract_names(arg):
+                        if u in var_defs:
+                            self.dfg_edges.append(
+                                DfgEdge(
+                                    source_var=u,
+                                    target_var=call_label,
+                                    source_line=var_defs[u],
+                                    target_line=line,
+                                    kind="param_pass",
+                                )
+                            )
+
     def _visit_stmt(
         self,
         stmt: ast.AST,
@@ -220,6 +239,9 @@ class CpgBuilder:
                     self.dfg_edges.append(
                         DfgEdge(source_var=v, target_var=f"cond@{line}", source_line=var_defs[v], target_line=line, kind="def_use")
                     )
+
+            # Trace call arguments into DFG (taint reaches flattened condition)
+            self._trace_call_args(stmt.test, var_defs, line)
 
             # True branch
             body_first = True
@@ -272,6 +294,12 @@ class CpgBuilder:
             if prev:
                 self.cfg_edges.append(CfgEdge(source=prev.id, target=loop_node.id, kind="next"))
 
+            # Trace call arguments into DFG (taint reaches flattened loop iteration/condition)
+            if isinstance(stmt, ast.For):
+                self._trace_call_args(stmt.iter, var_defs, line)
+            else:
+                self._trace_call_args(stmt.test, var_defs, line)
+
             curr = loop_node
             loop_first = True
             for s in stmt.body:
@@ -308,6 +336,9 @@ class CpgBuilder:
                 targets.extend(list(self._extract_names(stmt.target)))
                 val_node = stmt.value
 
+            # Trace call arguments into DFG (taint reaches flattened statements)
+            self._trace_call_args(stmt, var_defs, line)
+
             # Extract source variables
             used_vars = self._extract_names(val_node) if val_node else set()
             for t in targets:
@@ -327,6 +358,9 @@ class CpgBuilder:
             if exit_node:
                 self.cfg_edges.append(CfgEdge(source=ret_node.id, target=exit_node.id, kind="jump"))
 
+            # Trace call arguments into DFG (taint reaches flattened statements)
+            self._trace_call_args(stmt, var_defs, line)
+
             if stmt.value:
                 used_vars = self._extract_names(stmt.value)
                 for u in used_vars:
@@ -341,22 +375,7 @@ class CpgBuilder:
             if prev:
                 self.cfg_edges.append(CfgEdge(source=prev.id, target=stmt_node.id, kind="next"))
             # Trace call arguments into DFG
-            for sub in ast.walk(stmt):
-                if isinstance(sub, ast.Call):
-                    call_name = _get_call_name(sub.func) or ""
-                    call_label = f"call:{call_name}@{line}" if call_name else f"call@{line}"
-                    for arg in sub.args:
-                        for u in self._extract_names(arg):
-                            if u in var_defs:
-                                self.dfg_edges.append(
-                                    DfgEdge(
-                                        source_var=u,
-                                        target_var=call_label,
-                                        source_line=var_defs[u],
-                                        target_line=line,
-                                        kind="param_pass",
-                                    )
-                                )
+            self._trace_call_args(stmt, var_defs, line)
             return stmt_node
 
 
