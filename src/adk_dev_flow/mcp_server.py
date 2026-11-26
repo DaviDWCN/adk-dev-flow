@@ -30,8 +30,13 @@ def parse_epic_into_subtasks(epic_text: str, default_labels: list[str] | None = 
     labels = list(default_labels or [])
     subtasks: list[dict[str, Any]] = []
 
-    # 1. Try matching numbered list patterns, e.g. "1. xxx; 2. yyy" or lines "1. xxx\n2. yyy"
-    pattern = re.compile(r"(?:^|\n|\s*)(?:(\d+)[\.\、\)]|\-|\*)\s*([^\n;；]+(?:[;；]|\n|$))", re.MULTILINE)
+    # 1. Try matching numbered list patterns, e.g. "1. xxx; 2. yyy" or lines "1. xxx\n2. yyy".
+    #    Items must start a line or follow a semicolon, so hyphens inside words
+    #    ("cpg-cas-architecture.md") and decimals ("0.36") in prose are not items.
+    pattern = re.compile(
+        r"(?:^[ \t]*|(?<=[;；])[ \t]*)(?:(\d+)[.、)]|[-*])[ \t]+([^\n;；]+)",
+        re.MULTILINE,
+    )
     matches = pattern.findall(cleaned)
     if len(matches) >= 2:
         for idx, (num, item_text) in enumerate(matches, 1):

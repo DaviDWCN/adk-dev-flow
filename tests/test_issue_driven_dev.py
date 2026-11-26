@@ -14,7 +14,7 @@ from adk_dev_flow.forge_client import (
     GitLabClient,
     NullGitForge,
 )
-from adk_dev_flow.mcp_server import create_mcp_server
+from adk_dev_flow.mcp_server import create_mcp_server, parse_epic_into_subtasks
 from adk_dev_flow.state_store import StateStore
 
 
@@ -189,6 +189,34 @@ class TestIssueDrivenDev(unittest.IsolatedAsyncioTestCase):
         args, _ = mock_forge.post_issue_comment.call_args
         self.assertEqual(args[0], 12)
         self.assertIn("ADK Dev Flow", args[1])
+
+
+class TestParseEpicIntoSubtasks(unittest.TestCase):
+    """拆单正则只认行首（或分号之后）的列表项，正文里的标点不算。"""
+
+    @staticmethod
+    def _titles(epic: str) -> list[str]:
+        return [task["title"] for task in parse_epic_into_subtasks(epic)]
+
+    def test_hyphen_inside_a_word_is_not_a_bullet(self) -> None:
+        epic = "改动后同步更新 docs/cpg-cas-architecture.md 的现状一节。\n1. fix(cpg): 甲\n2. feat(cpg): 乙"
+        self.assertEqual(self._titles(epic), ["fix(cpg): 甲", "feat(cpg): 乙"])
+
+    def test_decimal_number_in_preamble_is_not_an_item(self) -> None:
+        epic = "实测 0.36 秒。\n1. fix(cpg): 甲\n2. feat(cpg): 乙"
+        self.assertEqual(self._titles(epic), ["fix(cpg): 甲", "feat(cpg): 乙"])
+
+    def test_inline_numbered_items_separated_by_semicolon(self) -> None:
+        self.assertEqual(self._titles("1. xxx; 2. yyy"), ["feat: xxx", "feat: yyy"])
+
+    def test_dash_and_star_bullets_at_line_start(self) -> None:
+        self.assertEqual(self._titles("- xxx\n* yyy"), ["feat: xxx", "feat: yyy"])
+
+    def test_indented_numbered_items(self) -> None:
+        self.assertEqual(self._titles("  1. xxx\n  2. yyy"), ["feat: xxx", "feat: yyy"])
+
+    def test_single_sentence_stays_one_task(self) -> None:
+        self.assertEqual(self._titles("只有一句话，没有列表"), ["feat: 只有一句话，没有列表"])
 
 
 if __name__ == "__main__":
