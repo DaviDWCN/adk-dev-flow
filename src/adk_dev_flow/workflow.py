@@ -1281,9 +1281,17 @@ def build_dev_workflow(
                 "error": veto_reason,
             }
 
+        # Record the branch tip so flow_close_issue can verify the merge landed
+        # even after the worktree and branch are cleaned up (fail-closed close).
+        head_sha: str | None = None
+        head_res = await _git(["rev-parse", "HEAD"], worktree)
+        if head_res.returncode == 0:
+            head_sha = head_res.stdout.strip() or None
+
         store.update_run(
             run_id,
             status="MR_READY",
+            head_sha=head_sha,
             mr_iid=mr_iid,
             mr_url=mr_url,
             review_json=verdict.model_dump_json(),

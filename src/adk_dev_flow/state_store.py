@@ -126,6 +126,7 @@ ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(
         "branch",
         "worktree_path",
         "base_sha",
+        "head_sha",
         "locked_test_sha256",
         "locked_test_commit_sha",
         "mr_iid",
@@ -180,6 +181,7 @@ class StateStore:
                     branch TEXT,
                     worktree_path TEXT,
                     base_sha TEXT,
+                    head_sha TEXT,
                     locked_test_sha256 TEXT,
                     locked_test_commit_sha TEXT,
                     mr_iid INTEGER,
@@ -217,6 +219,7 @@ class StateStore:
             }
             migrations = {
                 "base_sha": "TEXT",
+                "head_sha": "TEXT",
                 "locked_test_sha256": "TEXT",
                 "locked_test_commit_sha": "TEXT",
                 "human_hint": "TEXT",

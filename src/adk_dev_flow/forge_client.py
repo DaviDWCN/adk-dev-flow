@@ -160,7 +160,7 @@ class NullGitForge(BaseGitForge):
     def get_issue(self, issue_iid: int) -> dict[str, Any]:
         if issue_iid in self._issues:
             return dict(self._issues[issue_iid])
-        return {"iid": issue_iid, "title": "", "description": "", "labels": [], "web_url": ""}
+        return {"iid": issue_iid, "title": "", "description": "", "labels": [], "state": "open", "web_url": ""}
 
     def create_issue(
         self,
@@ -283,6 +283,7 @@ class GitLabClient(BaseGitForge):
             "title": issue.title,
             "description": issue.description or "",
             "labels": getattr(issue, "labels", []),
+            "state": getattr(issue, "state", "opened"),
             "web_url": getattr(issue, "web_url", ""),
         }
 
@@ -373,10 +374,21 @@ class GitHubClient(BaseGitForge):
         timeout: float | None = None,
         repo_root: Path | None = None,
     ) -> None:
+        # Resolve the repository FIRST: the credential helper is only queried
+        # when a GitHub repo context actually exists (env or remote URL).
+        # Otherwise an unrelated machine credential would make the factory
+        # return a GitHub forge that cannot address any repository.
+        raw_repo = (repository or os.environ.get("GITHUB_REPOSITORY") or "").strip()
+        if not raw_repo:
+            remote_url = get_git_remote_url(repo_root)
+            raw_repo = parse_repo_from_remote(remote_url) or ""
+        self.repo = raw_repo
+
         self.token = (
             token
             or os.environ.get("GITHUB_TOKEN")
             or os.environ.get("GH_TOKEN")
+            or (self._token_from_credential_helper(repo_root) if self.repo else "")
             or ""
         ).strip()
         self.api_url = (
@@ -386,11 +398,32 @@ class GitHubClient(BaseGitForge):
         ).rstrip("/")
         self.timeout = float(timeout or os.environ.get("GITHUB_TIMEOUT", "30"))
 
-        raw_repo = (repository or os.environ.get("GITHUB_REPOSITORY") or "").strip()
-        if not raw_repo:
-            remote_url = get_git_remote_url(repo_root)
-            raw_repo = parse_repo_from_remote(remote_url) or ""
-        self.repo = raw_repo
+    @staticmethod
+    def _token_from_credential_helper(repo_root: Path | None = None) -> str:
+        """Fall back to the git credential helper (e.g. Git Credential Manager).
+
+        Keeps the token out of plaintext config files entirely — the helper is
+        queried on demand exactly like `git push` does. Returns "" when no
+        credential is stored or the helper fails; the forge then simply reports
+        enabled=False instead of failing.
+        """
+        try:
+            proc = subprocess.run(
+                ["git", "credential", "fill"],
+                input="protocol=https\nhost=github.com\n\n",
+                capture_output=True,
+                text=True,
+                timeout=15,
+                cwd=str(repo_root) if repo_root else None,
+            )
+            if proc.returncode != 0:
+                return ""
+            for line in proc.stdout.splitlines():
+                if line.startswith("password="):
+                    return line.split("=", 1)[1].strip()
+        except Exception:
+            return ""
+        return ""
 
     @property
     def platform_name(self) -> str:
@@ -427,6 +460,7 @@ class GitHubClient(BaseGitForge):
             "title": data.get("title", ""),
             "description": data.get("body") or "",
             "labels": labels,
+            "state": data.get("state", "open"),
             "web_url": data.get("html_url", ""),
         }
 

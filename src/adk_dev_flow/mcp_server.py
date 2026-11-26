@@ -15,7 +15,7 @@ from fastmcp import FastMCP
 
 from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
-from adk_dev_flow.models import SpecContract
+from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.state_store import PRE_LOCK_STATUSES, StateStore
 from adk_dev_flow.subproc import run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
@@ -890,6 +890,121 @@ class FlowService:
         self.store._sync_active_marker()
         return result
 
+    async def flow_close_issue(self, run_id: str, repo_root: str | None = None) -> dict[str, Any]:
+        """合并落地后关闭 run 关联的 issue（fail-closed）。
+
+        先验证 run 分支 tip 是当前 HEAD 的祖先（合并确实落地），再附证据评论并关闭。
+        forge 不可用或合并未落地时拒绝关闭，绝不假装成功。
+        """
+        self._ensure_repo_root(repo_root)
+        run = self.store.get_run(run_id)
+        if not run:
+            return {"error": f"未知 run_id: {run_id}"}
+        if run["status"] != "MR_READY":
+            return {"error": f"仅 MR_READY 的 run 可关闭关联 issue（当前 {run['status']}）"}
+        issue_iid = run.get("issue_iid")
+        if issue_iid is None:
+            return {"error": "该 run 未关联 issue（issue_iid 为空），无 issue 可关闭"}
+
+        head_sha = run.get("head_sha")
+        if not head_sha and run.get("branch"):
+            probe = await run_subprocess_safe(
+                ["git", "rev-parse", "--verify", f"{run['branch']}^{{commit}}"],
+                cwd=self.repo_root,
+            )
+            if probe.returncode == 0:
+                head_sha = probe.stdout.strip() or None
+        if not head_sha:
+            return {
+                "error": "run 缺少 head_sha 且分支已不存在（旧版本流水线交付），无法安全验证合并状态；请人工确认后手动关闭",
+            }
+
+        merge = await run_subprocess_safe(
+            ["git", "merge-base", "--is-ancestor", head_sha, "HEAD"],
+            cwd=self.repo_root,
+        )
+        if merge.returncode != 0:
+            return {
+                "closed": False,
+                "run_id": run_id,
+                "issue_iid": issue_iid,
+                "head_sha": head_sha,
+                "reason": "fail-closed：分支 tip 不是当前 HEAD 的祖先，合并尚未落地，拒绝关闭 issue",
+            }
+
+        if not self.gl.enabled:
+            return {
+                "closed": False,
+                "run_id": run_id,
+                "issue_iid": issue_iid,
+                "head_sha": head_sha,
+                "merge_verified": True,
+                "reason": f"forge 不可用（{self.gl.platform_name} 离线），拒绝假装关闭；合并已验证落地，可人工关闭",
+            }
+
+        try:
+            issue = await asyncio.to_thread(self.gl.get_issue, issue_iid)
+            if issue.get("state") == "closed":
+                return {
+                    "closed": True,
+                    "already_closed": True,
+                    "run_id": run_id,
+                    "issue_iid": issue_iid,
+                    "issue_url": issue.get("web_url", ""),
+                }
+        except Exception as exc:
+            return {"closed": False, "error": f"读取 issue #{issue_iid} 失败: {exc}"}
+
+        lines = [
+            f"✅ **流水线交付已完成并合并进 main**（run `{run_id}`，分支 tip `{head_sha[:12]}`）",
+            "",
+        ]
+        review_json = run.get("review_json")
+        if review_json:
+            try:
+                verdict = ReviewVerdict.model_validate_json(review_json)
+                lines.append(
+                    f"- **Critic 审查**: {verdict.summary}（confidence {verdict.confidence}）"
+                )
+            except Exception:
+                pass
+        base_sha = run.get("base_sha")
+        if base_sha:
+            log = await run_subprocess_safe(
+                ["git", "log", "--oneline", f"{base_sha}..{head_sha}"],
+                cwd=self.repo_root,
+            )
+            if log.returncode == 0 and log.stdout.strip():
+                lines.append("")
+                lines.append("**涉及提交**:")
+                for ln in log.stdout.strip().splitlines():
+                    lines.append(f"- `{ln}`")
+        body = "\n".join(lines)
+
+        failures: list[str] = []
+        issue_url = ""
+        try:
+            await asyncio.to_thread(self.gl.post_issue_comment, issue_iid, body)
+        except Exception as exc:
+            failures.append(f"评论失败: {exc}")
+        try:
+            closed = await asyncio.to_thread(self.gl.close_issue, issue_iid)
+            issue_url = closed.get("web_url", "")
+        except Exception as exc:
+            failures.append(f"关闭失败: {exc}")
+
+        result: dict[str, Any] = {
+            "run_id": run_id,
+            "issue_iid": issue_iid,
+            "head_sha": head_sha,
+            "closed": not failures,
+        }
+        if issue_url:
+            result["issue_url"] = issue_url
+        if failures:
+            result["errors"] = failures
+        return result
+
     async def flow_abort(self, run_id: str, remove_worktree: bool = False) -> dict[str, Any]:
         run = self.store.get_run(run_id)
         if not run:
@@ -1289,6 +1404,11 @@ def create_mcp_server(
     async def flow_finalize(run_id: str, remove_worktree: bool = True) -> dict[str, Any]:
         """确认无误后移除 Draft 标记，将内网 GitLab MR 置为 Ready 并可选清理本地隔离 Worktree。"""
         return await service.flow_finalize(run_id=run_id, remove_worktree=remove_worktree)
+
+    @mcp.tool()
+    async def flow_close_issue(run_id: str, repo_root: str | None = None) -> dict[str, Any]:
+        """合并落地后关闭 run 关联的 issue：先 fail-closed 验证分支 tip 已是 HEAD 祖先，再附证据评论并关闭。"""
+        return await service.flow_close_issue(run_id=run_id, repo_root=repo_root)
 
     @mcp.tool()
     async def flow_abort(run_id: str, remove_worktree: bool = False) -> dict[str, Any]:

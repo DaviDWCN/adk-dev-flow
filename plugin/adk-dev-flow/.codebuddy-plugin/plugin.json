@@ -2,7 +2,7 @@
   "name": "adk-dev-flow",
   "displayName": "ADK Deterministic Dev Flow",
   "version": "0.2.3",
-  "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 19 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
+  "description": "面向 Python 业务仓库的确定性 AI 研发工作流系统：FastMCP 20 工具、AST 代码图谱影响面分析、基线 TDD 红灯真机预检、Git Worktree 隔离施工、像素工坊实时看板与 AST 语义硬门禁防线。",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "按照确定性研发流程处理当前的开发需求",

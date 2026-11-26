@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -14,7 +15,7 @@ from adk_dev_flow.forge_client import (
     GitLabClient,
     NullGitForge,
 )
-from adk_dev_flow.mcp_server import create_mcp_server, parse_epic_into_subtasks
+from adk_dev_flow.mcp_server import FlowService, create_mcp_server, parse_epic_into_subtasks
 from adk_dev_flow.state_store import StateStore
 
 
@@ -217,6 +218,139 @@ class TestParseEpicIntoSubtasks(unittest.TestCase):
 
     def test_single_sentence_stays_one_task(self) -> None:
         self.assertEqual(self._titles("只有一句话，没有列表"), ["feat: 只有一句话，没有列表"])
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _rev(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+class _RecordingForge(NullGitForge):
+    """NullGitForge with enabled=True — records comments/closes for assertions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.comments: list[tuple[int, str]] = []
+        self.close_calls: list[int] = []
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def post_issue_comment(self, issue_iid: int, body: str) -> None:
+        self.comments.append((issue_iid, body))
+
+    def close_issue(self, issue_iid: int) -> dict:
+        self.close_calls.append(issue_iid)
+        return super().close_issue(issue_iid)
+
+
+class TestFlowCloseIssue(unittest.IsolatedAsyncioTestCase):
+    """flow_close_issue：合并落地后 fail-closed 关闭关联 issue。"""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name).resolve()
+        _git(self.repo, "init", "-q", "--initial-branch=main")
+        (self.repo / "README.md").write_text("demo", encoding="utf-8")
+        _git(self.repo, "add", "README.md")
+        _git(self.repo, "commit", "-q", "-m", "init")
+        self.store = StateStore(self.repo / "state.db")
+        self.forge = _RecordingForge()
+        self.forge.create_issue("fix: demo issue", "desc")  # iid 1, state "opened"
+        self.service = FlowService(
+            repo_root=self.repo,
+            store=self.store,
+            forge=self.forge,
+            recovery_grace_period=0.0,
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _head(self) -> str:
+        return _rev(self.repo, "rev-parse", "HEAD")
+
+    def _mr_ready_run(self, run_id: str, head_sha: str | None, base_sha: str | None = None) -> None:
+        self.store.create_run(run_id, issue_iid=1, status="VERIFYING", branch="feat/demo")
+        fields: dict = {"status": "MR_READY"}
+        if head_sha:
+            fields["head_sha"] = head_sha
+        if base_sha:
+            fields["base_sha"] = base_sha
+        self.store.update_run(run_id, **fields)
+
+    async def test_closes_issue_when_merge_landed(self) -> None:
+        head = self._head()
+        self._mr_ready_run("r-ok", head_sha=head, base_sha=head)
+        res = await self.service.flow_close_issue("r-ok")
+        self.assertTrue(res.get("closed"), res)
+        self.assertNotIn("errors", res)
+        self.assertEqual(self.forge.get_issue(1)["state"], "closed")
+        self.assertEqual(self.forge.close_calls, [1])
+        self.assertEqual(len(self.forge.comments), 1)
+        self.assertIn("r-ok", self.forge.comments[0][1])
+
+    async def test_refuses_when_merge_not_landed(self) -> None:
+        # 与 HEAD 无关的孤儿提交（同 tree、无父）——不是 HEAD 祖先
+        tree = _rev(self.repo, "rev-parse", "HEAD^{tree}")
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
+        }
+        orphan = subprocess.run(
+            ["git", "-C", str(self.repo), "commit-tree", tree],
+            check=True, capture_output=True, text=True, env=env,
+        ).stdout.strip()
+        self._mr_ready_run("r-orphan", head_sha=orphan)
+        res = await self.service.flow_close_issue("r-orphan")
+        self.assertFalse(res.get("closed"))
+        self.assertIn("fail-closed", res.get("reason", ""))
+        self.assertEqual(self.forge.get_issue(1)["state"], "opened")
+        self.assertEqual(self.forge.close_calls, [])
+
+    async def test_idempotent_when_already_closed(self) -> None:
+        self.forge.close_issue(1)
+        self._mr_ready_run("r-closed", head_sha=self._head())
+        res = await self.service.flow_close_issue("r-closed")
+        self.assertTrue(res.get("closed"))
+        self.assertTrue(res.get("already_closed"))
+
+    async def test_refuses_offline_forge_even_when_merged(self) -> None:
+        offline = NullGitForge()
+        self.service.gl = offline
+        self.service.forge = offline
+        self._mr_ready_run("r-off", head_sha=self._head())
+        res = await self.service.flow_close_issue("r-off")
+        self.assertFalse(res.get("closed"))
+        self.assertTrue(res.get("merge_verified"))
+        self.assertIn("离线", res.get("reason", ""))
+        self.assertEqual(self.forge.get_issue(1)["state"], "opened")
+        self.assertEqual(self.forge.close_calls, [])
+
+    async def test_refuses_non_ready_run(self) -> None:
+        self.store.create_run("r-v", issue_iid=1, status="VERIFYING", branch="feat/demo")
+        res = await self.service.flow_close_issue("r-v")
+        self.assertIn("error", res)
+
+    async def test_missing_head_sha_and_branch_deleted(self) -> None:
+        self._mr_ready_run("r-old", head_sha=None)  # 分支 feat/demo 在仓库中不存在
+        res = await self.service.flow_close_issue("r-old")
+        self.assertIn("error", res)
+        self.assertIn("head_sha", res["error"])
 
 
 if __name__ == "__main__":

@@ -100,7 +100,7 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 19 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 20 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
@@ -120,6 +120,7 @@ adk-dev-flow-init . --with-ci
 | `flow_active_runs` | 同步 | 查询当前并发进行的所有活跃流水线状态 |
 | `flow_list` | 同步 | 查询历史流水线运行记录（跨会话找回 `run_id`） |
 | `flow_finalize` | 异步 | 验收完成后解除 GitLab / GitHub PR/MR 的 Draft 标记并清理隔离 Worktree |
+| `flow_close_issue` | 异步 | **合并落地后关闭关联 Issue**（fail-closed：先验证分支 tip 已是 HEAD 祖先，再附证据评论并关闭；forge 离线或未合并时拒绝假装成功） |
 | `flow_abort` | 异步 | 中止指定流水线，强杀子进程树并解除工作区防呆锁 |
 | `flow_unlock` | 同步 | **安全解除主工作区的只读锁定**，清除 `active_run.json` 锁标记并支持强制自愈 |
 | `flow_abort_all` | 异步 | 一键强杀所有正在执行的流水线并释放所有资源 |
@@ -306,7 +307,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 19 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+为了任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 20 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
 - `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标；CodeBuddy 要求的清单同时写入 `.codebuddy-plugin/plugin.json`。

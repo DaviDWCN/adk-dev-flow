@@ -210,5 +210,43 @@ class TestForgeClients(unittest.TestCase):
                 self.assertFalse(forge.enabled)
 
 
+class TestGitHubCredentialHelperFallback(unittest.TestCase):
+    """GitHubClient 在 env 无 token 时回退 git credential helper（token 不落明文配置）。"""
+
+    @staticmethod
+    def _credential_proc(returncode: int = 0, stdout: str = "") -> MagicMock:
+        return MagicMock(returncode=returncode, stdout=stdout)
+
+    def test_falls_back_to_credential_helper(self) -> None:
+        proc = self._credential_proc(
+            stdout="protocol=https\nhost=github.com\nusername=u\npassword=tok-from-helper\n\n"
+        )
+        env = {"GITHUB_TOKEN": "", "GH_TOKEN": ""}
+        with patch("adk_dev_flow.forge_client.subprocess.run", return_value=proc) as mock_run, \
+                patch.dict(os.environ, env):
+            client = GitHubClient(repository="org/repo")
+        self.assertEqual(client.token, "tok-from-helper")
+        self.assertTrue(client.enabled)
+        self.assertEqual(mock_run.call_args.kwargs.get("input"), "protocol=https\nhost=github.com\n\n")
+
+    def test_env_token_wins_over_helper(self) -> None:
+        proc = self._credential_proc(stdout="password=from-helper\n")
+        env = {"GITHUB_TOKEN": "env-token", "GH_TOKEN": ""}
+        with patch("adk_dev_flow.forge_client.subprocess.run", return_value=proc) as mock_run, \
+                patch.dict(os.environ, env):
+            client = GitHubClient(repository="org/repo")
+        self.assertEqual(client.token, "env-token")
+        mock_run.assert_not_called()
+
+    def test_helper_failure_yields_disabled_forge(self) -> None:
+        proc = self._credential_proc(returncode=1)
+        env = {"GITHUB_TOKEN": "", "GH_TOKEN": ""}
+        with patch("adk_dev_flow.forge_client.subprocess.run", return_value=proc), \
+                patch.dict(os.environ, env):
+            client = GitHubClient(repository="org/repo")
+        self.assertEqual(client.token, "")
+        self.assertFalse(client.enabled)
+
+
 if __name__ == "__main__":
     unittest.main()
