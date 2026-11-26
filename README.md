@@ -48,11 +48,12 @@ related_adrs: [1]
 - 🌲 **CPG 代码属性图与 Git Blob CAS 增量同步引擎（AST + CFG + DFG）**：
   - **三图合一**：统一抽取抽象语法树（AST）、过程内控制流图（CFG，分支/循环/跳转）与数据流图（DFG，定义-使用链/参数传递/污点追踪）。
   - **Git Blob CAS 存储**：基于 Git Blob OID（`git hash-object` 标准 SHA-1）与 SHA-256 内容寻址，压缩持久化至本地 SQLite WAL 缓存（`.adk/cache/code_graph.sqlite`）。
-  - **毫秒级增量同步 (`CodeGraph.sync_git`)**：利用 `git ls-tree -r -z` 直接匹配提交树 Blob OID，未变更文件 100% 缓存命中（整库同步 <15ms，零 AST 重新解析消耗）。
-  - **影响面（爆炸半径）自动推导**：根据目标改动文件或函数符号，精准推导多跳关联生产代码、受波及调用方与待测用例集，智能推荐 `allowed_paths`。
-  - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，递归保留类继承、嵌套闭包工具签名、完整类型注解与 Docstring，为工兵节省 65%+ 上下文 Token 并杜绝接口幻觉。
-  - **静态 AST Diff 与 DFG 污点安全门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及污点数据流追踪（拦截变量流入 `eval`、`exec`、`os.system` 等高危 Sink 点），提供物理级确定性硬约束。
-  - 内建 `scripts/deep_ast_audit.py` 深度程序分析检验套件（涵盖 `sys.settrace` 动态差分比对、形式化幂等性证明与 10 组工业级对抗样本靶场）。
+  - **增量同步 (`CodeGraph.sync_git`)**：利用 `git ls-tree -r -z` 直接匹配提交树 Blob OID，未变更文件 100% 缓存命中，不重新解析。注意：`flow_analyze_impact`、锁定反馈和派发上下文目前走的是不带缓存的全量 `index_repo()`，尚未接入这条路径。
+  - **影响面（爆炸半径）推导**：根据目标文件或符号名，按文件导入关系推导一跳和两跳的依赖方，按符号名列出直接调用方，并推荐 `allowed_paths`。精度是文件级；符号表以裸名做键，不同模块的同名符号会互相覆盖。
+  - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，递归保留类继承、嵌套闭包工具签名、完整类型注解与 Docstring，减少工兵的上下文 Token（设计时估计可省 65% 以上，未复核）并杜绝接口幻觉。
+  - **静态 AST Diff 与 DFG 污点安全门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及 DFG 污点检查，提供确定性硬约束。污点检查目前只在 sink 调用是独立表达式语句时生效；`return eval(p)`、赋值右侧、经辅助函数间接到达等写法靠前面的危险函数直接调用检查拦截。
+  - 内建 `scripts/deep_ast_audit.py` 自检脚本（`sys.settrace` 动态调用轨迹与静态影响面的召回率、精确率对比，骨架的可编译性与幂等性检查，10 组对抗样本）。
+  - **图谱三层的实际使用**（详见 `docs/cpg-cas-architecture.md` 第 6 节）：流水线只用 AST 符号表层；CFG 边没有读取方；DFG 只被上面的污点检查使用，且是每个文件现场重建，不读已存储的图。
 
 ---
 
@@ -346,4 +347,4 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 ## 核实记录
 
-2026-11-26 对照源码核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。第 8 节模型天梯榜、CPG 的性能数字（整库同步 <15ms、节省 65%+ 上下文 Token、压缩率 70%+）与第 6 节的 `adk web` 命令为当时实测或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
+2026-11-26 对照源码核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。CPG 一组特性按实测改写：影响面、增量同步和污点检查的覆盖范围与测量数字见 `docs/cpg-cas-architecture.md` 第 6 节。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
