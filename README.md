@@ -1,3 +1,11 @@
+---
+type: OpsGuide
+title: 'adk-dev-flow 使用指南'
+status: active
+date: '2026-11-26'
+related_adrs: [1]
+---
+
 # adk-dev-flow
 
 面向 Python 业务仓库的**确定性 AI 研发工作流系统**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab / GitHub 双平台自适应 + OKF 规约体系）。
@@ -30,7 +38,7 @@
 - 📑 **OKF（Open Knowledge Format）Git 原生规约与合规审计**：
   - 规约以标准 Markdown + YAML Frontmatter 格式存储在 `.adk/specs/`，天然支持 Git Diff 与 Code Review。
   - 评审报告自动生成并提交到分支 `.adk/audit/review_{run_id}.md`，随 MR 形成不可篡改的证据链。
-  - 项目工程规约（`.adk/knowledge/rules/`）自动注入工兵上下文，免除外部复杂向量库。
+  - 项目工程规约（`.adk/knowledge/rules/`）自动注入工兵上下文，免除外部复杂向量库。派发时按 `allowed_paths` 路由：无 `paths` / `tags` 的规约总是注入，带 `paths` 的按路径匹配，只带 `tags` 的在派发路径会被跳过（`adk-dev-flow-init` 写入的基线规约目前属于后者）。
 - 🌐 **Google ADK Web UI 原生可视化**：
   - 暴露标准 `root_agent`，可一键启动官方 ADK Web 控制台，实时查看 Trace 时间线、会话快照与工具状态。
 - 🔄 **高可用多任务并发与抽象 Provider**：
@@ -85,7 +93,7 @@ adk-dev-flow-init . --with-ci
 - `.adk/specs/template.md`：OKF 规约模版
 - `.adk/knowledge/index.md`：工程知识目录
 - `.adk/knowledge/rules/engineering_rules.md`：工程规约基线
-- `.gitignore`：追加 `.adk/`（忽略运行态，保留规约与知识）
+- `.gitignore`：追加 `.adk/state.db*`、`.adk/active_run.json`、`.adk/worktrees/`、`.adk/locks/`（只忽略运行态，保留规约与知识）
 
 ---
 
@@ -216,24 +224,41 @@ uv run adk web src --port 8000
 | --- | --- | --- |
 | `REPO_ROOT` | 当前工作目录 | 目标业务仓库根目录 |
 | `GIT_FORGE_PROVIDER` | `auto` | 托管平台覆盖开关（`github` / `gitlab` / `none` / `auto`） |
+| `GIT_PROVIDER` | 空 | `GIT_FORGE_PROVIDER` 的别名，取二者中先配置的一个 |
 | `GITHUB_TOKEN` / `GH_TOKEN` | 空 | GitHub 个人访问令牌（PAT），配置后支持 Issue 联动与创建 PR |
 | `GITHUB_REPOSITORY` | 自动从 git remote 解析 | GitHub 仓库路径（如 `owner/repo`，未配置时自动从 `origin` 提取） |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub API 根路径（支持 GitHub Enterprise） |
+| `GITHUB_TIMEOUT` | `30` | GitHub API 请求超时（秒） |
 | `GITLAB_URL` / `GITLAB_TOKEN` / `GITLAB_PROJECT_ID` | 空 | 内网 GitLab 联动机关（均配置后自动同步 Issue 与推送 MR） |
+| `CI_SERVER_URL` / `CI_PROJECT_ID` / `CI_JOB_TOKEN` | GitLab CI 预置 | 在 GitLab CI 中运行时，作为上面对应 `GITLAB_*` 的回退值 |
+| `GITLAB_TIMEOUT` | `30` | GitLab API 请求超时（秒） |
 | `GITLAB_CA_BUNDLE` | 空 | 企业自签根证书 PEM 文件路径 |
 | `GITLAB_SSL_VERIFY` | `true` | TLS 校验开关 |
 | `ADK_MAX_RETRIES` | `3` | 工兵自愈重试上限轮次 |
-| `ADK_WORKER_TIMEOUT` | `600` | 工兵执行超时时间（秒），超长任务可按项目定制 |
+| `ADK_WORKER_TIMEOUT` | `300` | 工兵执行超时时间（秒），超长任务可按项目定制；`spike` 型任务取 2 倍 |
 | `ADK_WORKER_MAX_TURNS` | `15` | 工兵 CLI 交互轮次基线；spike 型任务自动取 4 倍且不低于 60 |
 | `ADK_WORKER_PROVIDER` | `codebuddy` | 工兵后端类型（`codebuddy` / `mock`） |
-| `ADK_WORKER_MODEL` | 空（跟随 CLI 默认） | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`） |
-| `ADK_CRITIC_MODEL` | `CodeBuddyLlm()` | Critic 独立审查模型（推荐 `glm-5.3-flash`） |
+| `ADK_WORKER_MODEL` | 空 | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`）；未配置时依次回退 `CODEBUDDY_WORKER_MODEL`、`CODEBUDDY_MODEL`、CLI 默认 |
+| `CODEBUDDY_WORKER_MODEL` | 空 | `ADK_WORKER_MODEL` 的别名，优先级更低 |
+| `CODEBUDDY_MODEL` | 空 | 工兵与 Critic 模型的共同回退值 |
+| `ADK_CRITIC_MODEL` | 空 | Critic 独立审查模型（推荐 `glm-5.3-flash`）；未配置时回退 `CODEBUDDY_MODEL`，再跟随 CLI 默认 |
 | `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
+| `CODEBUDDY_BIN_ARGS` | `[]` | JSON 数组，插在 CLI 可执行文件之后的固定前导参数（如经 `node` 启动时的入口脚本） |
+| `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | JSON 数组，追加到工兵 CLI 命令末尾的额外参数 |
 | `CODEBUDDY_USE_STDIN` | `false` | 启用 stdin 管道传输 Prompt（消除 Windows 换行与引号转义风险） |
+| `ADK_PYTHON` | 当前解释器 | 指定流水线使用的 Python 解释器路径 |
+| `ADK_RECOVERY_GRACE_PERIOD` | `600` | MCP 服务重启时，在此秒数内更新过的在途 run 不被标记为 `ESCALATED` |
 | `ADK_SKIP_TDD_RED` | `0` | 设为 `1` 可临时跳过 TDD Red 阶段门禁 |
-| `ADK_LINT_CMD` | 自动探测 `.venv` 的 `ruff check .` | 静态检查命令；设为 `skip` 可跳过 |
-| `ADK_TEST_CMD` | 自动探测 `.venv` 的 `pytest -q {test_path}` | 验收测试命令模板（支持 `{test_path}` 占位符） |
+| `ADK_TDD_RED_CMD` | 空 | 仅覆盖红灯预检（`flow_preflight_test`）的 pytest 命令，支持 `{test_path}` 占位符；优先于 `ADK_TEST_CMD` |
+| `ADK_LINT_CMD` | 自动探测 | 静态检查命令；未配置时依次探测 worktree 与仓库根的 `.venv`、`uv run`、`PATH`；设为 `skip` 可跳过 |
+| `ADK_TEST_CMD` | 自动探测 | 验收测试命令模板（支持 `{test_path}` 占位符），探测顺序同上 |
 | `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁 |
+| `ADK_VERIFY_TIMEOUT` | `180` | lint、验收测试、回归命令的单次执行超时（秒） |
+| `ADK_GIT_TIMEOUT` | `60` | 流水线内 git 命令的执行超时（秒） |
+| `ADK_MAX_DIFF_CHARS` | `12000` | Diff 字符上限；当前源码只读取该值，未见使用处 |
+| `ADK_BRANCH_PATTERN` | 空 | 分支名模板（可用 `{iid}`、`{run_id}`、`{run_id6}`、`{title}`）；为空时用 `adk/issue-{iid}-{run_id6}` |
+| `ADK_FLOW_ENFORCE` | 空 | 设为 `off` 可豁免 commit 登记门禁，豁免会留痕到 `.adk/exemptions.log` |
+| `ADK_DASHBOARD_PORT` | 按仓库路径派生 | Web UI 大屏模组使用的看板服务端口；未设置时每个仓库取 21000–28999 中的确定值 |
 
 ### 多项目共存配置 (`.adk/config.json`)
 
@@ -252,6 +277,8 @@ uv run adk web src --port 8000
 5. **端到端生成延迟**：平均耗时与吞吐稳定性。
 
 ### 实测模型天梯榜
+
+> 下表是 2026-11-22 运行 `scripts/benchmark_models.py` 的实测快照，不是持续维护的保证值；重新评测请自行运行下方命令。
 
 | 模型名称 | 平均耗时 | JSON 遵从 | 边界意识 | TDD 编码质量 | Critic 否决 | 推荐角色 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -281,10 +308,12 @@ uv run python scripts/benchmark_models.py
 为了让任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 19 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
-- `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标。
-- `mcp_config.json`：配置便携式 FastMCP 服务运行命令，支持跨环境自适应启动。
+- `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标；CodeBuddy 要求的清单同时写入 `.codebuddy-plugin/plugin.json`。
+- `mcp_config.json`：配置便携式 FastMCP 服务运行命令，支持跨环境自适应启动；同一份配置同时输出为 CodeBuddy 识别的 `.mcp.json`。
+- `hooks/hooks.json` 与 `hooks/enforce_flow.py`：commit 登记门禁（PreToolUse 钩子与独立脚本）。
 - `skills/deterministic-dev/SKILL.md`：打包确定性流水线研发技能，赋能 Agent 拥有全套流水线编排调度认知。
 - `rules/AGENTS.md`：剥离 Frontmatter 并下发为不可妥协的工程底线（TDD 红灯契约、沙箱隔离、AST 语义不变性）。
+- `sidecars/dashboard/sidecar.json`：Antigravity Aux Pane 看板的 Sidecar 声明。
 - `assets/logo.svg`：工程流水线与 AST 节点发光徽标。
 
 ### 一键同步机制
@@ -306,9 +335,15 @@ uv run --no-sync python -m adk_dev_flow.plugin_builder --no-global
 
 ## 10. 运行自动化测试
 
-项目内建 156 个全量单元测试与物理对抗用例（涵盖 CAS-CPG 增量同步缓存、AST/CFG/DFG 三图图谱、DFG 污点分析安全门禁、Issue 驱动开发闭环、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、8 步交互式动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约、假设态模糊测试等）：
+项目内建全量单元测试与物理对抗用例（涵盖 CAS-CPG 增量同步缓存、AST/CFG/DFG 三图图谱、DFG 污点分析安全门禁、Issue 驱动开发闭环、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、8 步交互式动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约、假设态模糊测试等）：
 
 ```bash
 # 执行全量单元与对抗测试
 uv run --no-sync python -m unittest discover -s tests -v
 ```
+
+---
+
+## 核实记录
+
+2026-11-26 对照源码核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。第 8 节模型天梯榜、CPG 的性能数字（整库同步 <15ms、节省 65%+ 上下文 Token、压缩率 70%+）与第 6 节的 `adk web` 命令为当时实测或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。

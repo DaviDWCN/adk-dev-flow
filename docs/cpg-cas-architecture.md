@@ -118,6 +118,12 @@ flowchart TD
 
 若发现外部变量通过赋值链条可达危险函数，审计器将立即阻断并生成拦截报告：
 ```text
-发现污点变量 `req_data` 流入危险函数 `call:eval@3` (line 3)
+检测到污点变量 `req_data` 流入危险函数 `call:eval@3` (line 3)
 ```
 大模型无法越权绕过该硬门禁。
+
+---
+
+## 核实记录
+
+2026-11-26 对照源码核对：第 2 节的节点类型、边类型与类名（`src/adk_dev_flow/cpg.py`）、第 3 节的三条 PRAGMA 与 zlib 压缩、第 5 节的 sink 列表与拦截文案（`src/adk_dev_flow/ast_graph.py`）与实现一致。存储路径 `.adk/cache/code_graph.sqlite` 见 `ast_graph.py:632-634`。性能数字（<15ms、3~8ms、70%+ 压缩率）为设计时的实测，未复核。

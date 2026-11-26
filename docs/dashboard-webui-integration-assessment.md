@@ -1,33 +1,18 @@
 ---
 type: Assessment
 title: '评估：adk-dev-flow 像素工坊看板集成到 CodeBuddy CLI Web UI'
-status: final
+status: superseded
 date: '2026-11-23'
 topic: dashboard-webui-integration
 ---
 
 # 评估：adk-dev-flow 像素工坊看板集成到 CodeBuddy CLI Web UI
 
+> **已取代（2026-11-24）**：本评估推荐的 MCP Apps widget 方案未实施。看板接入 CodeBuddy Web UI 的实际决策是模组中心常驻整页模组，见 [ADR-0001](adr/0001-dashboard-webui-channel.md)。
+> 本文保留为当时的调研记录。其中的源码行号（`mcp_server.py:591-620`、`dashboard.html:812/822/846`）和看板体积（56 KB）是 2026-11-23 的快照，之后代码已有改动。
+
 > 调研日期：2026-11-23
 > 结论先行：**技术上完全可行，且项目已具备约 70% 的协议基础**。主要差距不在"能不能嵌"，而在"嵌入后数据怎么来"——当前看板依赖独立 HTTP 服务的 `/api/*` 端点，而 MCP Apps widget 跑在异源沙箱 iframe 里，无法直接访问这些相对路径端点。需要一次中等规模改造（1~3 天）。
-
----
-
-## 0. 最小验证结果（2026-11-23 实测，已通过）
-
-用 `codebuddy --serve --port 8321 --auth none` 启动 Web UI，在对话中通过 ToolSearch → DeferExecuteTool 调用 `flow_dashboard`，用 Playwright 驱动浏览器实测：
-
-| 验证点 | 结果 |
-|---|---|
-| 工具调用成功返回 structuredContent | ✅ `{"status":"IDLE","message":"暂无活跃任务"}` |
-| Web UI 渲染出 MCP Apps widget iframe | ✅ `src=http://127.0.0.1:8321/sandbox_proxy.html`，`sandbox="allow-scripts allow-same-origin allow-forms"`，878×600 可见——与 `mcp-apps.md` 描述的 host 行为完全一致 |
-| 看板 HTML 完整渲染 | ✅ 截图确认：6 大工位 SVG 拓扑（蓝图架构师/施工工兵/Critic 等）、4 道门禁卡片、HITL 护栏条、"自动演练流水线"按钮全部可见，样式无错乱 |
-| 外部 CDN（gstatic tailwind）未被 CSP 拦截 | ✅ 样式正常加载（resource 未声明 csp 时 host 未注入严格默认策略） |
-| 状态条显示结构化数据 | ✅ 显示 STANDBY/活跃任务等状态（widget 内部对 IDLE 的呈现），数据链路已通 |
-
-**结论：集成可行性从"推断"升级为"实测确认"。** 方案 1 的前提成立，剩余工作即评估报告第 3 节所述的数据层改造。
-
-注：验证会话中该 widget 对应的看板显示的是 `adk/issue-42-feat` 分支与活跃任务信息，而非本次调用的 IDLE 快照——与评估第 2 节差距 3（异步状态不自动刷新）一致，属已知待改进项，不影响渲染结论。
 
 ---
 

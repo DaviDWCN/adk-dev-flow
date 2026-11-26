@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import re
 import subprocess
 import tempfile
 import unittest
@@ -33,15 +35,149 @@ def _errors(report: dict) -> list[str]:
     return [i["message"] for i in report["errors"]]
 
 
+# --- Drift gates: facts that documentation states and code owns -------------
+# A markdown file without an OKF `type` is skipped silently by validate_repo.
+# These are the only tracked files allowed to stay untyped.
+LOADER_CONTRACT_DOCS = {  # frontmatter belongs to the skill loader (name/description)
+    "src/adk_dev_flow/templates/SKILL.md",
+    "plugin/adk-dev-flow/skills/deterministic-dev/SKILL.md",
+}
+GENERATED_OR_EXPORTED_DOCS = {  # produced by a generator / export, never hand-edited
+    "plugin/adk-dev-flow/README.md",  # plugin_builder.build_plugin_bundle
+    "plugin/adk-dev-flow/rules/AGENTS.md",  # frontmatter stripped by strip_yaml_frontmatter
+    "mod/pixel-forge-screen/README.md",  # Mod Center export
+}
+PLUGIN_GENERATED_DOCS = (
+    "README.md",
+    "skills/deterministic-dev/SKILL.md",
+    "rules/AGENTS.md",
+)
+ENV_READ_RE = re.compile(r"""(?:environ\.get|getenv|_env)\(\s*["']([A-Z][A-Z0-9_]+)["']""")
+TOOL_COUNT_RE = re.compile(r"(\d+)(?:\s*个)?\s*(?:FastMCP\s+)?(?:原子)?工具")
+
+
+def _tracked_markdown() -> list[str]:
+    out = subprocess.run(
+        ["git", "ls-files", "*.md"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+    )
+    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+
+
+def _registered_tools() -> dict[str, str]:
+    """flow_* MCP tools as the server registers them: name -> 异步/同步."""
+    tree = ast.parse((REPO_ROOT / "src" / "adk_dev_flow" / "mcp_server.py").read_text(encoding="utf-8"))
+    tools: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(ast.unparse(d).startswith(("mcp.tool", "mcp.async_tool")) for d in node.decorator_list):
+            tools[node.name] = "异步" if isinstance(node, ast.AsyncFunctionDef) else "同步"
+    return tools
+
+
+def _env_names_read_by_code() -> dict[str, str]:
+    """Environment variable names read under src/ -> first source location."""
+    found: dict[str, str] = {}
+    for path in sorted((REPO_ROOT / "src" / "adk_dev_flow").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in ENV_READ_RE.finditer(text):
+            found.setdefault(match.group(1), f"{path.relative_to(REPO_ROOT).as_posix()}:{text.count(chr(10), 0, match.start()) + 1}")
+    return found
+
+
+def _readme() -> str:
+    return (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def _readme_env_table() -> dict[str, str]:
+    """Variable names listed in the README env table -> the row text."""
+    rows: dict[str, str] = {}
+    for line in _readme().splitlines():
+        match = re.match(r"^\| ((?:`[A-Z][A-Z0-9_]*`(?: / )?)+) \|", line)
+        if match:
+            for name in re.findall(r"[A-Z][A-Z0-9_]+", match.group(1)):
+                rows[name] = line
+    return rows
+
+
 class TestOkfContract(unittest.TestCase):
     """OKF 1.0 executable contract: validator, corruption injection, queries."""
 
     def test_repo_corpus_valid(self) -> None:
         report = validate_repo(REPO_ROOT)
         self.assertTrue(report["valid"], f"corpus errors: {_errors(report)}")
+        self.assertEqual(report["warnings"], [], f"corpus warnings: {report['warnings']}")
         counts = report["type_counts"]
-        for expected in ("DevSpec", "EngineeringRule", "KnowledgeIndex", "ArchitectureDoc", "Assessment"):
+        for expected in (
+            "DevSpec",
+            "EngineeringRule",
+            "KnowledgeIndex",
+            "ArchitectureDoc",
+            "Assessment",
+            "ADR",
+            "OpsGuide",
+        ):
             self.assertGreaterEqual(counts.get(expected, 0), 1, f"{expected} missing from corpus")
+
+    def test_untyped_markdown_is_an_explicit_allowlist(self) -> None:
+        """Gate G1: a new or de-typed document cannot fall out of OKF scope unnoticed."""
+        untyped: set[str] = set()
+        loader_contract: set[str] = set()
+        for rel in _tracked_markdown():
+            meta, _body, err = split_frontmatter((REPO_ROOT / rel).read_text(encoding="utf-8"))
+            self.assertIsNone(err, f"broken frontmatter: {rel}: {err}")
+            if meta and meta.get("type"):
+                continue
+            if meta and "name" in meta:
+                loader_contract.add(rel)
+            else:
+                untyped.add(rel)
+        self.assertEqual(loader_contract, LOADER_CONTRACT_DOCS, "loader-contract set changed")
+        self.assertEqual(
+            untyped,
+            GENERATED_OR_EXPORTED_DOCS,
+            "untyped markdown set changed: give the file an OKF type or add it to the right set",
+        )
+
+    def test_tool_table_and_counts_match_registered_tools(self) -> None:
+        """Gate G2: README tool table + every stated tool count follow mcp_server.py."""
+        tools = _registered_tools()
+        readme = _readme()
+        table = dict(re.findall(r"^\| `(flow_[a-z_]+)` \| (异步|同步) \|", readme, re.M))
+        self.assertEqual(table, tools, "README tool table differs from registered tools (name or 异步/同步)")
+
+        counts_in_readme = TOOL_COUNT_RE.findall(readme)
+        self.assertGreaterEqual(len(counts_in_readme), 2, "tool-count statements not found in README")
+        builder = (REPO_ROOT / "src" / "adk_dev_flow" / "plugin_builder.py").read_text(encoding="utf-8")
+        counts_in_builder = TOOL_COUNT_RE.findall(builder)
+        self.assertGreaterEqual(len(counts_in_builder), 3, "tool-count statements not found in plugin_builder.py")
+        for where, counts in (("README.md", counts_in_readme), ("plugin_builder.py", counts_in_builder)):
+            self.assertEqual(set(counts), {str(len(tools))}, f"{where}: stated tool count(s) {sorted(set(counts))} != {len(tools)}")
+
+    def test_env_table_covers_every_variable_read_by_code(self) -> None:
+        """Gate G3: the README env table is a complete inventory of src/ env reads."""
+        rows = _readme_env_table()
+        read = _env_names_read_by_code()
+        missing = {name: loc for name, loc in read.items() if name not in rows}
+        self.assertEqual(missing, {}, f"env vars read by code but absent from README table: {missing}")
+
+    def test_generated_plugin_docs_match_fresh_build(self) -> None:
+        """Gate G4: plugin/ markdown equals what plugin_builder emits now (no hand edits, no stale build)."""
+        from adk_dev_flow.plugin_builder import build_plugin_bundle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            build_plugin_bundle(REPO_ROOT, Path(tmp))
+            for rel in PLUGIN_GENERATED_DOCS:
+                committed = (REPO_ROOT / "plugin" / "adk-dev-flow" / rel).read_bytes()
+                fresh = (Path(tmp) / rel).read_bytes()
+                self.assertEqual(committed, fresh, f"plugin/adk-dev-flow/{rel} is not a fresh build output")
+
+    def test_spec_template_is_lockable(self) -> None:
+        """Gate G5: the DevSpec template copied by `adk-dev-flow-init` parses as a lockable spec."""
+        spec = SpecContract.from_okf_markdown(REPO_ROOT / "src" / "adk_dev_flow" / "templates" / "spec_template.md")
+        self.assertEqual(spec.issue_iid, 1)
+        self.assertFalse(spec.spike)
+        self.assertTrue(spec.allowed_paths)
 
     def test_registry_covers_all_known_types(self) -> None:
         expected = {
