@@ -117,10 +117,16 @@
           </div>
         </div>
         <div class="h-6 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <span id="live-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-500 led-live shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
           <span id="state-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 transition-all">
             STANDBY · 待命
+          </span>
+          <span id="badge-post-hoc" class="hidden px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-300" title="该 run 在流水线外完成，未经 Spec 锁定与沙箱审计（post_hoc 后补登记）">
+            📋 post_hoc · 后补登记
+          </span>
+          <span id="badge-merged-abort" class="hidden px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-300" title="该 run 已中止，但其分支已合并进主分支">
+            🔗 已合并 · 流程中止
           </span>
         </div>
       </div>
@@ -184,6 +190,17 @@
           <span id="banner-station-pos" class="font-bold text-indigo-600">工位 0 · 待命区</span>
         </div>
       </div>
+    </div>
+
+    <!-- Outside-Pipeline Git Activity Notice -->
+    <div id="outside-activity-banner" class="hidden px-4 py-2.5 rounded-xl bg-amber-50/95 border border-amber-300 text-amber-900 flex flex-wrap items-center justify-between gap-2 text-[11px] shadow-xs">
+      <div class="flex items-center gap-2">
+        <span>⚠️</span>
+        <span class="font-bold">检测到流水线外分支活动:</span>
+        <span id="outside-activity-ref" class="font-mono font-semibold"></span>
+        <span id="outside-activity-subject" class="text-amber-800"></span>
+      </div>
+      <span id="outside-activity-hint" class="font-mono text-[10px] text-amber-700"></span>
     </div>
 
     <!-- Determinism & Security Guardrail Indicators Bar -->
@@ -1482,6 +1499,31 @@
         }
       }
 
+      // Adoption (post_hoc), merged_after_abort, and outside_activity parity with Mod UI
+      const postHocBadge = document.getElementById('badge-post-hoc');
+      if (postHocBadge) {
+        postHocBadge.classList.toggle('hidden', data.evidence_type !== 'post_hoc');
+      }
+      const mergedAbortBadge = document.getElementById('badge-merged-abort');
+      if (mergedAbortBadge) {
+        mergedAbortBadge.classList.toggle('hidden', !data.merged_after_abort);
+      }
+      const oaBanner = document.getElementById('outside-activity-banner');
+      if (oaBanner) {
+        const oa = data.outside_activity;
+        if (oa) {
+          oaBanner.classList.remove('hidden');
+          const oaRef = document.getElementById('outside-activity-ref');
+          const oaSub = document.getElementById('outside-activity-subject');
+          const oaHint = document.getElementById('outside-activity-hint');
+          if (oaRef) oaRef.textContent = `${oa.branch || ''} @ ${oa.short_sha || ''}`;
+          if (oaSub) oaSub.textContent = oa.subject || '';
+          if (oaHint) oaHint.textContent = oa.hint || '';
+        } else {
+          oaBanner.classList.add('hidden');
+        }
+      }
+
       // Critic review box display
       const reviewBox = document.getElementById('critic-verdict-box');
       if (data.review && reviewBox) {
@@ -1536,7 +1578,7 @@
           const sel = document.getElementById('run-selector');
           if (!sel || !data.runs || !data.runs.length) return;
           sel.innerHTML = data.runs.map(r => 
-            `<option value="${r.run_id}" ${r.run_id === currentRunId ? 'selected' : ''}>${r.run_id} (${r.status})</option>`
+            `<option value="${r.run_id}" ${r.run_id === currentRunId ? 'selected' : ''}>${r.run_id} (${r.status}${r.merged_after_abort ? ' · 已合并' : ''})</option>`
           ).join('');
         })
         .catch(() => {});

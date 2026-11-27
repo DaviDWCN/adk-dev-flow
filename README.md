@@ -109,10 +109,10 @@ adk-dev-flow-init . --with-ci
 | `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
 | `flow_adopt` | 异步 | **收编流程外工作**：将已在分支上直接进行的工作登记为 `ADOPTED` run（post_hoc 后补证据，大屏琥珀色标注），并自动安装 pre-commit 登记门禁 |
 | `flow_adopt_finalize` | 异步 | 完成收编：记录分支尖端提交为证据，将 `ADOPTED` run 以 CAS 置为 `MR_READY` |
-| `flow_lock_spec` | 同步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈） |
-| `flow_lock_spec_from_file` | 同步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约 |
-| `flow_analyze_impact` | 同步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架 |
-| `flow_preflight_test` | 同步 | **在当前基线代码上客观预检验收测试**，验证用例报出真实业务红灯（拦截空断言假通过与环境语法假红灯） |
+| `flow_lock_spec` | 异步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈；后台线程池运行，不阻塞事件循环） |
+| `flow_lock_spec_from_file` | 异步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约（后台线程池运行） |
+| `flow_analyze_impact` | 异步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架与推进 `SPEC_DESIGNED` |
+| `flow_preflight_test` | 异步 | **在当前基线代码上客观预检验收测试**，验证用例报出真实业务红灯（拦截空断言假通过与路径越权，同路径串行加锁且不阻塞事件循环） |
 | `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
 | `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab / GitHub PR/MR 链接 |
 | `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
@@ -243,7 +243,9 @@ uv run adk web src --port 8000
 | `ADK_WORKER_MODEL` | 空 | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`）；未配置时依次回退 `CODEBUDDY_WORKER_MODEL`、`CODEBUDDY_MODEL`、CLI 默认 |
 | `CODEBUDDY_WORKER_MODEL` | 空 | `ADK_WORKER_MODEL` 的别名，优先级更低 |
 | `CODEBUDDY_MODEL` | 空 | 工兵与 Critic 模型的共同回退值 |
-| `ADK_CRITIC_MODEL` | 空 | Critic 独立审查模型（推荐 `glm-5.3-flash`）；未配置时回退 `CODEBUDDY_MODEL`，再跟随 CLI 默认 |
+| `ADK_CRITIC_MODEL` | 空 | Critic 独立审查模型（推荐 `glm-5.3-flash`）；配置后将启用只读 `REVIEWING` Critic 审查，未配置具体模型名时回退 `CODEBUDDY_MODEL` |
+| `ADK_ENABLE_CRITIC` | `0` | 设为 `1`（或配置 `ADK_CRITIC_MODEL`）启用交付阶段 `REVIEWING` 独立只读 Critic 审查 |
+| `ADK_CRITIC_FAIL_CLOSED` | `0` | 设为 `1` 时，只读 Critic CLI 调用失败直接 fail-closed 拦截发布（`ESCALATED`） |
 | `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
 | `CODEBUDDY_BIN_ARGS` | `[]` | JSON 数组，插在 CLI 可执行文件之后的固定前导参数（如经 `node` 启动时的入口脚本） |
 | `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | JSON 数组，追加到工兵 CLI 命令末尾的额外参数 |

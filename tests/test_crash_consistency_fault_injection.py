@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from adk_dev_flow.mcp_server import FlowService
 from adk_dev_flow.models import AtomicTask, SpecContract
@@ -15,6 +16,10 @@ from adk_dev_flow.worktree_utils import sanitize_worktree_state
 
 class TestCrashConsistencyFaultInjection(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        self._env_patch = patch.dict(os.environ, {"ADK_WORKER_PROVIDER": "mock"})
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self.tmp_dir.name)
 

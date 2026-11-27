@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -123,6 +124,8 @@ class FlowService:
             self.repo_root: (self.store, self.gl)
         }
         self._run_roots: dict[str, Path] = {}
+        self._preflight_locks_guard = threading.Lock()
+        self._preflight_locks: dict[Path, threading.Lock] = {}
         if recovery_grace_period is None:
             try:
                 recovery_grace_period = float(os.environ.get("ADK_RECOVERY_GRACE_PERIOD", ""))
@@ -433,13 +436,13 @@ class FlowService:
         self, run_id: str | None = None, repo_root: str | None = None
     ) -> dict[str, Any]:
         """完成收编：记录分支尖端提交为证据，将 ADOPTED run 以 CAS 方式置为 MR_READY。"""
-        self._ensure_repo_root(repo_root)
+        root, store, _ = self._resolve_context(run_id=run_id, repo_override=repo_root)
         if run_id:
-            run = self.store.get_run(run_id)
+            run = store.get_run(run_id)
             if not run:
                 return {"error": f"未知 run_id: {run_id}"}
         else:
-            adopted = self.store.get_active_runs()
+            adopted = store.get_active_runs()
             candidates = [r for r in adopted if r["status"] == "ADOPTED"]
             run = candidates[0] if candidates else None
             if not run:
@@ -451,14 +454,14 @@ class FlowService:
             if branch_ref:
                 probe_branch = await run_subprocess_safe(
                     ["git", "rev-parse", "--verify", "--quiet", f"{branch_ref}^{{commit}}"],
-                    cwd=self.repo_root,
+                    cwd=root,
                     timeout_sec=10.0,
                 )
                 if probe_branch.returncode == 0 and (probe_branch.stdout or "").strip():
                     log_target = branch_ref
             res = await run_subprocess_safe(
                 ["git", "log", "-1", "--format=%H%n%h%n%s", log_target],
-                cwd=self.repo_root,
+                cwd=root,
                 timeout_sec=15.0,
             )
             lines = (res.stdout or "").strip().splitlines()
@@ -475,10 +478,11 @@ class FlowService:
             adopted_spec = await self._write_adopted_spec_doc(run, branch_head)
         except Exception as exc:
             adopted_spec = {"written": False, "reason": str(exc)}
-        ok = self.store.transition_run(
+        ok = store.transition_run(
             run["run_id"],
             expected_statuses=("ADOPTED",),
             new_status="MR_READY",
+            enforce_matrix=True,
             last_error_log=evidence[-4000:],
         )
         if not ok:
@@ -548,10 +552,40 @@ class FlowService:
                             "mutation_report": mutation_dict,
                         }
 
+        if run["status"] not in PRE_LOCK_STATUSES:
+            return {
+                "error": (
+                    "当前状态不可锁定 Spec"
+                    f"（需处于起草或前置审查阶段 {PRE_LOCK_STATUSES}，实际为 {run['status']}）"
+                )
+            }
+
+        # Traverse PRE_CRITIC_REVIEWED before locking when coming from design/test stages
+        # (or when an explicit pre_critic_report was supplied from SPEC_DRAFTING).
+        cur_status = run["status"]
+        if cur_status == "SPEC_DRAFTING" and spec.pre_critic_report is not None:
+            if store.transition_run(
+                run_id,
+                expected_statuses=("SPEC_DRAFTING",),
+                new_status="SPEC_DESIGNED",
+                enforce_matrix=True,
+            ):
+                cur_status = "SPEC_DESIGNED"
+
+        if cur_status in ("SPEC_DESIGNED", "TEST_GENERATED"):
+            if store.transition_run(
+                run_id,
+                expected_statuses=("SPEC_DESIGNED", "TEST_GENERATED"),
+                new_status="PRE_CRITIC_REVIEWED",
+                enforce_matrix=True,
+            ):
+                cur_status = "PRE_CRITIC_REVIEWED"
+
         ok = store.transition_run(
             run_id,
-            expected_statuses=PRE_LOCK_STATUSES,
+            expected_statuses=(cur_status,),
             new_status="SPEC_LOCKED",
+            enforce_matrix=True,
             spec_json=spec.model_dump_json(),
         )
         if not ok:
@@ -591,16 +625,33 @@ class FlowService:
         return res
 
     def flow_analyze_impact(
-        self, target_paths: list[str], include_skeletons: bool = False
+        self,
+        target_paths: list[str],
+        include_skeletons: bool = False,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
-        self._ensure_repo_root()
+        root, store, _ = self._resolve_context(run_id=run_id)
         from adk_dev_flow.ast_graph import CodeGraph
 
-        cg = CodeGraph(self.repo_root)
+        cg = CodeGraph(root)
         if include_skeletons:
-            return cg.get_test_generation_context(target_paths)
-        report = cg.analyze_impact(target_paths)
-        return report.to_dict()
+            result = cg.get_test_generation_context(target_paths)
+        else:
+            report = cg.analyze_impact(target_paths)
+            result = report.to_dict()
+
+        if run_id:
+            run = store.get_run(run_id)
+            if run and run["status"] == "SPEC_DRAFTING":
+                moved = store.transition_run(
+                    run_id,
+                    expected_statuses=("SPEC_DRAFTING",),
+                    new_status="SPEC_DESIGNED",
+                    enforce_matrix=True,
+                )
+                if moved:
+                    result["status"] = "SPEC_DESIGNED"
+        return result
 
     def _record_preflight_status(self, run_id: str) -> dict[str, Any]:
         """Move a drafting run to TEST_GENERATED. Leave any later status untouched."""
@@ -613,8 +664,9 @@ class FlowService:
             }
         moved = store.transition_run(
             run_id,
-            expected_statuses=PRE_LOCK_STATUSES,
+            expected_statuses=("SPEC_DRAFTING", "SPEC_DESIGNED", "TEST_GENERATED"),
             new_status="TEST_GENERATED",
+            enforce_matrix=True,
         )
         if moved:
             return {"status_updated": True, "status": "TEST_GENERATED"}
@@ -623,9 +675,18 @@ class FlowService:
             "status": run["status"],
             "status_error": (
                 f"预检通过，但运行处于 {run['status']}，未改写状态。"
-                "TEST_GENERATED 只允许从起草阶段进入。"
+                "TEST_GENERATED 只允许从起草或设计阶段进入。"
             ),
         }
+
+    def _get_preflight_lock(self, target_file: Path) -> threading.Lock:
+        resolved = target_file.resolve()
+        with self._preflight_locks_guard:
+            lock = self._preflight_locks.get(resolved)
+            if lock is None:
+                lock = threading.Lock()
+                self._preflight_locks[resolved] = lock
+            return lock
 
     def flow_preflight_test(
         self, test_path: str, test_code: str, run_id: str | None = None
@@ -635,12 +696,37 @@ class FlowService:
         import ast
         import subprocess
         import sys
+        from adk_dev_flow.guard import is_path_under, is_protected_path, normalize_relative_path
         from adk_dev_flow.workflow import _validate_tdd_red_outcome
         from adk_dev_flow.worktree_utils import resolve_tool_command
 
+        raw_path = (test_path or "").strip()
+        if not raw_path or Path(raw_path).is_absolute():
+            return {
+                "ok": False,
+                "exit_code": 1,
+                "is_pure_semantic_failure": False,
+                "error": f"非法测试路径: `{test_path}`（必须为仓库内相对路径）",
+            }
+        rel_norm = normalize_relative_path(raw_path, root)
+        if not rel_norm:
+            return {
+                "ok": False,
+                "exit_code": 1,
+                "is_pure_semantic_failure": False,
+                "error": f"非法测试路径: `{test_path}`（禁止路径穿越或超出仓库根目录）",
+            }
+        if is_protected_path(rel_norm) or is_path_under(rel_norm, ".adk"):
+            return {
+                "ok": False,
+                "exit_code": 1,
+                "is_pure_semantic_failure": False,
+                "error": f"禁止在受保护路径或系统目录执行预检写入: {rel_norm}",
+            }
+
         # 1. Syntax check
         try:
-            ast.parse(test_code, filename=test_path)
+            ast.parse(test_code, filename=rel_norm)
         except SyntaxError as exc:
             return {
                 "ok": False,
@@ -649,88 +735,90 @@ class FlowService:
                 "error": f"测试代码存在 Python 语法错误 (line {exc.lineno}): {exc.msg}",
             }
 
-        target_file = (root / test_path).resolve()
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-        old_content: bytes | None = None
-        if target_file.is_file():
-            try:
-                old_content = target_file.read_bytes()
-            except Exception:
-                old_content = None
+        target_file = (root / rel_norm).resolve()
+        file_lock = self._get_preflight_lock(target_file)
+        with file_lock:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            old_content: bytes | None = None
+            if target_file.is_file():
+                try:
+                    old_content = target_file.read_bytes()
+                except Exception:
+                    old_content = None
 
-        target_file.write_text(test_code, encoding="utf-8")
-        try:
-            cmd = resolve_tool_command(
-                "pytest",
-                ["-q", str(target_file)],
-                worktree=root,
-                repo_root=root,
-                env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
-                placeholder_vars={"test_path": test_path},
-            )
-            if cmd is None:
-                cmd = [sys.executable, "-m", "pytest", "-q", str(target_file)]
-
-            proc = subprocess.run(
-                cmd,
-                cwd=str(root),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=60,
-                **no_window_kwargs(),
-            )
-            combined_out = f"{proc.stdout}\n{proc.stderr}"
+            target_file.write_text(test_code, encoding="utf-8")
             try:
-                _validate_tdd_red_outcome(
-                    returncode=proc.returncode,
-                    combined_output=combined_out,
-                    cmd=cmd,
-                    test_path=test_path,
+                cmd = resolve_tool_command(
+                    "pytest",
+                    ["-q", str(target_file)],
+                    worktree=root,
+                    repo_root=root,
+                    env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
+                    placeholder_vars={"test_path": rel_norm},
                 )
-                evidence = {
-                    "ok": True,
-                    "exit_code": proc.returncode,
-                    "is_pure_semantic_failure": True,
-                    "assertion_error_summary": combined_out.strip()[-1000:],
-                    "command": " ".join(cmd),
-                }
-                if run_id:
-                    evidence.update(self._record_preflight_status(run_id))
-                return evidence
-            except RuntimeError as err:
+                if cmd is None:
+                    cmd = [sys.executable, "-m", "pytest", "-q", str(target_file)]
+
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(root),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=60,
+                    **no_window_kwargs(),
+                )
+                combined_out = f"{proc.stdout}\n{proc.stderr}"
+                try:
+                    _validate_tdd_red_outcome(
+                        returncode=proc.returncode,
+                        combined_output=combined_out,
+                        cmd=cmd,
+                        test_path=rel_norm,
+                    )
+                    evidence = {
+                        "ok": True,
+                        "exit_code": proc.returncode,
+                        "is_pure_semantic_failure": True,
+                        "assertion_error_summary": combined_out.strip()[-1000:],
+                        "command": " ".join(cmd),
+                    }
+                    if run_id:
+                        evidence.update(self._record_preflight_status(run_id))
+                    return evidence
+                except RuntimeError as err:
+                    return {
+                        "ok": False,
+                        "exit_code": proc.returncode,
+                        "is_pure_semantic_failure": False,
+                        "error": str(err),
+                        "output": combined_out[-1000:],
+                    }
+            except subprocess.TimeoutExpired:
                 return {
                     "ok": False,
-                    "exit_code": proc.returncode,
+                    "exit_code": -1,
                     "is_pure_semantic_failure": False,
-                    "error": str(err),
-                    "output": combined_out[-1000:],
+                    "error": "测试执行超时 (>60s)",
                 }
-        except subprocess.TimeoutExpired:
-            return {
-                "ok": False,
-                "exit_code": -1,
-                "is_pure_semantic_failure": False,
-                "error": "测试执行超时 (>60s)",
-            }
-        except Exception as exc:
-            return {
-                "ok": False,
-                "exit_code": -1,
-                "is_pure_semantic_failure": False,
-                "error": f"测试执行失败: {exc}",
-            }
-        finally:
-            if old_content is not None:
-                try:
-                    target_file.write_bytes(old_content)
-                except Exception:
-                    pass
-            else:
-                try:
-                    target_file.unlink(missing_ok=True)
-                except Exception:
-                    pass
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "exit_code": -1,
+                    "is_pure_semantic_failure": False,
+                    "error": f"测试执行失败: {exc}",
+                }
+            finally:
+                if old_content is not None:
+                    try:
+                        target_file.write_bytes(old_content)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        target_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
     def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
         root, _, _ = self._resolve_context(run_id=run_id)
@@ -756,6 +844,7 @@ class FlowService:
             run_id,
             expected_statuses=("SPEC_LOCKED",),
             new_status="RUNNING",
+            enforce_matrix=True,
         )
         if not ok:
             return {
@@ -788,6 +877,7 @@ class FlowService:
             run_id,
             expected_statuses=("ESCALATED",),
             new_status="RUNNING",
+            enforce_matrix=True,
             attempt=0,
             last_error_sig="",
             human_hint=hint,
@@ -1399,31 +1489,41 @@ def create_mcp_server(
         return await service.flow_adopt_finalize(run_id=run_id)
 
     @mcp.tool()
-    def flow_lock_spec(run_id: str, spec: SpecContract) -> dict[str, Any]:
+    async def flow_lock_spec(run_id: str, spec: SpecContract) -> dict[str, Any]:
         """静态校验并冻结用户已确认的结构化 Spec 与验收测试用例。"""
-        return service.flow_lock_spec(run_id=run_id, spec=spec)
+        return await asyncio.to_thread(service.flow_lock_spec, run_id=run_id, spec=spec)
 
     @mcp.tool()
-    def flow_lock_spec_from_file(run_id: str, spec_file_path: str) -> dict[str, Any]:
+    async def flow_lock_spec_from_file(run_id: str, spec_file_path: str) -> dict[str, Any]:
         """读取 OKF (Open Knowledge Format) Markdown 规约文件并冻结锁定该运行轮次。"""
-        return service.flow_lock_spec_from_file(run_id=run_id, spec_file_path=spec_file_path)
-
-    @mcp.tool()
-    def flow_analyze_impact(
-        target_paths: list[str], include_skeletons: bool = False
-    ) -> dict[str, Any]:
-        """使用 AST 代码图谱静态分析目标代码的影响面（爆炸半径），推导关联生产代码、调用方与受影响测试用例，可包含测试骨架上下文。"""
-        return service.flow_analyze_impact(
-            target_paths=target_paths, include_skeletons=include_skeletons
+        return await asyncio.to_thread(
+            service.flow_lock_spec_from_file, run_id=run_id, spec_file_path=spec_file_path
         )
 
     @mcp.tool()
-    def flow_preflight_test(
+    async def flow_analyze_impact(
+        target_paths: list[str],
+        include_skeletons: bool = False,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """使用 AST 代码图谱静态分析目标代码的影响面（爆炸半径），推导关联生产代码、调用方与受影响测试用例，可包含测试骨架上下文。"""
+        return await asyncio.to_thread(
+            service.flow_analyze_impact,
+            target_paths=target_paths,
+            include_skeletons=include_skeletons,
+            run_id=run_id,
+        )
+
+    @mcp.tool()
+    async def flow_preflight_test(
         test_path: str, test_code: str, run_id: str | None = None
     ) -> dict[str, Any]:
         """在当前基线代码上预检执行验收测试，客观判定是否属于纯净有效的 TDD 红灯（排除空测试通过与语法/Fixture假红灯）。"""
-        return service.flow_preflight_test(
-            test_path=test_path, test_code=test_code, run_id=run_id
+        return await asyncio.to_thread(
+            service.flow_preflight_test,
+            test_path=test_path,
+            test_code=test_code,
+            run_id=run_id,
         )
 
     @mcp.tool()

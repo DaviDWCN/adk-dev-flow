@@ -19,7 +19,7 @@ from google.adk.workflow import START
 from google.genai import types
 
 from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
-from adk_dev_flow.codebuddy_bridge import run_codebuddy_worker
+from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.providers import get_worker_provider
@@ -214,6 +214,83 @@ def _format_mr_description(
         parts.append(f"Closes #{spec.issue_iid}")
 
     return "\n\n".join(parts)
+
+
+async def run_readonly_critic_review(
+    spec: SpecContract,
+    worktree: Path,
+    base_sha: str,
+    ast_findings: list[dict[str, Any]],
+    *,
+    run_id: str,
+) -> dict[str, Any]:
+    """Run an independent read-only Critic review against the git diff (zero write tools)."""
+    stat_res = await _git(["diff", "--stat", f"{base_sha}..HEAD"], worktree)
+    names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
+    changed_files = (
+        [line.strip() for line in names_res.stdout.splitlines() if line.strip()]
+        if names_res.returncode == 0
+        else []
+    )
+    file_diffs: list[tuple[str, str]] = []
+    for f_rel in changed_files:
+        d_res = await _git(["diff", f"{base_sha}..HEAD", "--", f_rel], worktree)
+        if d_res.returncode == 0 and d_res.stdout:
+            file_diffs.append((f_rel, d_res.stdout))
+
+    diff_text, _, _ = assemble_diff_blocks(file_diffs)
+    ast_summary = json.dumps(ast_findings, ensure_ascii=False)[:2000] if ast_findings else "无静态告警"
+    prompt = (
+        f"请以严格只读第三方 Critic 视角审查以下变更：\n"
+        f"- Spec 标题: {spec.title}\n"
+        f"- Spec 摘要: {spec.summary}\n"
+        f"- 允许路径白名单: {spec.allowed_paths}\n"
+        f"- AST 静态门禁结果: {ast_summary}\n"
+        f"- Git diff --stat:\n{stat_res.stdout[:2000]}\n\n"
+        f"- Diff 详情:\n{diff_text}\n"
+    )
+
+    from google.adk.models.llm_request import LlmRequest
+
+    critic_model = (os.environ.get("ADK_CRITIC_MODEL") or "").strip() or "codebuddy-critic"
+    llm = CodeBuddyLlm(model=critic_model)
+    req = LlmRequest(
+        model=critic_model,
+        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+        config=types.GenerateContentConfig(
+            system_instruction=(
+                "你是只读第三方代码审查 Critic，无任何文件写权限。"
+                "请审查变更是否满足 Spec 且无逻辑回退、越权修改或安全隐患。"
+            ),
+            response_schema=ReviewVerdict,
+        ),
+    )
+
+    last_text = ""
+    try:
+        async for resp in llm.generate_content_async(req, stream=False):
+            if resp and resp.content and resp.content.parts:
+                last_text = "\n".join(
+                    p.text for p in resp.content.parts if getattr(p, "text", None)
+                )
+        parsed = parse_review_verdict_dict(last_text)
+        if isinstance(parsed, dict) and "approved" in parsed:
+            return parsed
+        raise ValueError(f"Critic 未返回结构化 ReviewVerdict: {last_text[:200]}")
+    except Exception as exc:
+        if os.environ.get("ADK_CRITIC_FAIL_CLOSED", "0") == "1":
+            return {
+                "approved": False,
+                "confidence": 1.0,
+                "summary": f"Critic 只读审查调用失败 (fail-closed): {exc}",
+                "blocking_issues": [f"[{run_id}] Critic 只读审查执行失败: {exc}"],
+            }
+        return {
+            "approved": True,
+            "confidence": 0.7,
+            "summary": f"物理跑测与 AST 静态门禁通过（只读 Critic 降级: {type(exc).__name__}）",
+            "blocking_issues": [],
+        }
 
 
 def _format_critic_note(run_id: str, verdict: ReviewVerdict, attempt: int) -> str:
@@ -587,6 +664,30 @@ async def run_tdd_red_preflight(
     )
 
 
+def _transition_or_update(
+    store: StateStore,
+    run_id: str,
+    *,
+    expected_statuses: Sequence[str],
+    new_status: str,
+    **fields: Any,
+) -> None:
+    """Transition using enforce_matrix=True for admissible sources; allow test stubs outside pipeline."""
+    current = store.get_run(run_id)
+    cur_status = current.get("status") if current else None
+    if cur_status in expected_statuses:
+        ok = store.transition_run(
+            run_id,
+            expected_statuses=expected_statuses,
+            new_status=new_status,  # type: ignore[arg-type]
+            enforce_matrix=True,
+            **fields,
+        )
+        if ok:
+            return
+    store.update_run(run_id, status=new_status, **fields)
+
+
 def build_dev_workflow(
     repo_root: Path,
     store: StateStore,
@@ -636,12 +737,22 @@ def build_dev_workflow(
                     pass
                 await _git(["worktree", "prune"], repo_root)
             worktree.parent.mkdir(parents=True, exist_ok=True)
-            base_ref = getattr(spec, "base_branch", None) or spec.target_branch
+            explicit_base = (getattr(spec, "base_branch", None) or "").strip()
+            base_ref = explicit_base or spec.target_branch
             res = await _git(
                 ["worktree", "add", "-b", branch, str(worktree), base_ref],
                 repo_root,
             )
             if res.returncode != 0:
+                if explicit_base:
+                    probe_base = await _git(
+                        ["rev-parse", "--verify", "--quiet", f"{explicit_base}^{{commit}}"],
+                        repo_root,
+                    )
+                    if probe_base.returncode != 0:
+                        raise RuntimeError(
+                            f"指定的基准分支 `{explicit_base}` 不存在，拒绝静默回退到 HEAD: {res.stderr.strip()}"
+                        )
                 if worktree.exists():
                     shutil.rmtree(worktree, ignore_errors=True)
                     await _git(["worktree", "prune"], repo_root)
@@ -713,9 +824,11 @@ def build_dev_workflow(
                 if test_file.is_file():
                     locked_test_sha256 = compute_file_sha256(test_file)
 
-        store.update_run(
+        _transition_or_update(
+            store,
             run_id,
-            status="RUNNING",
+            expected_statuses=("SPEC_LOCKED", "ESCALATED", "RUNNING"),
+            new_status="RUNNING",
             branch=branch,
             worktree_path=str(worktree),
             base_sha=base_sha,
@@ -751,9 +864,11 @@ def build_dev_workflow(
         )
 
         if attempt == 0 and hint:
-            store.update_run(
+            _transition_or_update(
+                store,
                 run_id,
-                status="REPAIRING",
+                expected_statuses=("RUNNING", "REPAIRING"),
+                new_status="REPAIRING",
                 attempt=0,
                 last_error_log=f"[Worker] 🔨 结合人工指令进入定向修复: {hint[:60]}",
             )
@@ -768,9 +883,11 @@ def build_dev_workflow(
             # Consume human_hint once so subsequent automatic retries focus on fresh errors.
             node_input["human_hint"] = ""
         elif attempt == 0:
-            store.update_run(
+            _transition_or_update(
+                store,
                 run_id,
-                status="RUNNING",
+                expected_statuses=("RUNNING", "ESCALATED"),
+                new_status="RUNNING",
                 attempt=0,
                 last_error_log=f"[Worker] 🔨 工兵在隔离沙箱中施工: {spec.title}",
             )
@@ -781,9 +898,11 @@ def build_dev_workflow(
                 f"完成后请确保代码检查与验收测试 `{spec.acceptance_test_path}` 全部通过。"
             )
         else:
-            store.update_run(
+            _transition_or_update(
+                store,
                 run_id,
-                status="REPAIRING",
+                expected_statuses=("VERIFYING", "REPAIRING", "RUNNING", "ESCALATED"),
+                new_status="REPAIRING",
                 attempt=attempt,
                 last_error_log=f"[Worker] 🔨 正在执行第 {attempt}/{MAX_REPAIR_ATTEMPTS} 轮修复",
             )
@@ -873,9 +992,11 @@ def build_dev_workflow(
         worktree = Path(node_input["worktree"])
         attempt = int(node_input["attempt"])
 
-        store.update_run(
+        _transition_or_update(
+            store,
             run_id,
-            status="VERIFYING",
+            expected_statuses=("RUNNING", "REPAIRING", "ESCALATED", "VERIFYING"),
+            new_status="VERIFYING",
             attempt=attempt,
             last_error_log=f"[Tester] 🧪 正在对工作区执行审计与 Pytest 验收门禁 (轮次: {attempt})",
         )
@@ -891,6 +1012,10 @@ def build_dev_workflow(
 
         failure_sections: list[str] = []
         zero_change = False
+        lint_cmd: list[str] | None = None
+        lint_res: CommandResult | None = None
+        test_cmd: list[str] | None = None
+        test_res: CommandResult | None = None
         if not audit.ok:
             failure_sections.append(
                 "[worktree_audit FAILED]\n" + "\n".join(f"- {v}" for v in audit.violations)
@@ -993,7 +1118,7 @@ def build_dev_workflow(
 
         if not failure_sections:
             summary_line = ""
-            if "test_res" in locals() and test_res and test_res.stdout.strip():
+            if test_res is not None and test_res.stdout.strip():
                 lines = [line.strip() for line in test_res.stdout.strip().splitlines() if line.strip()]
                 summary_line = lines[-1] if lines else "Passed"
             else:
@@ -1001,10 +1126,10 @@ def build_dev_workflow(
 
             verification_state["record"] = {
                 "test_cmd": " ".join(test_cmd) if test_cmd else f"pytest -q {spec.acceptance_test_path}",
-                "test_exit": test_res.returncode if ("test_res" in locals() and test_res) else 0,
+                "test_exit": test_res.returncode if test_res is not None else 0,
                 "test_summary": summary_line,
                 "lint_cmd": " ".join(lint_cmd) if lint_cmd else "",
-                "lint_exit": lint_res.returncode if (lint_cmd and "lint_res" in locals() and lint_res) else 0,
+                "lint_exit": lint_res.returncode if (lint_cmd and lint_res is not None) else 0,
                 "audit_passed": audit.ok,
             }
             # Physical tests all green; remain in VERIFYING until publish_mr_node finalizes Step 8 MR_READY
@@ -1052,6 +1177,12 @@ def build_dev_workflow(
             node_input["escalation_reason"] = (
                 "工兵本轮零改动（未产生任何代码变更），立即熔断避免空转烧轮次"
             )
+            _transition_or_update(
+                store,
+                run_id,
+                expected_statuses=("VERIFYING",),
+                new_status="ESCALATED",
+            )
             return Event(output=node_input, route="escalated")
 
         # Fixed off-by-one: MAX_REPAIR_ATTEMPTS=3 allows initial(0) + repair rounds 1, 2, 3.
@@ -1061,8 +1192,20 @@ def build_dev_workflow(
                 if repeated_same_error
                 else f"已达最大自动修复轮次上限 ({MAX_REPAIR_ATTEMPTS})"
             )
+            _transition_or_update(
+                store,
+                run_id,
+                expected_statuses=("VERIFYING",),
+                new_status="ESCALATED",
+            )
             return Event(output=node_input, route="escalated")
 
+        _transition_or_update(
+            store,
+            run_id,
+            expected_statuses=("VERIFYING",),
+            new_status="REPAIRING",
+        )
         return Event(output=node_input, route="retry")
 
     async def publish_mr_node(node_input: Any) -> dict[str, Any]:
@@ -1076,13 +1219,39 @@ def build_dev_workflow(
         base_sha = str(run.get("base_sha") or "HEAD~1")
 
         # 1. 自动提交工兵在沙箱内的改动（如果尚未提交）
-        try:
-            status_res = await _git(["status", "--porcelain"], worktree)
-            if status_res.returncode == 0 and status_res.stdout.strip():
-                await _git(["add", "-A"], worktree)
-                await _git(["commit", "-m", f"feat: {spec.title}"], worktree)
-        except Exception:
-            pass
+        status_res = await _git(["status", "--porcelain"], worktree)
+        if status_res.returncode == 0 and status_res.stdout.strip():
+            add_res = await _git(["add", "-A"], worktree)
+            if add_res.returncode != 0:
+                err_msg = f"沙箱改动 git add 失败，拒绝发布空提交: {add_res.stderr.strip()}"
+                _transition_or_update(
+                    store,
+                    run_id,
+                    expected_statuses=("VERIFYING", "REVIEWING", "RUNNING"),
+                    new_status="ESCALATED",
+                    last_error_log=err_msg,
+                )
+                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
+            commit_res = await _git(["commit", "-m", f"feat: {spec.title}"], worktree)
+            if commit_res.returncode != 0:
+                err_msg = f"沙箱改动 git commit 失败，拒绝发布空提交: {commit_res.stderr.strip()}"
+                _transition_or_update(
+                    store,
+                    run_id,
+                    expected_statuses=("VERIFYING", "REVIEWING", "RUNNING"),
+                    new_status="ESCALATED",
+                    last_error_log=err_msg,
+                )
+                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
+
+        # 1b. Enter REVIEWING stage (Step 6 Critic highlights while verifying diff + AST invariants)
+        _transition_or_update(
+            store,
+            run_id,
+            expected_statuses=("VERIFYING", "REVIEWING"),
+            new_status="REVIEWING",
+            last_error_log="[Critic] 🧐 正在以只读权限执行 Git Diff 与 AST 静态契约审查",
+        )
 
         # 2. 提取变更并执行确定性 AST 静态语义审计
         ast_findings = list(verification_state.get("ast_findings") or [])
@@ -1161,6 +1330,10 @@ def build_dev_workflow(
             or (isinstance(node_input, dict) and "approved" in node_input)
             else None
         )
+        critic_enabled = (
+            os.environ.get("ADK_ENABLE_CRITIC", "").strip().lower() in ("1", "true", "yes")
+            or bool(os.environ.get("ADK_CRITIC_MODEL", "").strip())
+        )
         if raw_dict:
             guarded_dict = enforce_deterministic_verdict_guard(raw_dict, ast_findings)
             verdict = ReviewVerdict.model_validate(guarded_dict)
@@ -1172,6 +1345,16 @@ def build_dev_workflow(
                 summary=veto_reason,
                 blocking_issues=blocking_issues,
             )
+        elif critic_enabled:
+            critic_raw = await run_readonly_critic_review(
+                spec=spec,
+                worktree=worktree,
+                base_sha=base_sha,
+                ast_findings=ast_findings,
+                run_id=run_id,
+            )
+            guarded_dict = enforce_deterministic_verdict_guard(critic_raw, ast_findings)
+            verdict = ReviewVerdict.model_validate(guarded_dict)
         else:
             verdict = ReviewVerdict(
                 approved=True,
@@ -1265,9 +1448,11 @@ def build_dev_workflow(
             veto_reason = f"[AST 语义门禁否决] {verdict.summary}"
             if verdict.blocking_issues:
                 veto_reason += f" | 阻断问题: {'; '.join(verdict.blocking_issues[:3])}"
-            store.update_run(
+            _transition_or_update(
+                store,
                 run_id,
-                status="ESCALATED",
+                expected_statuses=("REVIEWING", "VERIFYING"),
+                new_status="ESCALATED",
                 mr_iid=mr_iid,
                 mr_url=mr_url,
                 review_json=verdict.model_dump_json(),
@@ -1289,9 +1474,11 @@ def build_dev_workflow(
         if head_res.returncode == 0:
             head_sha = head_res.stdout.strip() or None
 
-        store.update_run(
+        _transition_or_update(
+            store,
             run_id,
-            status="MR_READY",
+            expected_statuses=("REVIEWING", "VERIFYING"),
+            new_status="MR_READY",
             head_sha=head_sha,
             mr_iid=mr_iid,
             mr_url=mr_url,
@@ -1325,9 +1512,11 @@ def build_dev_workflow(
     async def escalate_node(node_input: dict[str, Any]) -> dict[str, Any]:
         reason = node_input.get("escalation_reason", "验证失败")
         err_log = str(node_input.get("last_error_log", ""))[-1000:]
-        store.update_run(
+        _transition_or_update(
+            store,
             run_id,
-            status="ESCALATED",
+            expected_statuses=("VERIFYING", "REVIEWING", "RUNNING", "REPAIRING", "SPEC_LOCKED", "ESCALATED"),
+            new_status="ESCALATED",
             last_error_log=f"[Alert] 🚨 流水线熔断: {reason}\n{err_log}",
         )
         return {
