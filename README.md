@@ -47,13 +47,13 @@ related_adrs: [1]
   - 支持项目级独立配置（`.adk/config.json` 与 `.adk/config.local.json`）及自定义工兵超时（`ADK_WORKER_TIMEOUT`）。
 - 🌲 **CPG 代码属性图与 Git Blob CAS 增量同步引擎（AST + CFG + DFG）**：
   - **三图合一**：统一抽取抽象语法树（AST）、过程内控制流图（CFG，分支/循环/跳转）与数据流图（DFG，定义-使用链/参数传递/污点追踪）。
-  - **Git Blob CAS 存储**：基于 Git Blob OID（`git hash-object` 标准 SHA-1）与 SHA-256 内容寻址，压缩持久化至本地 SQLite WAL 缓存（`.adk/cache/code_graph.sqlite`）。
-  - **增量同步 (`CodeGraph.sync_git`)**：利用 `git ls-tree -r -z` 直接匹配提交树 Blob OID，未变更文件 100% 缓存命中，不重新解析。注意：`flow_analyze_impact`、锁定反馈和派发上下文目前走的是不带缓存的全量 `index_repo()`，尚未接入这条路径。
+  - **Git Blob CAS 存储**：基于 Git Blob OID（`git hash-object` 标准 SHA-1）与 SHA-256 内容寻址，压缩持久化至本地 SQLite WAL 缓存（`.adk/cache/cpg_cache.db`；带 `schema_version` 校验，版本不一致时整库重建）。
+  - **增量同步 (`CodeGraph.sync_git`)**：利用 `git ls-tree -r -z` 与 `git cat-file -p <oid>` 直接读取提交树内容，未变更文件 100% 缓存命中、未命中路径不读工作区；`CodeGraph` 默认启用 CAS 存储，`analyze_impact` 在 Git 仓库走 `sync_git()`（非 Git 仓库回退 `index_repo()`）。
   - **影响面（爆炸半径）推导**：根据目标文件或符号名，按文件导入关系推导一跳和两跳的依赖方，按模块限定符号表列出直接调用方（调用归属按「同文件定义 ➔ 全局唯一裸名 ➔ 未解析」逐级收敛），并推荐 `allowed_paths`。精度是文件级；裸名唯一时精确匹配，裸名重名时全部命中并在 `ImpactReport.ambiguous_symbols` 标出歧义来源，支持 `module:symbol` / `module.symbol` / `path:symbol` 限定查询收窄到指定模块。
   - **代码骨架生成（Type Stub Skeleton）**：自动将函数/方法实现体切片为 `...`，递归保留类继承、嵌套闭包工具签名、完整类型注解与 Docstring，减少工兵的上下文 Token（设计时估计可省 65% 以上，未复核）并杜绝接口幻觉。
-  - **静态 AST Diff 与 DFG 污点安全门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及 DFG 污点检查，提供确定性硬约束。污点检查目前只在 sink 调用是独立表达式语句时生效；`return eval(p)`、赋值右侧、经辅助函数间接到达等写法靠前面的危险函数直接调用检查拦截。
+  - **静态 AST Diff 与 DFG 污点安全门禁**：在 Critic 盲审前置检测公共 API 破坏性变更（删除公共符号、移除参数、新增无默认值参数）、语法错误、动态反射（`getattr`、`globals`）以及 DFG 污点检查，提供确定性硬约束。污点分析按顶层函数/类方法隔离作用域（排除 `self`/`cls`），覆盖独立表达式、赋值右侧与 `return` 语句中的 sink（放行非 shell 列表字面量 `subprocess.run([...])`），内部审计异常严格 fail-closed 向上抛出拦截发布。
   - 内建 `scripts/deep_ast_audit.py` 自检脚本（`sys.settrace` 动态调用轨迹与静态影响面的召回率、精确率对比，骨架的可编译性与幂等性检查，10 组对抗样本）。
-  - **图谱三层的实际使用**（详见 `docs/cpg-cas-architecture.md` 第 6 节）：流水线只用 AST 符号表层；CFG 边没有读取方；DFG 只被上面的污点检查使用，且是每个文件现场重建，不读已存储的图。
+  - **图谱三层的实际使用**（详见 `docs/cpg-cas-architecture.md` 第 6 节）：流水线使用 AST 符号表层与现场重建的 DFG 污点检查；CFG 边目前只作随库持久化，无外部读取方。
 
 ---
 
@@ -109,7 +109,7 @@ adk-dev-flow-init . --with-ci
 | `flow_init` | 异步 | 初始化研发流，自动联动 GitLab / GitHub Issue 获取标题与描述 |
 | `flow_adopt` | 异步 | **收编流程外工作**：将已在分支上直接进行的工作登记为 `ADOPTED` run（post_hoc 后补证据，大屏琥珀色标注），并自动安装 pre-commit 登记门禁 |
 | `flow_adopt_finalize` | 异步 | 完成收编：记录分支尖端提交为证据，将 `ADOPTED` run 以 CAS 置为 `MR_READY` |
-| `flow_lock_spec` | 异步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈；后台线程池运行，不阻塞事件循环） |
+| `flow_lock_spec` | 异步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈；`require_tdd_red=False` 时对全部目标 `.py` 文件执行变异测试门禁；后台线程池运行，不阻塞事件循环） |
 | `flow_lock_spec_from_file` | 异步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约（后台线程池运行） |
 | `flow_analyze_impact` | 异步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架与推进 `SPEC_DESIGNED` |
 | `flow_preflight_test` | 异步 | **在当前基线代码上客观预检验收测试**，验证用例报出真实业务红灯（拦截空断言假通过与路径越权，同路径串行加锁且不阻塞事件循环） |
@@ -249,17 +249,17 @@ uv run adk web src --port 8000
 | `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
 | `CODEBUDDY_BIN_ARGS` | `[]` | JSON 数组，插在 CLI 可执行文件之后的固定前导参数（如经 `node` 启动时的入口脚本） |
 | `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | JSON 数组，追加到工兵 CLI 命令末尾的额外参数 |
-| `CODEBUDDY_USE_STDIN` | `false` | 启用 stdin 管道传输 Prompt（消除 Windows 换行与引号转义风险） |
+| `CODEBUDDY_USE_STDIN` | Windows 默认 `true`，其余 `false` | 启用 stdin 管道传输 Prompt（消除 Windows 命令行长度上限与引号转义风险） |
 | `ADK_PYTHON` | 当前解释器 | 指定流水线使用的 Python 解释器路径 |
 | `ADK_RECOVERY_GRACE_PERIOD` | `600` | MCP 服务重启时，在此秒数内更新过的在途 run 不被标记为 `ESCALATED` |
 | `ADK_SKIP_TDD_RED` | `0` | 设为 `1` 可临时跳过 TDD Red 阶段门禁 |
 | `ADK_TDD_RED_CMD` | 空 | 仅覆盖红灯预检（`flow_preflight_test`）的 pytest 命令，支持 `{test_path}` 占位符；优先于 `ADK_TEST_CMD` |
-| `ADK_LINT_CMD` | 自动探测 | 静态检查命令；未配置时依次探测 worktree 与仓库根的 `.venv`、`uv run`、`PATH`；设为 `skip` 可跳过 |
+| `ADK_LINT_CMD` | 自动探测 | 静态检查命令；未配置时仅对 `allowed_paths` 中存在的文件探测 worktree 与仓库根的 `.venv`、`uv run`、`PATH`（无现存目标时自动跳过）；设为 `skip` 可跳过 |
 | `ADK_TEST_CMD` | 自动探测 | 验收测试命令模板（支持 `{test_path}` 占位符），探测顺序同上 |
 | `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁 |
 | `ADK_VERIFY_TIMEOUT` | `180` | lint、验收测试、回归命令的单次执行超时（秒） |
 | `ADK_GIT_TIMEOUT` | `60` | 流水线内 git 命令的执行超时（秒） |
-| `ADK_MAX_DIFF_CHARS` | `12000` | Diff 字符上限；当前源码只读取该值，未见使用处 |
+| `ADK_MAX_DIFF_CHARS` | `12000` | 只读 Critic 审查时每文件 Diff 组装的字符预算上限（由 `assemble_diff_blocks` 读取） |
 | `ADK_BRANCH_PATTERN` | 空 | 分支名模板（可用 `{iid}`、`{run_id}`、`{run_id6}`、`{title}`）；为空时用 `adk/issue-{iid}-{run_id6}` |
 | `ADK_FLOW_ENFORCE` | 空 | 设为 `off` 可豁免 commit 登记门禁，豁免会留痕到 `.adk/exemptions.log` |
 | `ADK_DASHBOARD_PORT` | 按仓库路径派生 | Web UI 大屏模组使用的看板服务端口；未设置时每个仓库取 21000–28999 中的确定值 |
@@ -342,7 +342,9 @@ uv run --no-sync python -m adk_dev_flow.plugin_builder --no-global
 项目内建全量单元测试与物理对抗用例（涵盖 CAS-CPG 增量同步缓存、AST/CFG/DFG 三图图谱、DFG 污点分析安全门禁、Issue 驱动开发闭环、Plugin 打包与规约剥离、GitHub/GitLab 双平台自适应、8 步交互式动画看板与 SSE 端点、Job Object 树强杀、NTFS 锁争用、Git 索引作弊、OKF 序列化、TDD 契约、假设态模糊测试等）：
 
 ```bash
-# 执行全量单元与对抗测试
+# 执行全量单元与物理对抗测试（tests/conftest.py 默认启用 ADK_WORKER_PROVIDER=mock）
+uv run --no-sync pytest -q
+# 或通过标准库 unittest 运行：
 uv run --no-sync python -m unittest discover -s tests -v
 ```
 
@@ -350,4 +352,4 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 ## 核实记录
 
-2026-11-26 对照源码核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。CPG 一组特性按实测改写：影响面、增量同步和污点检查的覆盖范围与测量数字见 `docs/cpg-cas-architecture.md` 第 6 节。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
+2026-11-27 对照源码与实测核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验；已同步 CAS 默认缓存路径 `.adk/cache/cpg_cache.db`、DFG 污点作用域隔离、变异测试门禁触发条件、`CODEBUDDY_USE_STDIN` 与 `ADK_MAX_DIFF_CHARS` 的实际行为，以及工作流物理审计与只读 Critic 交付前拦截约束。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
