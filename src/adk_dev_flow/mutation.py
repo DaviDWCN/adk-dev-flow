@@ -333,6 +333,26 @@ class AstMutationEngine:
                             return
 
 
+def _run_pytest_once(
+    py_bin: str,
+    test_file: Path,
+    cwd: Path,
+    timeout_sec: float,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[bytes]:
+    """Execute a single isolated pytest check inside the mutation sandbox."""
+    cmd = [py_bin, "-B", "-m", "pytest", "-q", str(test_file)]
+    return subprocess.run(  # noqa: adk-ast
+        cmd,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout_sec,
+        **no_window_kwargs(),
+        env=env,
+    )
+
+
 def evaluate_test_against_mutants_sync(
     target_source: str,
     test_source: str,
@@ -386,21 +406,46 @@ def evaluate_test_against_mutants_sync(
 
         env = os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        existing_py = env.get("PYTHONPATH", "")
+        sep = ";" if os.name == "nt" else ":"
+        env["PYTHONPATH"] = f"{tmp_dir}{sep}{existing_py}" if existing_py else str(tmp_dir)
+
+        # Baseline sanity check: test must pass on unmutated target_source, otherwise
+        # every mutant would fail for the same baseline reason (100% fake kill ratio).
+        target_file.write_text(target_source, encoding="utf-8")
+        if flat_target != target_file:
+            flat_target.write_text(target_source, encoding="utf-8")
+        try:
+            base_res = _run_pytest_once(py_bin, test_file, tmp_dir, timeout_sec, env)
+        except Exception as exc:
+            return MutationReport(
+                total_mutants=len(mutants),
+                killed_count=0,
+                survived_count=len(mutants),
+                kill_ratio=0.0,
+                is_acceptable=False,
+                survived_details=[f"[BASELINE_ERROR] 未变异基线测试执行异常: {exc}"],
+                killed_details=[],
+            )
+        if base_res.returncode != 0:
+            return MutationReport(
+                total_mutants=len(mutants),
+                killed_count=0,
+                survived_count=len(mutants),
+                kill_ratio=0.0,
+                is_acceptable=False,
+                survived_details=[
+                    f"[BASELINE_FAILED] 未变异基线代码下测试未通过 (exit={base_res.returncode})，无法有效度量变异击杀率"
+                ],
+                killed_details=[],
+            )
+
         for m in mutants:
             target_file.write_text(m.mutated_source, encoding="utf-8")
             if flat_target != target_file:
                 flat_target.write_text(m.mutated_source, encoding="utf-8")
-            cmd = [py_bin, "-B", "-m", "pytest", "-q", str(test_file)]
             try:
-                res = subprocess.run(
-                    cmd,
-                    cwd=str(tmp_dir),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=timeout_sec,
-                    **no_window_kwargs(),
-                    env=env,
-                )
+                res = _run_pytest_once(py_bin, test_file, tmp_dir, timeout_sec, env)
                 if res.returncode != 0:
                     killed_details.append(f"[{m.mutant_id}] {m.description}")
                 else:

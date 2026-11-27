@@ -239,10 +239,14 @@ class CodeBuddyLlm(BaseLlm):
         if model_name and model_name not in ("codebuddy-cli", "codebuddy"):
             cmd.extend(["--model", model_name])
 
-        cmd.extend(["--port", str(_free_port())])
+        cmd.extend(["--port", "0"])
+        llm_env = os.environ.copy()
+        llm_env.pop("PORT", None)
+        llm_env.pop("CODEBUDDY_PORT", None)
 
         res = await run_subprocess_safe(
             cmd,
+            env=llm_env,
             timeout_sec=float(self.timeout_sec),
             stdin_text=full_prompt,
         )
@@ -337,16 +341,6 @@ async def run_codebuddy_worker(
     """Spawn an isolated, stateless Headless CodeBuddy worker inside a Git Worktree."""
     if timeout_sec is None:
         timeout_sec = _worker_timeout()
-    schema = json.dumps(
-        {
-            "type": "object",
-            "properties": {
-                "changed_files": {"type": "array", "items": {"type": "string"}},
-                "summary": {"type": "string"},
-            },
-            "required": ["changed_files", "summary"],
-        }
-    )
     env = os.environ.copy()
     env["ADK_WORKER_TOKEN"] = run_id
     env["ADK_ALLOWED_PATHS"] = json.dumps(allowed_paths, ensure_ascii=False)
@@ -355,6 +349,15 @@ async def run_codebuddy_worker(
     # Prevent EADDRINUSE by unsetting inherited parent listening ports
     env.pop("PORT", None)
     env.pop("CODEBUDDY_PORT", None)
+    # Prioritize worktree sources in PYTHONPATH so editable installs resolve worktree edits
+    wt_src = worktree / "src"
+    py_candidates = [str(wt_src)] if wt_src.is_dir() else [str(worktree)]
+    if wt_src.is_dir():
+        py_candidates.append(str(worktree))
+    existing_py = env.get("PYTHONPATH", "")
+    if existing_py:
+        py_candidates.append(existing_py)
+    env["PYTHONPATH"] = (";" if os.name == "nt" else ":").join(py_candidates)
 
     binary_name = os.environ.get("CODEBUDDY_BIN", "codebuddy")
     resolved_bin = shutil.which(binary_name) or binary_name
@@ -395,8 +398,6 @@ async def run_codebuddy_worker(
             *extra_args,
         ]
     )
-    if "--port" not in extra_args:
-        cmd.extend(["--port", str(_free_port())])
 
     if use_stdin:
         cmd.append("-p")

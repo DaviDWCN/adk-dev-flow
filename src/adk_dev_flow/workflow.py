@@ -43,9 +43,25 @@ def get_max_diff_chars() -> int:
         return 12000
 
 
-MAX_REPAIR_ATTEMPTS = int(os.environ.get("ADK_MAX_RETRIES", "3"))
+def get_max_repair_attempts() -> int:
+    val = os.environ.get("ADK_MAX_RETRIES", "3")
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 3
+
+
+def get_git_timeout_sec() -> float:
+    val = os.environ.get("ADK_GIT_TIMEOUT", "60")
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 60.0
+
+
+MAX_REPAIR_ATTEMPTS = get_max_repair_attempts()
 MAX_DIFF_CHARS = get_max_diff_chars()
-GIT_TIMEOUT_SEC = float(os.environ.get("ADK_GIT_TIMEOUT", "60"))
+GIT_TIMEOUT_SEC = get_git_timeout_sec()
 
 
 def get_verify_timeout_sec() -> float:
@@ -107,8 +123,9 @@ def assemble_diff_blocks(
     return diff_text, diff_truncated, truncated_files
 
 
-async def _git(cmd: list[str], cwd: Path, timeout_sec: float = GIT_TIMEOUT_SEC) -> CommandResult:
-    return await run_subprocess_safe(["git", *cmd], cwd=cwd, timeout_sec=timeout_sec)
+async def _git(cmd: list[str], cwd: Path, timeout_sec: float | None = None) -> CommandResult:
+    effective_timeout = get_git_timeout_sec() if timeout_sec is None else timeout_sec
+    return await run_subprocess_safe(["git", *cmd], cwd=cwd, timeout_sec=effective_timeout)
 
 
 def enforce_deterministic_verdict_guard(
@@ -529,8 +546,8 @@ def _build_ast_context(repo_or_worktree: Path, allowed_paths: list[str]) -> str:
     try:
         from adk_dev_flow.ast_graph import CodeGraph
 
-        cg = CodeGraph(repo_or_worktree)
-        ctx = cg.get_test_generation_context(allowed_paths)
+        with CodeGraph(repo_or_worktree) as cg:
+            ctx = cg.get_test_generation_context(allowed_paths)
         skeletons = ctx.get("target_skeletons") or {}
         callers = ctx.get("impacted_caller_skeletons") or {}
 
@@ -898,16 +915,17 @@ def build_dev_workflow(
                 f"完成后请确保代码检查与验收测试 `{spec.acceptance_test_path}` 全部通过。"
             )
         else:
+            max_retries = get_max_repair_attempts()
             _transition_or_update(
                 store,
                 run_id,
                 expected_statuses=("VERIFYING", "REPAIRING", "RUNNING", "ESCALATED"),
                 new_status="REPAIRING",
                 attempt=attempt,
-                last_error_log=f"[Worker] 🔨 正在执行第 {attempt}/{MAX_REPAIR_ATTEMPTS} 轮修复",
+                last_error_log=f"[Worker] 🔨 正在执行第 {attempt}/{max_retries} 轮修复",
             )
             prompt = (
-                f"第 {attempt}/{MAX_REPAIR_ATTEMPTS} 轮定向修复。上次验收校验失败，"
+                f"第 {attempt}/{max_retries} 轮定向修复。上次验收校验失败，"
                 f"请仅修复白名单 `{spec.allowed_paths}` 内的业务代码使校验通过，"
                 f"严禁修改或删除验收测试 `{spec.acceptance_test_path}`。\n\n"
                 f"失败日志:\n```\n{str(node_input.get('last_error_log', ''))[-3000:]}\n```"
@@ -1024,11 +1042,17 @@ def build_dev_workflow(
             # Step 1b: Zero-output detection. A worktree with no changes at all means
             # the worker produced nothing this round; retrying blindly burns repair
             # rounds on identical outcomes (lesson: run 558a138f54eb).
+            # Diff against locked_test_commit_sha (post test/spec setup) when present,
+            # otherwise base_sha, so setup commits don't mask a zero-change worker.
             zero_change = False
-            base_sha = str(node_input.get("base_sha") or "").strip()
-            if base_sha:
+            diff_base = str(
+                node_input.get("locked_test_commit_sha")
+                or node_input.get("base_sha")
+                or ""
+            ).strip()
+            if diff_base:
                 try:
-                    names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
+                    names_res = await _git(["diff", "--name-only", f"{diff_base}..HEAD"], worktree)
                     status_res = await _git(
                         ["status", "--porcelain", "-uall", "--ignored=matching"], worktree
                     )
@@ -1059,23 +1083,30 @@ def build_dev_workflow(
 
             # Step 3: Resolve commands inside target repository venv (or env overrides).
             lint_targets = [p for p in spec.allowed_paths if (worktree / p).exists()]
-            lint_args = ["check", *lint_targets] if lint_targets else ["check", "."]
-            lint_cmd = resolve_tool_command(
-                "ruff",
-                lint_args,
-                worktree=worktree,
-                repo_root=repo_root,
-                env_override=os.environ.get("ADK_LINT_CMD"),
-            )
-            if lint_cmd is not None:
-                lint_res = await run_subprocess_safe(
-                    lint_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
+            lint_override = os.environ.get("ADK_LINT_CMD")
+            if lint_targets or (lint_override is not None and lint_override.strip()):
+                lint_args = ["check", *lint_targets] if lint_targets else ["check", "."]
+                lint_cmd = resolve_tool_command(
+                    "ruff",
+                    lint_args,
+                    worktree=worktree,
+                    repo_root=repo_root,
+                    env_override=lint_override,
                 )
-                if lint_res.returncode != 0:
-                    failure_sections.append(
-                        f"[lint cmd={' '.join(lint_cmd)} exit={lint_res.returncode}]\n"
-                        f"{lint_res.stdout}\n{lint_res.stderr}"
+            else:
+                lint_cmd = None
+            if lint_cmd is not None:
+                try:
+                    lint_res = await run_subprocess_safe(
+                        lint_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                     )
+                    if lint_res.returncode != 0:
+                        failure_sections.append(
+                            f"[lint cmd={' '.join(lint_cmd)} exit={lint_res.returncode}]\n"
+                            f"{lint_res.stdout}\n{lint_res.stderr}"
+                        )
+                except OSError as exc:
+                    failure_sections.append(f"[lint cmd={' '.join(lint_cmd)} spawn_error]\n{exc}")
 
             test_cmd = resolve_tool_command(
                 "pytest",
@@ -1086,14 +1117,17 @@ def build_dev_workflow(
                 placeholder_vars={"test_path": spec.acceptance_test_path},
             )
             if test_cmd is not None:
-                test_res = await run_subprocess_safe(
-                    test_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
-                )
-                if test_res.returncode != 0:
-                    failure_sections.append(
-                        f"[pytest cmd={' '.join(test_cmd)} exit={test_res.returncode}]\n"
-                        f"{test_res.stdout}\n{test_res.stderr}"
+                try:
+                    test_res = await run_subprocess_safe(
+                        test_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                     )
+                    if test_res.returncode != 0:
+                        failure_sections.append(
+                            f"[pytest cmd={' '.join(test_cmd)} exit={test_res.returncode}]\n"
+                            f"{test_res.stdout}\n{test_res.stderr}"
+                        )
+                except OSError as exc:
+                    failure_sections.append(f"[pytest cmd={' '.join(test_cmd)} spawn_error]\n{exc}")
 
             # Optional full regression / coverage gate matching CI.
             regression_override = os.environ.get("ADK_REGRESSION_CMD")
@@ -1107,14 +1141,17 @@ def build_dev_workflow(
                     placeholder_vars={"test_path": spec.acceptance_test_path},
                 )
                 if reg_cmd is not None:
-                    reg_res = await run_subprocess_safe(
-                        reg_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
-                    )
-                    if reg_res.returncode != 0:
-                        failure_sections.append(
-                            f"[regression cmd={' '.join(reg_cmd)} exit={reg_res.returncode}]\n"
-                            f"{reg_res.stdout}\n{reg_res.stderr}"
+                    try:
+                        reg_res = await run_subprocess_safe(
+                            reg_cmd, cwd=worktree, env=subproc_env, timeout_sec=get_verify_timeout_sec()
                         )
+                        if reg_res.returncode != 0:
+                            failure_sections.append(
+                                f"[regression cmd={' '.join(reg_cmd)} exit={reg_res.returncode}]\n"
+                                f"{reg_res.stdout}\n{reg_res.stderr}"
+                            )
+                    except OSError as exc:
+                        failure_sections.append(f"[regression cmd={' '.join(reg_cmd)} spawn_error]\n{exc}")
 
         if not failure_sections:
             summary_line = ""
@@ -1186,11 +1223,12 @@ def build_dev_workflow(
             return Event(output=node_input, route="escalated")
 
         # Fixed off-by-one: MAX_REPAIR_ATTEMPTS=3 allows initial(0) + repair rounds 1, 2, 3.
-        if next_attempt > MAX_REPAIR_ATTEMPTS or repeated_same_error:
+        max_retries = get_max_repair_attempts()
+        if next_attempt > max_retries or repeated_same_error:
             node_input["escalation_reason"] = (
                 "连续两轮出现相同的报错指纹，触发防死循环熔断"
                 if repeated_same_error
-                else f"已达最大自动修复轮次上限 ({MAX_REPAIR_ATTEMPTS})"
+                else f"已达最大自动修复轮次上限 ({max_retries})"
             )
             _transition_or_update(
                 store,
@@ -1217,11 +1255,12 @@ def build_dev_workflow(
         branch = run["branch"]
         attempt = int(run.get("attempt") or 0)
         base_sha = str(run.get("base_sha") or "HEAD~1")
+        diff_base = str(run.get("locked_test_commit_sha") or base_sha)
 
-        # 1. 自动提交工兵在沙箱内的改动（如果尚未提交）
+        # 1. 自动提交工兵在沙箱内的改动（如果尚未提交），排除 .adk/cache 运行时缓存
         status_res = await _git(["status", "--porcelain"], worktree)
         if status_res.returncode == 0 and status_res.stdout.strip():
-            add_res = await _git(["add", "-A"], worktree)
+            add_res = await _git(["add", "-A", "--", ".", ":(exclude).adk/cache"], worktree)
             if add_res.returncode != 0:
                 err_msg = f"沙箱改动 git add 失败，拒绝发布空提交: {add_res.stderr.strip()}"
                 _transition_or_update(
@@ -1257,7 +1296,7 @@ def build_dev_workflow(
         ast_findings = list(verification_state.get("ast_findings") or [])
         if not ast_findings and worktree.exists():
             try:
-                names_res = await _git(["diff", "--name-only", f"{base_sha}..HEAD"], worktree)
+                names_res = await _git(["diff", "--name-only", f"{diff_base}..HEAD"], worktree)
                 changed_files = (
                     [line.strip() for line in names_res.stdout.splitlines() if line.strip()]
                     if names_res.returncode == 0
@@ -1268,7 +1307,7 @@ def build_dev_workflow(
                     if not f.endswith(".py"):
                         continue
                     base_code = ""
-                    base_res = await _git(["show", f"{base_sha}:{f}"], worktree)
+                    base_res = await _git(["show", f"{diff_base}:{f}"], worktree)
                     if base_res.returncode == 0:
                         base_code = base_res.stdout
                     new_p = worktree / f
@@ -1398,52 +1437,8 @@ def build_dev_workflow(
             # Audit file committing failure should not fail the overall pipeline
             pass
 
-        # Distill and commit learned engineering knowledge if run had repair iterations
-        try:
-            await save_distilled_knowledge(
-                spec=spec,
-                worktree=worktree,
-                run_id=run_id,
-                verdict=verdict,
-                attempt=attempt,
-                last_error_log=run.get("last_error_log") or "",
-            )
-        except Exception:
-            pass
-
-        if gl.enabled:
-            push_res = await _git(["push", "-u", "origin", branch], worktree)
-            if push_res.returncode != 0:
-                err_msg = f"git push 失败: {push_res.stderr.strip()}"
-                store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
-                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
-
-            desc = _format_mr_description(
-                spec,
-                verdict,
-                verification=verification_state.get("record"),
-            )
-            mr = await asyncio.to_thread(
-                gl.create_or_update_mr,
-                source_branch=branch,
-                target_branch=spec.target_branch,
-                title=spec.title,
-                description=desc,
-                draft=not verdict.approved,
-            )
-            mr_iid, mr_url = mr["iid"], mr["web_url"]
-
-            try:
-                await asyncio.to_thread(
-                    gl.post_mr_note,
-                    mr_iid,
-                    _format_critic_note(run_id, verdict, attempt),
-                )
-            except Exception:
-                # MR note failure should not invalidate an already-published MR.
-                pass
-
         # Formal Safety Invariant: Status MUST NOT become MR_READY unless verdict.approved is strictly True!
+        # Check approval BEFORE distilling knowledge or pushing to remote so rejected branches never hit origin.
         if not verdict.approved:
             veto_reason = f"[AST 语义门禁否决] {verdict.summary}"
             if verdict.blocking_issues:
@@ -1466,6 +1461,61 @@ def build_dev_workflow(
                 "review": verdict.model_dump(),
                 "error": veto_reason,
             }
+
+        # Distill and commit learned engineering knowledge only for approved runs with repair iterations.
+        # Pull the actual resolved error from attempt_logs rather than the overwritten '[Verification] ✅' banner.
+        try:
+            resolved_err = ""
+            for log_entry in store.list_attempt_logs(run_id, limit=10):
+                if (log_entry.get("combined_err") or "").strip():
+                    resolved_err = str(log_entry["combined_err"])
+                    break
+            if not resolved_err:
+                raw_last = str(run.get("last_error_log") or "")
+                if not raw_last.startswith("[Verification] ✅"):
+                    resolved_err = raw_last
+            await save_distilled_knowledge(
+                spec=spec,
+                worktree=worktree,
+                run_id=run_id,
+                verdict=verdict,
+                attempt=attempt,
+                last_error_log=resolved_err,
+            )
+        except Exception:
+            pass
+
+        if gl.enabled:
+            push_res = await _git(["push", "-u", "origin", branch], worktree)
+            if push_res.returncode != 0:
+                err_msg = f"git push 失败: {push_res.stderr.strip()}"
+                store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
+                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
+
+            desc = _format_mr_description(
+                spec,
+                verdict,
+                verification=verification_state.get("record"),
+            )
+            mr = await asyncio.to_thread(
+                gl.create_or_update_mr,
+                source_branch=branch,
+                target_branch=spec.target_branch,
+                title=spec.title,
+                description=desc,
+                draft=False,
+            )
+            mr_iid, mr_url = mr["iid"], mr["web_url"]
+
+            try:
+                await asyncio.to_thread(
+                    gl.post_mr_note,
+                    mr_iid,
+                    _format_critic_note(run_id, verdict, attempt),
+                )
+            except Exception:
+                # MR note failure should not invalidate an already-published MR.
+                pass
 
         # Record the branch tip so flow_close_issue can verify the merge landed
         # even after the worktree and branch are cleaned up (fail-closed close).

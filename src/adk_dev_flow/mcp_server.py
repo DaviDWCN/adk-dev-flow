@@ -17,7 +17,7 @@ from fastmcp import FastMCP
 from adk_dev_flow.dashboard import get_dashboard_html
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
-from adk_dev_flow.state_store import ACTIVE_STATUSES, PRE_LOCK_STATUSES, StateStore
+from adk_dev_flow.state_store import ACTIVE_STATUSES, PRE_LOCK_STATUSES, StateStore, is_valid_transition
 from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
 from adk_dev_flow.workflow import execute_workflow_run
 
@@ -514,17 +514,23 @@ class FlowService:
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
 
-        # 1. Mutation Verification Gate: Objective verification of test effectiveness
+        # 1. Mutation Verification Gate: Objective verification of test effectiveness.
+        # Only valid when baseline already implements the target logic (require_tdd_red=False);
+        # in TDD Red mode (require_tdd_red=True), the test intentionally fails on baseline.
         mutation_dict: dict[str, Any] | None = None
         if getattr(spec, "require_mutation_gate", True):
             if spec.mutation_report and spec.mutation_report.get("is_acceptable"):
                 mutation_dict = spec.mutation_report
-            else:
+            elif not getattr(spec, "require_tdd_red", True):
                 from adk_dev_flow.mutation import evaluate_test_against_mutants_sync
 
                 target_sources: list[tuple[str, str]] = []
+                seen_targets: set[str] = set()
                 for task in spec.tasks:
                     for tf in task.target_files:
+                        if tf in seen_targets:
+                            continue
+                        seen_targets.add(tf)
                         full_p = (root / tf).resolve()
                         if full_p.is_file() and full_p.suffix == ".py":
                             try:
@@ -533,21 +539,45 @@ class FlowService:
                             except Exception:
                                 pass
                 if target_sources:
-                    target_rel, target_code = target_sources[0]
-                    m_report = evaluate_test_against_mutants_sync(
-                        target_source=target_code,
-                        test_source=spec.acceptance_test_code,
-                        target_module_name=target_rel,
-                        min_kill_ratio=0.85,
-                    )
-                    mutation_dict = m_report.to_dict()
+                    total_mutants = 0
+                    total_killed = 0
+                    total_survived = 0
+                    all_survived: list[str] = []
+                    all_killed: list[str] = []
+                    all_acceptable = True
+                    for target_rel, target_code in target_sources:
+                        m_report = evaluate_test_against_mutants_sync(
+                            target_source=target_code,
+                            test_source=spec.acceptance_test_code,
+                            target_module_name=target_rel,
+                            min_kill_ratio=0.85,
+                        )
+                        total_mutants += m_report.total_mutants
+                        total_killed += m_report.killed_count
+                        total_survived += m_report.survived_count
+                        all_survived.extend(f"{target_rel}: {d}" for d in m_report.survived_details)
+                        all_killed.extend(f"{target_rel}: {d}" for d in m_report.killed_details)
+                        if not m_report.is_acceptable:
+                            all_acceptable = False
+
+                    combined_ratio = (total_killed / total_mutants) if total_mutants > 0 else 1.0
+                    is_acceptable = all_acceptable and (combined_ratio >= 0.85)
+                    mutation_dict = {
+                        "total_mutants": total_mutants,
+                        "killed_count": total_killed,
+                        "survived_count": total_survived,
+                        "kill_ratio": round(combined_ratio, 4),
+                        "is_acceptable": is_acceptable,
+                        "survived_details": all_survived,
+                        "killed_details": all_killed,
+                    }
                     spec.mutation_report = mutation_dict
-                    if not m_report.is_acceptable:
+                    if not is_acceptable:
                         return {
                             "error": (
-                                f"变异测试门禁未通过 (Kill Ratio: {m_report.kill_ratio:.1%} < 85.0%)。"
+                                f"变异测试门禁未通过 (Kill Ratio: {combined_ratio:.1%} < 85.0%)。"
                                 "当前验收测试断言有效性不足，未能击杀以下语义变异体：\n"
-                                + "\n".join(m_report.survived_details[:10])
+                                + "\n".join(all_survived[:10])
                             ),
                             "mutation_report": mutation_dict,
                         }
@@ -600,8 +630,8 @@ class FlowService:
         try:
             from adk_dev_flow.ast_graph import CodeGraph
 
-            cg = CodeGraph(root)
-            report = cg.analyze_impact(spec.allowed_paths)
+            with CodeGraph(root) as cg:
+                report = cg.analyze_impact(spec.allowed_paths)
             ast_impact = {
                 "impacted_production_files": report.impacted_production_files,
                 "impacted_test_files": report.impacted_test_files,
@@ -946,9 +976,12 @@ class FlowService:
                 task.cancel()
             run = store.get_run(target_id)
             if run and run["status"] in ACTIVE_STATUSES:
-                store.update_run(
+                target_status = "ESCALATED" if is_valid_transition(run["status"], "ESCALATED") else "ABORTED"
+                store.transition_run(
                     target_id,
-                    status="ESCALATED",
+                    expected_statuses=(run["status"],),
+                    new_status=target_status,  # type: ignore[arg-type]
+                    enforce_matrix=True,
                     last_error_log="\n[系统解锁] 用户调用 flow_unlock 解除工作区只读锁定。",
                 )
 
@@ -1158,7 +1191,13 @@ class FlowService:
         if remove_worktree and run.get("worktree_path"):
             wt_warning = await self._remove_worktree(run["worktree_path"], repo_root=root)
 
-        store.update_run(run_id, status="ABORTED")
+        if run["status"] != "ABORTED":
+            store.transition_run(
+                run_id,
+                expected_statuses=(run["status"],),
+                new_status="ABORTED",
+                enforce_matrix=True,
+            )
         result: dict[str, Any] = {"run_id": run_id, "status": "ABORTED"}
         if wt_warning:
             result["worktree_warning"] = wt_warning

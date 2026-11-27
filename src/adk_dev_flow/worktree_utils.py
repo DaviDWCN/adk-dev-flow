@@ -287,6 +287,22 @@ def _parse_porcelain_paths(stdout: str) -> list[str]:
     return paths
 
 
+def _resolve_worktree_gitdir(worktree: Path) -> Path | None:
+    """Resolve the gitdir for a worktree or normal repo, handling relative gitdir links."""
+    git_entry = worktree / ".git"
+    if git_entry.is_dir():
+        return git_entry
+    if git_entry.is_file():
+        try:
+            content = git_entry.read_text(encoding="utf-8").strip()
+            if content.startswith("gitdir:"):
+                raw_dir = Path(content.split("gitdir:", 1)[1].strip())
+                return raw_dir if raw_dir.is_absolute() else (worktree / raw_dir).resolve()
+        except Exception:
+            return None
+    return None
+
+
 async def sanitize_worktree_state(worktree: Path) -> None:
     """Clean up stale git index locks and unsanitized artifacts from interrupted runs."""
     if not worktree.exists():
@@ -298,21 +314,20 @@ async def sanitize_worktree_state(worktree: Path) -> None:
         except OSError:
             pass
 
-    git_file = worktree / ".git"
-    if git_file.is_file():
-        try:
-            content = git_file.read_text(encoding="utf-8").strip()
-            if content.startswith("gitdir:"):
-                actual_dir = Path(content.split("gitdir:", 1)[1].strip())
-                wt_lock = actual_dir / "index.lock"
-                if wt_lock.is_file():
-                    wt_lock.unlink()
-        except Exception:
-            pass
+    actual_dir = _resolve_worktree_gitdir(worktree)
+    if actual_dir is not None and actual_dir != (worktree / ".git"):
+        wt_lock = actual_dir / "index.lock"
+        if wt_lock.is_file():
+            try:
+                wt_lock.unlink()
+            except OSError:
+                pass
 
 
 def _is_ephemeral_runtime_artifact(norm_path: str) -> bool:
     """Filter out non-source runtime artifacts produced during tests/lints."""
+    if norm_path == ".adk/cache" or norm_path.startswith(".adk/cache/"):
+        return True
     parts = norm_path.split("/")
     if any(
         p in ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".hypothesis", ".venv", "venv")
@@ -369,18 +384,8 @@ async def audit_worktree_changes(
         )
 
     # Check for .git/info/exclude tampering
-    git_dir = worktree / ".git"
-    exclude_file = None
-    if git_dir.is_dir():
-        exclude_file = git_dir / "info" / "exclude"
-    elif git_dir.is_file():
-        try:
-            content = git_dir.read_text(encoding="utf-8").strip()
-            if content.startswith("gitdir:"):
-                actual_dir = Path(content.split("gitdir:", 1)[1].strip())
-                exclude_file = actual_dir / "info" / "exclude"
-        except Exception:
-            pass
+    resolved_gitdir = _resolve_worktree_gitdir(worktree)
+    exclude_file = (resolved_gitdir / "info" / "exclude") if resolved_gitdir is not None else None
 
     if exclude_file and exclude_file.is_file():
         try:
@@ -388,10 +393,10 @@ async def audit_worktree_changes(
             non_comments = [line for line in lines if line and not line.startswith("#")]
             if non_comments:
                 violations.append("检测到受保护配置篡改: 禁止修改或利用 .git/info/exclude 掩盖文件变更")
-        except Exception:
-            pass
+        except Exception as exc:
+            violations.append(f"读取 .git/info/exclude 失败（fail-closed）: {exc}")
 
-    # Check for git index evasion flags (assume-unchanged, skip-worktree)
+    # Check for git index evasion flags (assume-unchanged 'h', skip-worktree 'S'/'s', 'm')
     ls_files_res = await run_subprocess_safe(
         ["git", "ls-files", "-v"],
         cwd=worktree,
@@ -403,7 +408,7 @@ async def audit_worktree_changes(
             if not line_str:
                 continue
             flag = line_str[0]
-            if flag in ("h", "s", "m"):
+            if flag in ("h", "s", "S", "m"):
                 f_name = line_str[2:].strip()
                 violations.append(f"检测到非法 Git 索引伪装标记 ({flag}): `{f_name}`")
 
