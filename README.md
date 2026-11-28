@@ -10,7 +10,7 @@ related_adrs: [1]
 
 面向 Python 业务仓库的**确定性 AI 研发工作流系统**（基于 Google ADK 2.x + FastMCP + Git Worktree + GitLab / GitHub 双平台自适应 + OKF 规约体系）。
 
-采用 **“指挥台（Commander）+ 隔离工兵（Worker）+ 不可绕过物理审计 + 独立 Critic 审查 + OKF 永久归档”** 架构，将 AI 编程收敛为强一致性受控状态机。
+采用 **“指挥台（Commander）+ 隔离工兵（Worker）+ 不可绕过物理审计 + 独立 Critic 审查 + OKF 永久归档”** 架构，将 AI 编程收敛为强一致性受控状态机。完整端到端状态存储、上下文注入、门禁流转与已核实源码边界详见 [核心数据流与状态边界全景说明](docs/core-data-flow.md)。
 
 ---
 
@@ -167,6 +167,8 @@ def test_lock_acquire_and_release():
 
 然后通过 `flow_lock_spec_from_file(run_id, ".adk/specs/issue-42.md")` 一键锁定并派发。
 
+> **OKF 解析边界说明**：`flow_lock_spec_from_file`（`SpecContract.from_okf_markdown`）解析 `issue_iid`、`title`、`summary`、`target_branch`、`base_branch`、`branch`、`allowed_paths`、`acceptance_test_path`、`acceptance_test_code`、`require_tdd_red`、`require_mutation_gate`、`spike`、`extra_dependencies`、`tasks` 与 `design_doc`（优先读 frontmatter，否则提取 `## Architecture Design` 区块）；运行时证据字段（`impact_analysis`、`red_evidence`、`pre_critic_report` 与 `mutation_report`）仍需通过 `flow_lock_spec` 传入结构化 `SpecContract`（完整端到端数据流见 [core-data-flow.md](docs/core-data-flow.md)）。
+
 ---
 
 ## 5. 🎨 像素工坊卡通工位动态监控看板（Generative UI & MCP App）
@@ -245,12 +247,12 @@ uv run adk web src --port 8000
 | `CODEBUDDY_MODEL` | 空 | 工兵与 Critic 模型的共同回退值 |
 | `ADK_CRITIC_MODEL` | 空 | Critic 独立审查模型（推荐 `glm-5.3-flash`）；配置后将启用只读 `REVIEWING` Critic 审查，未配置具体模型名时回退 `CODEBUDDY_MODEL` |
 | `ADK_ENABLE_CRITIC` | `0` | 设为 `1`（或配置 `ADK_CRITIC_MODEL`）启用交付阶段 `REVIEWING` 独立只读 Critic 审查 |
-| `ADK_CRITIC_FAIL_CLOSED` | `0` | 设为 `1` 时，只读 Critic CLI 调用失败直接 fail-closed 拦截发布（`ESCALATED`） |
+| `ADK_CRITIC_FAIL_CLOSED` | `0` | 设为 `1` 时，只读 Critic CLI 调用失败直接 fail-closed 拦截发布（`ESCALATED`）；默认 `0` 时调用异常会降级放行（`approved=True, confidence=0.7`） |
 | `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
 | `CODEBUDDY_BIN_ARGS` | `[]` | JSON 数组，插在 CLI 可执行文件之后的固定前导参数（如经 `node` 启动时的入口脚本） |
 | `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | JSON 数组，追加到工兵 CLI 命令末尾的额外参数 |
 | `CODEBUDDY_USE_STDIN` | Windows 默认 `true`，其余 `false` | 启用 stdin 管道传输 Prompt（消除 Windows 命令行长度上限与引号转义风险） |
-| `ADK_PYTHON` | 当前解释器 | 指定流水线使用的 Python 解释器路径 |
+| `ADK_PYTHON` | 当前解释器 | 指定 `flow_lock_spec` 变异测试沙箱使用的 Python 解释器路径（`verify_python_node` 与 `flow_preflight_test` 仍优先探测 `.venv` / `uv run`） |
 | `ADK_RECOVERY_GRACE_PERIOD` | `600` | MCP 服务重启时，在此秒数内更新过的在途 run 不被标记为 `ESCALATED` |
 | `ADK_SKIP_TDD_RED` | `0` | 设为 `1` 可临时跳过 TDD Red 阶段门禁 |
 | `ADK_TDD_RED_CMD` | 空 | 仅覆盖红灯预检（`flow_preflight_test`）的 pytest 命令，支持 `{test_path}` 占位符；优先于 `ADK_TEST_CMD` |
@@ -259,7 +261,7 @@ uv run adk web src --port 8000
 | `ADK_REGRESSION_CMD` | 空 | 可选全量回归/覆盖率门禁 |
 | `ADK_VERIFY_TIMEOUT` | `180` | lint、验收测试、回归命令的单次执行超时（秒） |
 | `ADK_GIT_TIMEOUT` | `60` | 流水线内 git 命令的执行超时（秒） |
-| `ADK_MAX_DIFF_CHARS` | `12000` | 只读 Critic 审查时每文件 Diff 组装的字符预算上限（由 `assemble_diff_blocks` 读取） |
+| `ADK_MAX_DIFF_CHARS` | `12000` | 只读 Critic 审查（对 `locked_test_commit_sha..HEAD` 逐文件计算）Diff 组装的字符预算上限（由 `assemble_diff_blocks` 读取） |
 | `ADK_BRANCH_PATTERN` | 空 | 分支名模板（可用 `{iid}`、`{run_id}`、`{run_id6}`、`{title}`）；为空时用 `adk/issue-{iid}-{run_id6}` |
 | `ADK_FLOW_ENFORCE` | 空 | 设为 `off` 可豁免 commit 登记门禁，豁免会留痕到 `.adk/exemptions.log` |
 | `ADK_DASHBOARD_PORT` | 按仓库路径派生 | Web UI 大屏模组使用的看板服务端口；未设置时每个仓库取 21000–28999 中的确定值 |
@@ -352,4 +354,4 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 ## 核实记录
 
-2026-11-27 对照源码与实测核对：第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验；已同步 CAS 默认缓存路径 `.adk/cache/cpg_cache.db`、DFG 污点作用域隔离、变异测试门禁触发条件、`CODEBUDDY_USE_STDIN` 与 `ADK_MAX_DIFF_CHARS` 的实际行为，以及工作流物理审计与只读 Critic 交付前拦截约束。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
+2026-11-28 对照源码核实并完成核心数据流文档与 4 项数据流加固：已核对并在 [core-data-flow.md](docs/core-data-flow.md) 记录 `StateStore`（`runs` / `attempt_logs` / `.adk/active_run.json`）、`SpecContract.from_okf_markdown` 对 `spike`/`require_mutation_gate`/`design_doc` 的解析与归档、`verify_python_node` 物理 `audit.touched_files` 回写与 `zero_change` 运行时缓存过滤，以及只读 Critic 使用 `locked_test_commit_sha..HEAD` 边界。第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。

@@ -94,7 +94,9 @@ class DevSpecMeta(OkfBase):
     base_branch: str | None = None
     branch: str | None = None
     require_tdd_red: bool = True
+    require_mutation_gate: bool = True
     spike: bool = False
+    design_doc: str | None = None
     extra_dependencies: list[str] = Field(default_factory=list)
     allowed_paths: list[str] = Field(min_length=1)
     acceptance_test_path: str = Field(min_length=1)

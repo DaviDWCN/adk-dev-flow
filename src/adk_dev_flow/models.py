@@ -154,6 +154,8 @@ class SpecContract(BaseModel):
             "issue_iid": self.issue_iid,
             "target_branch": self.target_branch,
             "require_tdd_red": self.require_tdd_red,
+            "require_mutation_gate": self.require_mutation_gate,
+            "spike": self.spike,
             "extra_dependencies": self.extra_dependencies,
             "allowed_paths": self.allowed_paths,
             "acceptance_test_path": self.acceptance_test_path,
@@ -272,6 +274,17 @@ class SpecContract(BaseModel):
         if not tasks:
             raise ValueError("OKF 规约中缺少任务列表 (tasks)")
 
+        design_doc = meta.get("design_doc")
+        if not design_doc:
+            design_match = re.search(
+                r"## Architecture Design\s*\n(.*?)(?=\n## (?:Tasks Breakdown|Locked Acceptance Test|TDD 基线红灯凭证|前置 Critic 审查报告)|\Z)",
+                body_str,
+                re.DOTALL,
+            )
+            if design_match:
+                extracted = design_match.group(1).strip()
+                design_doc = extracted or None
+
         return cls(
             issue_iid=meta.get("issue_iid"),
             title=meta.get("title") or "Untitled OKF Spec",
@@ -283,8 +296,11 @@ class SpecContract(BaseModel):
             acceptance_test_path=meta.get("acceptance_test_path", ""),
             acceptance_test_code=acceptance_test_code,
             require_tdd_red=meta.get("require_tdd_red", True),
+            require_mutation_gate=meta.get("require_mutation_gate", True),
+            spike=bool(meta.get("spike", False)),
             extra_dependencies=meta.get("extra_dependencies", []),
             tasks=tasks,
+            design_doc=design_doc,
         )
 
 

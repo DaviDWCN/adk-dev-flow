@@ -21,11 +21,14 @@ from google.genai import types
 from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
 from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
+from adk_dev_flow.guard import strip_dot_slash
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.providers import get_worker_provider
 from adk_dev_flow.state_store import StateStore
 from adk_dev_flow.subproc import CommandResult, run_subprocess_safe
 from adk_dev_flow.worktree_utils import (
+    _is_ephemeral_runtime_artifact,
+    _parse_porcelain_paths,
     audit_worktree_changes,
     compute_error_signature,
     compute_file_sha256,
@@ -1056,10 +1059,22 @@ def build_dev_workflow(
                     status_res = await _git(
                         ["status", "--porcelain", "-uall", "--ignored=matching"], worktree
                     )
+                    committed_changed = [
+                        strip_dot_slash(line.strip())
+                        for line in (names_res.stdout or "").splitlines()
+                        if line.strip()
+                        and not _is_ephemeral_runtime_artifact(strip_dot_slash(line.strip()))
+                    ]
+                    dirty_non_ephemeral = [
+                        strip_dot_slash(p)
+                        for p in _parse_porcelain_paths(status_res.stdout or "")
+                        if p.strip()
+                        and not _is_ephemeral_runtime_artifact(strip_dot_slash(p))
+                    ]
                     zero_change = (
                         names_res.returncode == 0
-                        and not names_res.stdout.strip()
-                        and not status_res.stdout.strip()
+                        and not committed_changed
+                        and not dirty_non_ephemeral
                     )
                 except Exception:
                     zero_change = False
@@ -1153,6 +1168,13 @@ def build_dev_workflow(
                     except OSError as exc:
                         failure_sections.append(f"[regression cmd={' '.join(reg_cmd)} spawn_error]\n{exc}")
 
+        physical_changed = (
+            list(audit.touched_files)
+            if audit.touched_files
+            else list(node_input.get("worker_changed_files") or [])
+        )
+        node_input["worker_changed_files"] = physical_changed
+
         if not failure_sections:
             summary_line = ""
             if test_res is not None and test_res.stdout.strip():
@@ -1174,7 +1196,7 @@ def build_dev_workflow(
                 run_id,
                 attempt,
                 worker_summary=str(node_input.get("worker_summary") or ""),
-                changed_files=list(node_input.get("worker_changed_files") or []),
+                changed_files=physical_changed,
             )
             store.update_run(
                 run_id,
@@ -1199,7 +1221,7 @@ def build_dev_workflow(
             err_sig=err_sig,
             combined_err=combined_err[-4000:],
             worker_summary=str(node_input.get("worker_summary") or ""),
-            changed_files=list(node_input.get("worker_changed_files") or []),
+            changed_files=physical_changed,
         )
         store.update_run(
             run_id,
@@ -1388,7 +1410,7 @@ def build_dev_workflow(
             critic_raw = await run_readonly_critic_review(
                 spec=spec,
                 worktree=worktree,
-                base_sha=base_sha,
+                base_sha=diff_base,
                 ast_findings=ast_findings,
                 run_id=run_id,
             )
