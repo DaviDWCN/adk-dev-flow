@@ -614,7 +614,9 @@ class TestOKFIntegration(unittest.IsolatedAsyncioTestCase):
             spec_path.write_text(self.sample_spec.to_okf_markdown(), encoding="utf-8")
 
             # Lock from file
-            lock_res = service.flow_lock_spec_from_file(run_id, ".adk/specs/cache_spec.md")
+            lock_res = service.flow_lock_spec_from_file(
+                run_id, ".adk/specs/cache_spec.md", strict_prelock=False
+            )
             self.assertEqual(lock_res["status"], "SPEC_LOCKED")
 
             # Verify in store

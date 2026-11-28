@@ -114,7 +114,10 @@ class TestMultiProjectCoexistence(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            loaded = load_project_config(repo)
+            from unittest.mock import patch
+
+            with patch.dict(os.environ, {}, clear=False):
+                loaded = load_project_config(repo)
             self.assertEqual(loaded.get("GITLAB_URL"), "http://gitlab.internal.corp")
             self.assertEqual(loaded.get("GITLAB_PROJECT_ID"), "team/my-special-project")
             self.assertEqual(loaded.get("ADK_TEST_CMD"), "python -m pytest -q {test_path}")

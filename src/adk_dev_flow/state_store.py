@@ -60,8 +60,8 @@ PRE_LOCK_STATUSES: tuple[RunStatus, ...] = (
 VALID_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     "SPEC_DRAFTING": frozenset({"SPEC_DESIGNED", "TEST_GENERATED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
     "SPEC_DESIGNED": frozenset({"TEST_GENERATED", "PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
-    "TEST_GENERATED": frozenset({"PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
-    "PRE_CRITIC_REVIEWED": frozenset({"SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "TEST_GENERATED": frozenset({"SPEC_DESIGNED", "PRE_CRITIC_REVIEWED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
+    "PRE_CRITIC_REVIEWED": frozenset({"SPEC_DESIGNED", "TEST_GENERATED", "SPEC_LOCKED", "ABORTED", "ESCALATED"}),
     "SPEC_LOCKED": frozenset({"RUNNING", "ABORTED", "ESCALATED"}),
     # Adoption is a registration shortcut: it may complete (MR_READY), be
     # dropped (ABORTED), or be re-registered (self-transition).
@@ -114,8 +114,8 @@ def lifecycle_step(status: str) -> int:
 
 
 def lifecycle_highlight_critic(status: str) -> bool:
-    """Highlight the Critic station during pre-lock contract review (step 3) or legacy reviewing."""
-    return status in ("PRE_CRITIC_REVIEWED", "REVIEWING")
+    """Highlight the AI Critic station strictly during Pre-Lock contract review (step 3)."""
+    return status == "PRE_CRITIC_REVIEWED"
 
 
 ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(
@@ -123,6 +123,7 @@ ALLOWED_RUN_COLUMNS: frozenset[str] = frozenset(
         "status",
         "issue_iid",
         "spec_json",
+        "prelock_json",
         "branch",
         "worktree_path",
         "base_sha",
@@ -178,6 +179,7 @@ class StateStore:
                     status TEXT NOT NULL,
                     issue_iid INTEGER,
                     spec_json TEXT,
+                    prelock_json TEXT,
                     branch TEXT,
                     worktree_path TEXT,
                     base_sha TEXT,
@@ -224,6 +226,7 @@ class StateStore:
                 "locked_test_commit_sha": "TEXT",
                 "human_hint": "TEXT",
                 "evidence_type": "TEXT",
+                "prelock_json": "TEXT",
             }
             for col, col_type in migrations.items():
                 if col not in existing_cols:
@@ -305,6 +308,26 @@ class StateStore:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             return dict(row) if row else None
+
+    def get_prelock_data(self, run_id: str) -> dict[str, Any]:
+        """Return parsed prelock_json evidence dictionary for run_id (empty dict if absent)."""
+        run = self.get_run(run_id)
+        if not run or not run.get("prelock_json"):
+            return {}
+        try:
+            data = json.loads(run["prelock_json"])
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def merge_prelock_data(self, run_id: str, **entries: Any) -> dict[str, Any]:
+        """Merge non-None Pre-Lock evidence keys into runs.prelock_json and return updated dict."""
+        merged = self.get_prelock_data(run_id)
+        for k, v in entries.items():
+            if v is not None:
+                merged[k] = v
+        self.update_run(run_id, prelock_json=json.dumps(merged, ensure_ascii=False))
+        return merged
 
     def log_attempt(
         self,

@@ -100,7 +100,7 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 20 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 21 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
@@ -112,8 +112,9 @@ adk-dev-flow-init . --with-ci
 | `flow_lock_spec` | 异步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈；`require_tdd_red=False` 时对全部目标 `.py` 文件执行变异测试门禁；后台线程池运行，不阻塞事件循环） |
 | `flow_lock_spec_from_file` | 异步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约（后台线程池运行） |
 | `flow_analyze_impact` | 异步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架与推进 `SPEC_DESIGNED` |
-| `flow_preflight_test` | 异步 | **在当前基线代码上客观预检验收测试**，验证用例报出真实业务红灯（拦截空断言假通过与路径越权，同路径串行加锁且不阻塞事件循环） |
-| `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与 Critic 审查 |
+| `flow_preflight_test` | 异步 | **在隔离临时 Worktree（无 HEAD 时回退加锁主仓）预检验收测试**，生成 SHA-256 红灯证据并自动落库（拦截假通过与路径越权，同路径串行加锁且不阻塞事件循环） |
+| `flow_pre_critic` | 异步 | **Step 3 前置 AI Critic 双审**：在签字锁定前只读审查设计、影响面与验收测试完整性（防弱断言与投机作弊），通过后推进至 `PRE_CRITIC_REVIEWED` |
+| `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与确定性 Step 8 AST/DFG 门禁 |
 | `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab / GitHub PR/MR 链接 |
 | `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
 | `flow_resume` | 异步 | 对处于 `ESCALATED` 熔断的流水线注入人工指令，在原隔离 Worktree 中恢复运行 |
@@ -245,9 +246,11 @@ uv run adk web src --port 8000
 | `ADK_WORKER_MODEL` | 空 | 工兵代码生成模型（推荐 `deepseek-v4.1-flash`）；未配置时依次回退 `CODEBUDDY_WORKER_MODEL`、`CODEBUDDY_MODEL`、CLI 默认 |
 | `CODEBUDDY_WORKER_MODEL` | 空 | `ADK_WORKER_MODEL` 的别名，优先级更低 |
 | `CODEBUDDY_MODEL` | 空 | 工兵与 Critic 模型的共同回退值 |
-| `ADK_CRITIC_MODEL` | 空 | Critic 独立审查模型（推荐 `glm-5.3-flash`）；配置后将启用只读 `REVIEWING` Critic 审查，未配置具体模型名时回退 `CODEBUDDY_MODEL` |
-| `ADK_ENABLE_CRITIC` | `0` | 设为 `1`（或配置 `ADK_CRITIC_MODEL`）启用交付阶段 `REVIEWING` 独立只读 Critic 审查 |
-| `ADK_CRITIC_FAIL_CLOSED` | `0` | 设为 `1` 时，只读 Critic CLI 调用失败直接 fail-closed 拦截发布（`ESCALATED`）；默认 `0` 时调用异常会降级放行（`approved=True, confidence=0.7`） |
+| `ADK_CRITIC_MODEL` | 空 | Step 3 Pre-Critic 审查模型（推荐 `glm-5.3-flash`）；未配置时回退 `CODEBUDDY_MODEL` |
+| `ADK_ENABLE_CRITIC` | `0` | 兼容历史环境变量名；自 Step 8 去 AI 化后，`publish_mr_node` 仅执行确定性 AST/DFG 门禁，AI Critic 专职 Step 3 (`flow_pre_critic`) |
+| `ADK_CRITIC_FAIL_CLOSED` | `0` | `run_readonly_critic_review` 异常失败模式开关（Step 3 `flow_pre_critic` 始终 fail-closed 拦截无法解析或失败的响应） |
+| `ADK_STRICT_PRELOCK` | `1` | 严格 Pre-Lock 门禁开关（默认 `1`，要求经 `flow_analyze_impact -> flow_preflight_test -> flow_pre_critic` 推进至 `PRE_CRITIC_REVIEWED` 且测试 SHA-256 一致后才可 `flow_lock_spec`） |
+| `ADK_POST_GREEN_MUTATION` | `0` | 设为 `1` 时，`require_tdd_red=True` 的任务在验收测试变绿后于 `verify_python_node` 对改动 `.py` 执行确定性变异测试门禁 |
 | `CODEBUDDY_BIN` | 自动探测 `PATH` | CodeBuddy CLI 可执行文件路径 |
 | `CODEBUDDY_BIN_ARGS` | `[]` | JSON 数组，插在 CLI 可执行文件之后的固定前导参数（如经 `node` 启动时的入口脚本） |
 | `CODEBUDDY_WORKER_EXTRA_ARGS` | `[]` | JSON 数组，追加到工兵 CLI 命令末尾的额外参数 |
@@ -311,7 +314,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-为了任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 20 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+为了任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 21 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
 - `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标；CodeBuddy 要求的清单同时写入 `.codebuddy-plugin/plugin.json`。
@@ -354,4 +357,4 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 ## 核实记录
 
-2026-11-28 对照源码核实并完成核心数据流文档与 4 项数据流加固：已核对并在 [core-data-flow.md](docs/core-data-flow.md) 记录 `StateStore`（`runs` / `attempt_logs` / `.adk/active_run.json`）、`SpecContract.from_okf_markdown` 对 `spike`/`require_mutation_gate`/`design_doc` 的解析与归档、`verify_python_node` 物理 `audit.touched_files` 回写与 `zero_change` 运行时缓存过滤，以及只读 Critic 使用 `locked_test_commit_sha..HEAD` 边界。第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。
+2026-11-28 对照源码核实并完成 Pre-Lock 确定性迁移、Step 3 Pre-Critic 前移与 Step 8 去 AI 不确定性改造（详见 [core-data-flow.md](docs/core-data-flow.md)）：`StateStore` 新增 `prelock_json` 自动持久化影响面/红灯/前置审查证据；`flow_preflight_test` 在有 `HEAD` 时于隔离临时 Worktree 运行并绑定 `test_sha256`；新增 `flow_pre_critic`（Step 3）及 ADK Pre-Lock 子图 `build_prelock_workflow`；`flow_lock_spec` 默认启用 `ADK_STRICT_PRELOCK=1` 与防篡改哈希核验；`publish_mr_node` 移除 Step 8 AI Critic 阻塞并支持 `ADK_POST_GREEN_MUTATION=1` 绿灯后确定性变异校验。第 1、2、3、5、7、9 节的工具表、CLI 命令、脚手架产物、看板参数、环境变量表与插件结构，由 `tests/test_okf.py` 的漂移门禁持续校验。第 8 节模型天梯榜、骨架节省 Token 的比例与第 6 节的 `adk web` 命令为当时的估计或未复核，不在这份记录的保证范围内。看板集成通道的决策见 [ADR-0001](docs/adr/0001-dashboard-webui-channel.md)。

@@ -80,7 +80,7 @@ class TestTask3StateAndCriticFlow(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_prelock_intermediate_states_and_enforce_matrix(self) -> None:
+    async def test_prelock_intermediate_states_and_enforce_matrix(self) -> None:
         run_id = "run-state-01"
         self.store.create_run(run_id, issue_iid=11)
         recorded_transitions: list[tuple[str, bool]] = []
@@ -96,35 +96,50 @@ class TestTask3StateAndCriticFlow(unittest.IsolatedAsyncioTestCase):
                 **fields,
             )
 
-        with patch.object(self.store, "transition_run", side_effect=spy_transition):
+        spec = SpecContract(
+            issue_iid=11,
+            title="Add sub",
+            summary="Add sub function",
+            allowed_paths=["src/pkg/calc.py"],
+            acceptance_test_path="tests/test_calc.py",
+            acceptance_test_code="from pkg.calc import add\ndef test_a(): assert add(1, 2) == 999\n",
+            require_mutation_gate=False,
+            tasks=[AtomicTask(id="T1", title="Add sub", description="sub", target_files=["src/pkg/calc.py"])],
+        )
+
+        with (
+            patch.dict(os.environ, {"ADK_WORKER_PROVIDER": "mock"}, clear=False),
+            patch.object(self.store, "transition_run", side_effect=spy_transition),
+        ):
             res = self.service.flow_analyze_impact(["src/pkg/calc.py"], run_id=run_id)
             self.assertEqual(self.store.get_run(run_id)["status"], "SPEC_DESIGNED")
             self.assertEqual(res.get("status"), "SPEC_DESIGNED")
 
-            spec = SpecContract(
-                issue_iid=11,
-                title="Add sub",
-                summary="Add sub function",
-                allowed_paths=["src/pkg/calc.py"],
-                acceptance_test_path="tests/test_calc.py",
-                acceptance_test_code="from pkg.calc import add\ndef test_a(): assert add(1, 2) == 3\n",
-                require_mutation_gate=False,
-                tasks=[AtomicTask(id="T1", title="Add sub", description="sub", target_files=["src/pkg/calc.py"])],
+            red_res = self.service.flow_preflight_test(
+                spec.acceptance_test_path, spec.acceptance_test_code, run_id=run_id
             )
+            self.assertTrue(red_res["ok"], red_res)
+            self.assertEqual(self.store.get_run(run_id)["status"], "TEST_GENERATED")
+
+            pc_res = await self.service.flow_pre_critic(run_id=run_id, spec=spec)
+            self.assertTrue(pc_res["approved"], pc_res)
+            self.assertEqual(self.store.get_run(run_id)["status"], "PRE_CRITIC_REVIEWED")
+
             lock_res = self.service.flow_lock_spec(run_id, spec)
 
         self.assertEqual(lock_res.get("status"), "SPEC_LOCKED")
         self.assertIn(("SPEC_DESIGNED", True), recorded_transitions)
+        self.assertIn(("TEST_GENERATED", True), recorded_transitions)
         self.assertIn(("PRE_CRITIC_REVIEWED", True), recorded_transitions)
         self.assertIn(("SPEC_LOCKED", True), recorded_transitions)
 
-    async def test_publish_mr_transitions_through_reviewing_and_honors_readonly_critic_reject(self) -> None:
+    async def test_publish_mr_transitions_through_reviewing_deterministically_without_ai_critic(self) -> None:
         run_id = "run-critic-01"
         self.store.create_run(run_id, issue_iid=12)
         spec = SpecContract(
             issue_iid=12,
-            title="Critic Reject Check",
-            summary="Must reject when read-only critic rejects",
+            title="Deterministic Step 8 Check",
+            summary="Step 8 must be deterministic AST gate without invoking AI Critic",
             allowed_paths=["src/pkg/calc.py"],
             acceptance_test_path="tests/test_calc.py",
             acceptance_test_code="def test_ok(): assert True\n",
@@ -160,8 +175,8 @@ class TestTask3StateAndCriticFlow(unittest.IsolatedAsyncioTestCase):
             return {
                 "approved": False,
                 "confidence": 0.92,
-                "summary": "Diff introduces edge-case regression flagged by read-only Critic.",
-                "blocking_issues": ["Missing zero guard in calc"],
+                "summary": "Should not run in Step 8.",
+                "blocking_issues": ["Should not block"],
             }
 
         with (
@@ -171,11 +186,11 @@ class TestTask3StateAndCriticFlow(unittest.IsolatedAsyncioTestCase):
         ):
             res = await publish_node({"worktree": str(self.repo), "spec": spec.model_dump(), "attempt": 0})
 
-        m_critic.assert_awaited_once()
-        self.assertEqual(res.get("status"), "ESCALATED")
+        m_critic.assert_not_awaited()
+        self.assertEqual(res.get("status"), "MR_READY")
         self.assertIn(("REVIEWING", True), seen_statuses)
-        self.assertIn(("ESCALATED", True), seen_statuses)
-        self.assertEqual(self.store.get_run(run_id)["status"], "ESCALATED")
+        self.assertIn(("MR_READY", True), seen_statuses)
+        self.assertEqual(self.store.get_run(run_id)["status"], "MR_READY")
 
     async def test_explicit_missing_base_branch_fails_without_head_fallback(self) -> None:
         run_id = "run-bad-base"

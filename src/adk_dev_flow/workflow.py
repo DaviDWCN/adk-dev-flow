@@ -21,17 +21,19 @@ from google.genai import types
 from adk_dev_flow.ast_graph import SymbolVisitor, audit_ast_diff
 from adk_dev_flow.codebuddy_bridge import CodeBuddyLlm, run_codebuddy_worker
 from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
-from adk_dev_flow.guard import strip_dot_slash
-from adk_dev_flow.models import ReviewVerdict, SpecContract
+from adk_dev_flow.guard import is_path_under, is_protected_path, normalize_relative_path, strip_dot_slash
+from adk_dev_flow.models import PreCriticReport, ReviewVerdict, SpecContract
+from adk_dev_flow.mutation import evaluate_test_against_mutants
 from adk_dev_flow.providers import get_worker_provider
 from adk_dev_flow.state_store import StateStore
-from adk_dev_flow.subproc import CommandResult, run_subprocess_safe
+from adk_dev_flow.subproc import CommandResult, no_window_kwargs, run_subprocess_safe, run_subprocess_sync
 from adk_dev_flow.worktree_utils import (
     _is_ephemeral_runtime_artifact,
     _parse_porcelain_paths,
     audit_worktree_changes,
     compute_error_signature,
     compute_file_sha256,
+    compute_sha256_bytes,
     parse_review_verdict_dict,
     resolve_tool_command,
     sanitize_worktree_state,
@@ -311,6 +313,355 @@ async def run_readonly_critic_review(
             "summary": f"物理跑测与 AST 静态门禁通过（只读 Critic 降级: {type(exc).__name__}）",
             "blocking_issues": [],
         }
+
+
+def parse_pre_critic_report_dict(raw_output: Any) -> dict[str, Any]:
+    """Fail-closed parser for Step 3 PreCriticReport outputs."""
+    from adk_dev_flow.worktree_utils import strip_markdown_code_fence
+
+    payload: Any = raw_output
+    if hasattr(payload, "model_dump") and callable(payload.model_dump):
+        try:
+            payload = payload.model_dump()
+        except TypeError:
+            pass
+    if isinstance(payload, str):
+        cleaned = strip_markdown_code_fence(payload)
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end > start:
+                try:
+                    payload = json.loads(cleaned[start : end + 1])
+                except json.JSONDecodeError:
+                    payload = None
+            else:
+                payload = None
+    if not isinstance(payload, dict) or not isinstance(payload.get("approved"), bool):
+        return {
+            "approved": False,
+            "consistency_score": 0.0,
+            "requirement_coverage": [],
+            "anti_cheat_risk": "unknown (unparseable pre-critic output)",
+            "blocking_issues": ["Step 3 Pre-Critic 未返回有效的布尔 approved JSON 结论（Fail-Closed）"],
+            "summary": str(raw_output)[:400] or "Pre-Critic 输出无法解析",
+        }
+    blocking_raw = payload.get("blocking_issues")
+    blocking = (
+        [str(x) for x in blocking_raw]
+        if isinstance(blocking_raw, list)
+        else ([str(blocking_raw)] if blocking_raw is not None else [])
+    )
+    cov_raw = payload.get("requirement_coverage")
+    coverage = (
+        [str(x) for x in cov_raw]
+        if isinstance(cov_raw, list)
+        else ([str(cov_raw)] if cov_raw is not None else [])
+    )
+    try:
+        score = float(payload.get("consistency_score", 1.0 if payload["approved"] else 0.0))
+    except (TypeError, ValueError):
+        score = 1.0 if payload["approved"] else 0.0
+    score = max(0.0, min(1.0, score))
+    return PreCriticReport(
+        approved=payload["approved"],
+        consistency_score=score,
+        requirement_coverage=coverage,
+        anti_cheat_risk=str(payload.get("anti_cheat_risk") or ""),
+        blocking_issues=blocking,
+        summary=str(payload.get("summary") or "").strip()
+        or ("Step 3 Pre-Critic 审查通过" if payload["approved"] else "Step 3 Pre-Critic 审查未通过"),
+    ).model_dump()
+
+
+async def run_pre_critic_review(
+    spec: SpecContract,
+    *,
+    run_id: str,
+    requirement: str = "",
+    impact_analysis: dict[str, Any] | None = None,
+    red_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Step 3 Pre-Lock AI Critic: review design, impact alignment, and anti-cheat test strength."""
+    provider_type = os.environ.get("ADK_WORKER_PROVIDER", "").strip().lower()
+    has_cli_override = bool(
+        (os.environ.get("CODEBUDDY_BIN") or "").strip()
+        or (os.environ.get("CODEBUDDY_BIN_ARGS") or "").strip()
+    )
+    if provider_type == "mock" and not has_cli_override:
+        return PreCriticReport(
+            approved=True,
+            consistency_score=1.0,
+            requirement_coverage=[f"{t.id}: {t.title}" for t in spec.tasks],
+            anti_cheat_risk="low (mock pre-critic)",
+            blocking_issues=[],
+            summary=f"Step 3 Pre-Critic (Mock) 审查通过: {spec.title}",
+        ).model_dump()
+
+    tasks_md = "\n".join(
+        f"- [{t.id}] {t.title}: {t.description} (targets={t.target_files}, symbols={t.target_symbols})"
+        for t in spec.tasks
+    )
+    impact_str = json.dumps(impact_analysis or {}, ensure_ascii=False)[:3000]
+    red_str = json.dumps(red_evidence or {}, ensure_ascii=False)[:1500]
+    prompt = (
+        f"请执行 Pre-Lock Step 3（设计与验收测试双审），判断契约是否完整且不可被工兵投机作弊：\n"
+        f"- Run ID: {run_id}\n"
+        f"- 原始需求: {requirement or spec.summary}\n"
+        f"- Spec 标题: {spec.title}\n"
+        f"- Spec 摘要: {spec.summary}\n"
+        f"- 设计方案 (design_doc):\n{spec.design_doc or '（未提供）'}\n\n"
+        f"- 允许修改白名单: {spec.allowed_paths}\n"
+        f"- 原子任务清单:\n{tasks_md}\n\n"
+        f"- AST 影响面分析:\n{impact_str}\n\n"
+        f"- 锁定的验收测试 (`{spec.acceptance_test_path}`):\n```python\n{spec.acceptance_test_code}\n```\n\n"
+        f"- 基线红灯客观凭证:\n{red_str}\n"
+    )
+
+    from google.adk.models.llm_request import LlmRequest
+
+    critic_model = (os.environ.get("ADK_CRITIC_MODEL") or "").strip() or "codebuddy-critic"
+    llm = CodeBuddyLlm(model=critic_model)
+    req = LlmRequest(
+        model=critic_model,
+        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+        config=types.GenerateContentConfig(
+            system_instruction=(
+                "你是只读 Pre-Lock Critic 审查专家，无任何文件写权限。"
+                "请严格审查：1) 设计与需求/影响面是否一致；"
+                "2) 验收测试是否充分（能否被返回常量的投机实现欺骗通过、是否覆盖异常/边界情况）；"
+                "3) 白名单路径与任务拆分是否合理。返回结构化 PreCriticReport JSON。"
+            ),
+            response_schema=PreCriticReport,
+        ),
+    )
+
+    last_text = ""
+    try:
+        async for resp in llm.generate_content_async(req, stream=False):
+            if resp and resp.content and resp.content.parts:
+                last_text = "\n".join(
+                    p.text for p in resp.content.parts if getattr(p, "text", None)
+                )
+        return parse_pre_critic_report_dict(last_text)
+    except Exception as exc:
+        return PreCriticReport(
+            approved=False,
+            consistency_score=0.0,
+            requirement_coverage=[],
+            anti_cheat_risk="unknown (pre-critic error)",
+            blocking_issues=[f"[{run_id}] Step 3 Pre-Critic 执行失败: {exc}"],
+            summary=f"Step 3 Pre-Critic 调用失败 (fail-closed): {exc}",
+        ).model_dump()
+
+
+def run_isolated_tdd_red_preflight(
+    repo_root: Path,
+    test_path: str,
+    test_code: str,
+    *,
+    file_lock: Any = None,
+    timeout_sec: float = 60.0,
+) -> dict[str, Any]:
+    """Run baseline TDD Red preflight in an isolated temporary Git worktree when HEAD exists.
+
+    Falls back to locked repo_root execution only when the repository has no commits yet
+    (e.g. brand-new repo or test fixture with empty .git).
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    root = repo_root.resolve()
+    raw_path = (test_path or "").strip()
+    if not raw_path or Path(raw_path).is_absolute():
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "is_pure_semantic_failure": False,
+            "error": f"非法测试路径: `{test_path}`（必须为仓库内相对路径）",
+        }
+    rel_norm = normalize_relative_path(raw_path, root)
+    if not rel_norm:
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "is_pure_semantic_failure": False,
+            "error": f"非法测试路径: `{test_path}`（禁止路径穿越或超出仓库根目录）",
+        }
+    if is_protected_path(rel_norm) or is_path_under(rel_norm, ".adk"):
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "is_pure_semantic_failure": False,
+            "error": f"禁止在受保护路径或系统目录执行预检写入: {rel_norm}",
+        }
+
+    try:
+        ast.parse(test_code, filename=rel_norm)
+    except SyntaxError as exc:
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "is_pure_semantic_failure": False,
+            "error": f"测试代码存在 Python 语法错误 (line {exc.lineno}): {exc.msg}",
+        }
+
+    test_sha256 = compute_sha256_bytes(test_code.encode("utf-8"))
+
+    # Probe whether repository has a valid HEAD commit to spawn a detached worktree
+    has_head = False
+    try:
+        head_probe = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", "HEAD"],
+            cwd=str(root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            **no_window_kwargs(),
+        )
+        has_head = head_probe.returncode == 0 and bool((head_probe.stdout or "").strip())
+    except Exception:
+        has_head = False
+
+    def _exec_pytest(run_dir: Path, used_isolated_wt: bool) -> dict[str, Any]:
+        target_file = (run_dir / rel_norm).resolve()
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(test_code, encoding="utf-8")
+
+        cmd = resolve_tool_command(
+            "pytest",
+            ["-q", str(target_file)],
+            worktree=run_dir,
+            repo_root=root,
+            env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
+            placeholder_vars={"test_path": rel_norm},
+        )
+        if cmd is None or (len(cmd) >= 1 and cmd[0] == "pytest" and not shutil.which("pytest")):
+            cmd = [sys.executable, "-m", "pytest", "-q", str(target_file)]
+
+        env = os.environ.copy()
+        wt_src = run_dir / "src"
+        sep = ";" if os.name == "nt" else ":"
+        candidates = [str(wt_src)] if wt_src.is_dir() else [str(run_dir)]
+        if wt_src.is_dir():
+            candidates.append(str(run_dir))
+        if env.get("PYTHONPATH"):
+            candidates.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = sep.join(candidates)
+
+        try:
+            proc = run_subprocess_sync(
+                cmd,
+                cwd=run_dir,
+                env=env,
+                timeout_sec=timeout_sec,
+            )
+            if proc.timed_out:
+                return {
+                    "ok": False,
+                    "exit_code": -1,
+                    "is_pure_semantic_failure": False,
+                    "error": f"测试执行超时 (>{int(timeout_sec)}s)",
+                }
+            combined_out = f"{proc.stdout}\n{proc.stderr}"
+            try:
+                _validate_tdd_red_outcome(
+                    returncode=proc.returncode,
+                    combined_output=combined_out,
+                    cmd=cmd,
+                    test_path=rel_norm,
+                )
+                return {
+                    "ok": True,
+                    "test_path": rel_norm,
+                    "test_sha256": test_sha256,
+                    "exit_code": proc.returncode,
+                    "is_pure_semantic_failure": True,
+                    "assertion_error_summary": combined_out.strip()[-1000:],
+                    "command": " ".join(cmd),
+                    "isolated_worktree": used_isolated_wt,
+                }
+            except RuntimeError as err:
+                return {
+                    "ok": False,
+                    "exit_code": proc.returncode,
+                    "is_pure_semantic_failure": False,
+                    "error": str(err),
+                    "output": combined_out[-1000:],
+                }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "exit_code": -1,
+                "is_pure_semantic_failure": False,
+                "error": f"测试执行失败: {exc}",
+            }
+
+    if has_head:
+        with tempfile.TemporaryDirectory() as wt_tmp:
+            wt_dir = Path(wt_tmp) / "preflight_wt"
+            wt_add = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(wt_dir), "HEAD"],
+                cwd=str(root),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+                **no_window_kwargs(),
+            )
+            if wt_add.returncode == 0 and wt_dir.is_dir():
+                try:
+                    return _exec_pytest(wt_dir, True)
+                finally:
+                    subprocess.run(
+                        ["git", "worktree", "remove", "--force", str(wt_dir)],
+                        cwd=str(root),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=20,
+                        **no_window_kwargs(),
+                    )
+                    if wt_dir.exists():
+                        shutil.rmtree(wt_dir, ignore_errors=True)
+                    subprocess.run(
+                        ["git", "worktree", "prune"],
+                        cwd=str(root),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=15,
+                        **no_window_kwargs(),
+                    )
+
+    # Fallback: repository without HEAD commits
+    from contextlib import nullcontext
+
+    target_in_root = (root / rel_norm).resolve()
+    ctx = file_lock if file_lock is not None else nullcontext()
+    with ctx:
+        target_in_root.parent.mkdir(parents=True, exist_ok=True)
+        old_content: bytes | None = None
+        if target_in_root.is_file():
+            try:
+                old_content = target_in_root.read_bytes()
+            except Exception:
+                old_content = None
+        try:
+            return _exec_pytest(root, False)
+        finally:
+            if old_content is not None:
+                try:
+                    target_in_root.write_bytes(old_content)
+                except Exception:
+                    pass
+            else:
+                try:
+                    target_in_root.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 
 def _format_critic_note(run_id: str, verdict: ReviewVerdict, attempt: int) -> str:
@@ -1175,6 +1526,71 @@ def build_dev_workflow(
         )
         node_input["worker_changed_files"] = physical_changed
 
+        # Optional deterministic Post-Green Mutation Gate when require_tdd_red=True
+        post_green_enabled = (
+            os.environ.get("ADK_POST_GREEN_MUTATION", "").strip().lower() in ("1", "true", "yes")
+        )
+        if not failure_sections and post_green_enabled and spec.require_tdd_red and spec.require_mutation_gate:
+            from adk_dev_flow.guard import is_path_under as _guard_under
+
+            norm_test_rel = strip_dot_slash(spec.acceptance_test_path)
+            mut_candidates = [
+                f
+                for f in physical_changed
+                if f.endswith(".py")
+                and f != norm_test_rel
+                and any(_guard_under(f, allowed) for allowed in spec.allowed_paths)
+            ]
+            if not mut_candidates:
+                mut_candidates = [
+                    tf
+                    for t in spec.tasks
+                    for tf in t.target_files
+                    if tf.endswith(".py") and (worktree / tf).is_file()
+                ]
+            seen_mut: set[str] = set()
+            target_sources: list[tuple[str, str]] = []
+            for tf in mut_candidates:
+                if tf in seen_mut:
+                    continue
+                seen_mut.add(tf)
+                fp = worktree / tf
+                if fp.is_file():
+                    target_sources.append((tf, fp.read_text(encoding="utf-8", errors="replace")))
+
+            wt_test_file = worktree / norm_test_rel
+            test_src_code = (
+                wt_test_file.read_text(encoding="utf-8", errors="replace")
+                if wt_test_file.is_file()
+                else spec.acceptance_test_code
+            )
+            if target_sources:
+                extra_py = [str(worktree / "src"), str(worktree)]
+                total_mutants = 0
+                total_killed = 0
+                all_survived: list[str] = []
+                all_acceptable = True
+                for target_rel, target_code in target_sources:
+                    m_report = await evaluate_test_against_mutants(
+                        target_source=target_code,
+                        test_source=test_src_code,
+                        target_module_name=target_rel,
+                        min_kill_ratio=0.85,
+                        max_mutants=30,
+                        extra_pythonpaths=extra_py,
+                    )
+                    total_mutants += m_report.total_mutants
+                    total_killed += m_report.killed_count
+                    all_survived.extend(f"{target_rel}: {d}" for d in m_report.survived_details)
+                    if not m_report.is_acceptable:
+                        all_acceptable = False
+                combined_ratio = (total_killed / total_mutants) if total_mutants > 0 else 1.0
+                if not (all_acceptable and combined_ratio >= 0.85):
+                    failure_sections.append(
+                        f"[post_green_mutation FAILED] 变异测试击杀率未达 85.0% ({combined_ratio:.1%})。\n"
+                        + "\n".join(all_survived[:10])
+                    )
+
         if not failure_sections:
             summary_line = ""
             if test_res is not None and test_res.stdout.strip():
@@ -1391,10 +1807,6 @@ def build_dev_workflow(
             or (isinstance(node_input, dict) and "approved" in node_input)
             else None
         )
-        critic_enabled = (
-            os.environ.get("ADK_ENABLE_CRITIC", "").strip().lower() in ("1", "true", "yes")
-            or bool(os.environ.get("ADK_CRITIC_MODEL", "").strip())
-        )
         if raw_dict:
             guarded_dict = enforce_deterministic_verdict_guard(raw_dict, ast_findings)
             verdict = ReviewVerdict.model_validate(guarded_dict)
@@ -1406,16 +1818,6 @@ def build_dev_workflow(
                 summary=veto_reason,
                 blocking_issues=blocking_issues,
             )
-        elif critic_enabled:
-            critic_raw = await run_readonly_critic_review(
-                spec=spec,
-                worktree=worktree,
-                base_sha=diff_base,
-                ast_findings=ast_findings,
-                run_id=run_id,
-            )
-            guarded_dict = enforce_deterministic_verdict_guard(critic_raw, ast_findings)
-            verdict = ReviewVerdict.model_validate(guarded_dict)
         else:
             verdict = ReviewVerdict(
                 approved=True,
@@ -1647,3 +2049,185 @@ async def execute_workflow_run(
         raise
     except Exception as exc:
         store.update_run(run_id, status="ESCALATED", last_error_log=f"Workflow 异常: {exc!r}")
+
+
+def build_prelock_workflow(
+    repo_root: Path,
+    store: StateStore,
+    run_id: str,
+) -> Workflow:
+    """Build an ADK 2.x Workflow executing Pre-Lock Steps 1-3 up to Step 4 HITL."""
+
+    async def prelock_impact_node(node_input: Any) -> dict[str, Any]:
+        text = node_input.parts[0].text if hasattr(node_input, "parts") else str(node_input)
+        payload = json.loads(text)
+        spec = SpecContract.model_validate(payload["spec"])
+        requirement = str(payload.get("requirement") or spec.summary)
+
+        from adk_dev_flow.ast_graph import CodeGraph
+
+        target_paths = list(spec.allowed_paths)
+        with CodeGraph(repo_root) as cg:
+            report = cg.analyze_impact(target_paths)
+            impact_dict = report.to_dict()
+
+        store.merge_prelock_data(
+            run_id,
+            impact_analysis=impact_dict,
+            design_doc=spec.design_doc,
+        )
+        _transition_or_update(
+            store,
+            run_id,
+            expected_statuses=("SPEC_DRAFTING", "SPEC_DESIGNED", "TEST_GENERATED", "PRE_CRITIC_REVIEWED"),
+            new_status="SPEC_DESIGNED",
+            last_error_log=f"[Architect] 📐 AST 影响面分析完成 ({len(impact_dict.get('impacted_production_files', []))} 关联文件)",
+        )
+        return {
+            "run_id": run_id,
+            "spec": spec.model_dump(),
+            "requirement": requirement,
+            "impact_analysis": impact_dict,
+        }
+
+    async def prelock_preflight_node(node_input: dict[str, Any]) -> Event:
+        spec = SpecContract.model_validate(node_input["spec"])
+        red_evidence: dict[str, Any]
+        if spec.require_tdd_red and os.environ.get("ADK_SKIP_TDD_RED", "0") != "1":
+            red_res = await asyncio.to_thread(
+                run_isolated_tdd_red_preflight,
+                repo_root,
+                spec.acceptance_test_path,
+                spec.acceptance_test_code,
+            )
+            if not red_res.get("ok"):
+                err_msg = str(red_res.get("error") or "TDD 红灯预检失败")
+                node_input["error"] = err_msg
+                node_input["red_evidence"] = red_res
+                store.update_run(run_id, last_error_log=f"[Tester] ❌ {err_msg[-1500:]}")
+                return Event(output=node_input, route="failed")
+            red_evidence = red_res
+        else:
+            red_evidence = {
+                "ok": True,
+                "test_path": spec.acceptance_test_path,
+                "test_sha256": compute_sha256_bytes(spec.acceptance_test_code.encode("utf-8")),
+                "exit_code": 0,
+                "is_pure_semantic_failure": False,
+                "skipped_red": True,
+            }
+
+        store.merge_prelock_data(run_id, red_evidence=red_evidence)
+        _transition_or_update(
+            store,
+            run_id,
+            expected_statuses=("SPEC_DRAFTING", "SPEC_DESIGNED", "TEST_GENERATED", "PRE_CRITIC_REVIEWED"),
+            new_status="TEST_GENERATED",
+            last_error_log="[Tester] 🧪 基线红灯预检通过（已绑定测试 SHA-256 证据）",
+        )
+        node_input["red_evidence"] = red_evidence
+        return Event(output=node_input, route="passed")
+
+    async def prelock_critic_node(node_input: dict[str, Any]) -> dict[str, Any]:
+        spec = SpecContract.model_validate(node_input["spec"])
+        pre_critic = await run_pre_critic_review(
+            spec,
+            run_id=run_id,
+            requirement=str(node_input.get("requirement") or spec.summary),
+            impact_analysis=node_input.get("impact_analysis"),
+            red_evidence=node_input.get("red_evidence"),
+        )
+        store.merge_prelock_data(run_id, pre_critic_report=pre_critic)
+        if pre_critic.get("approved"):
+            _transition_or_update(
+                store,
+                run_id,
+                expected_statuses=("SPEC_DESIGNED", "TEST_GENERATED", "PRE_CRITIC_REVIEWED"),
+                new_status="PRE_CRITIC_REVIEWED",
+                last_error_log=f"[Critic] 🧐 Step 3 前置双审通过: {pre_critic.get('summary', '')[:200]}",
+            )
+            return {
+                "run_id": run_id,
+                "status": "PRE_CRITIC_REVIEWED",
+                "pre_critic_report": pre_critic,
+            }
+
+        issues_str = "; ".join(pre_critic.get("blocking_issues") or [pre_critic.get("summary", "")])
+        store.update_run(
+            run_id,
+            last_error_log=f"[Critic] ⚠️ Step 3 前置双审未通过: {issues_str[:1000]}",
+        )
+        return {
+            "run_id": run_id,
+            "status": "TEST_GENERATED",
+            "pre_critic_report": pre_critic,
+            "error": issues_str,
+        }
+
+    async def prelock_failed_node(node_input: dict[str, Any]) -> dict[str, Any]:
+        run_now = store.get_run(run_id)
+        return {
+            "run_id": run_id,
+            "status": (run_now or {}).get("status", "SPEC_DESIGNED"),
+            "error": str(node_input.get("error") or "Pre-Lock 预检失败"),
+        }
+
+    return Workflow(
+        name="deterministic_prelock_workflow",
+        edges=[
+            (START, prelock_impact_node, prelock_preflight_node),
+            (
+                prelock_preflight_node,
+                {
+                    "passed": prelock_critic_node,
+                    "failed": prelock_failed_node,
+                },
+            ),
+        ],
+    )
+
+
+async def execute_prelock_workflow(
+    repo_root: Path,
+    store: StateStore,
+    run_id: str,
+    spec: SpecContract,
+    requirement: str = "",
+) -> dict[str, Any]:
+    """Execute the deterministic Pre-Lock Steps 1-3 via Google ADK Workflow and halt at Step 4 HITL."""
+    run = store.get_run(run_id)
+    if not run:
+        return {"error": f"未知 run_id: {run_id}"}
+
+    wf = build_prelock_workflow(repo_root, store, run_id=run_id)
+    session_service = InMemorySessionService()
+    session_id = f"prelock-{run_id}-{uuid_suffix()}"
+    await session_service.create_session(
+        app_name="adk_dev_flow", user_id="developer", session_id=session_id
+    )
+    runner = Runner(agent=wf, app_name="adk_dev_flow", session_service=session_service)
+    payload = json.dumps(
+        {"run_id": run_id, "spec": spec.model_dump(), "requirement": requirement or spec.summary},
+        ensure_ascii=False,
+    )
+    msg = types.Content(role="user", parts=[types.Part(text=payload)])
+    async for _ in runner.run_async(
+        user_id="developer", session_id=session_id, new_message=msg
+    ):
+        pass
+
+    final_run = store.get_run(run_id) or {}
+    prelock = store.get_prelock_data(run_id)
+    return {
+        "run_id": run_id,
+        "status": final_run.get("status"),
+        "impact_analysis": prelock.get("impact_analysis"),
+        "red_evidence": prelock.get("red_evidence"),
+        "pre_critic_report": prelock.get("pre_critic_report"),
+    }
+
+
+def uuid_suffix() -> str:
+    import uuid as _uuid
+
+    return _uuid.uuid4().hex[:8]

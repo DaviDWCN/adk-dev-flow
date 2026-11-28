@@ -211,7 +211,7 @@ class TestCoreWorkflowFixes(unittest.IsolatedAsyncioTestCase):
             require_mutation_gate=True,
             tasks=[AtomicTask(id="T1", title="T1", description="D", target_files=["src/a.py"])],
         )
-        res_red = service.flow_lock_spec(run_id, spec_red)
+        res_red = service.flow_lock_spec(run_id, spec_red, strict_prelock=False)
         self.assertEqual(res_red.get("status"), "SPEC_LOCKED")
         self.assertNotIn("mutation_report", res_red)
 
@@ -246,7 +246,7 @@ class TestCoreWorkflowFixes(unittest.IsolatedAsyncioTestCase):
                 )
             ],
         )
-        res_multi = service.flow_lock_spec(run_id_2, spec_multi)
+        res_multi = service.flow_lock_spec(run_id_2, spec_multi, strict_prelock=False)
         self.assertIn("error", res_multi, "Weak coverage on second target file src/b.py must be rejected")
 
     async def test_codebuddy_worker_passes_port_flag_only_once(self) -> None:

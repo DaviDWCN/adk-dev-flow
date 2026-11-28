@@ -361,6 +361,7 @@ def evaluate_test_against_mutants_sync(
     min_kill_ratio: float = 0.85,
     max_mutants: int = 50,
     timeout_sec: float = 10.0,
+    extra_pythonpaths: tuple[str, ...] | list[str] = (),
 ) -> MutationReport:
     """Run acceptance test against synthesized syntactic mutants synchronously."""
     engine = AstMutationEngine()
@@ -401,14 +402,17 @@ def evaluate_test_against_mutants_sync(
                 init_f.write_text("", encoding="utf-8")
             curr = curr.parent
 
-        # Also support flat import
-        flat_target = tmp_dir / target_file.name
+        # Also support flat import (skip __init__.py to avoid shadowing root)
+        flat_target = tmp_dir / target_file.name if target_file.name != "__init__.py" else target_file
 
         env = os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         existing_py = env.get("PYTHONPATH", "")
         sep = ";" if os.name == "nt" else ":"
-        env["PYTHONPATH"] = f"{tmp_dir}{sep}{existing_py}" if existing_py else str(tmp_dir)
+        path_parts = [str(tmp_dir), *(str(p) for p in extra_pythonpaths if p)]
+        if existing_py:
+            path_parts.append(existing_py)
+        env["PYTHONPATH"] = sep.join(path_parts)
 
         # Baseline sanity check: test must pass on unmutated target_source, otherwise
         # every mutant would fail for the same baseline reason (100% fake kill ratio).
@@ -481,6 +485,7 @@ async def evaluate_test_against_mutants(
     min_kill_ratio: float = 0.85,
     max_mutants: int = 50,
     timeout_sec: float = 10.0,
+    extra_pythonpaths: tuple[str, ...] | list[str] = (),
 ) -> MutationReport:
     """Run acceptance test against synthesized syntactic mutants to measure fault-killing effectiveness."""
     return await asyncio.to_thread(
@@ -491,4 +496,5 @@ async def evaluate_test_against_mutants(
         min_kill_ratio=min_kill_ratio,
         max_mutants=max_mutants,
         timeout_sec=timeout_sec,
+        extra_pythonpaths=extra_pythonpaths,
     )

@@ -19,7 +19,12 @@ from adk_dev_flow.forge_client import BaseGitForge, GitLabClient, get_git_forge
 from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.state_store import ACTIVE_STATUSES, PRE_LOCK_STATUSES, StateStore, is_valid_transition
 from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
-from adk_dev_flow.workflow import execute_workflow_run
+from adk_dev_flow.workflow import (
+    execute_workflow_run,
+    run_isolated_tdd_red_preflight,
+    run_pre_critic_review,
+)
+from adk_dev_flow.worktree_utils import compute_sha256_bytes
 
 
 def parse_epic_into_subtasks(epic_text: str, default_labels: list[str] | None = None) -> list[dict[str, Any]]:
@@ -508,11 +513,83 @@ class FlowService:
             ),
         }
 
-    def flow_lock_spec(self, run_id: str, spec: SpecContract) -> dict[str, Any]:
+    def flow_lock_spec(
+        self,
+        run_id: str,
+        spec: SpecContract,
+        *,
+        strict_prelock: bool | None = None,
+    ) -> dict[str, Any]:
         root, store, _ = self._resolve_context(run_id=run_id)
         run = store.get_run(run_id)
         if not run:
             return {"error": f"未知 run_id: {run_id}"}
+
+        if run["status"] not in PRE_LOCK_STATUSES:
+            return {
+                "error": (
+                    "当前状态不可锁定 Spec"
+                    f"（需处于起草或前置审查阶段 {PRE_LOCK_STATUSES}，实际为 {run['status']}）"
+                )
+            }
+
+        strict = (
+            strict_prelock
+            if strict_prelock is not None
+            else os.environ.get("ADK_STRICT_PRELOCK", "1").strip().lower() not in ("0", "false", "no")
+        )
+        prelock = store.get_prelock_data(run_id)
+
+        # Merge persisted Pre-Lock evidence into SpecContract automatically.
+        if spec.impact_analysis is None and prelock.get("impact_analysis") is not None:
+            spec.impact_analysis = prelock["impact_analysis"]
+        if spec.red_evidence is None and prelock.get("red_evidence") is not None:
+            spec.red_evidence = prelock["red_evidence"]
+        if spec.pre_critic_report is None and prelock.get("pre_critic_report") is not None:
+            spec.pre_critic_report = prelock["pre_critic_report"]
+        if not spec.design_doc and prelock.get("design_doc"):
+            spec.design_doc = prelock["design_doc"]
+
+        # Bait-and-switch protection: if preflight evidence exists, the test locked MUST match it.
+        red = prelock.get("red_evidence") or spec.red_evidence
+        if isinstance(red, dict) and red.get("test_sha256"):
+            expected_sha = str(red["test_sha256"])
+            expected_path = str(red.get("test_path") or spec.acceptance_test_path)
+            actual_sha = compute_sha256_bytes(spec.acceptance_test_code.encode("utf-8"))
+            if expected_path != spec.acceptance_test_path or actual_sha != expected_sha:
+                return {
+                    "error": (
+                        f"Pre-Lock 防篡改拦截：待锁定验收测试 `{spec.acceptance_test_path}` 与已验证红灯记录"
+                        f" (`{expected_path}`) 不一致，请重新执行 flow_preflight_test 与 flow_pre_critic。"
+                    )
+                }
+
+        pre_critic = prelock.get("pre_critic_report") or spec.pre_critic_report
+        if isinstance(pre_critic, dict) and pre_critic.get("approved") is False:
+            issues = pre_critic.get("blocking_issues") or [pre_critic.get("summary") or "未通过"]
+            return {
+                "error": f"Step 3 Pre-Critic 审查未通过，拒绝锁定 Spec: {'; '.join(str(x) for x in issues[:5])}"
+            }
+
+        if strict:
+            if run["status"] != "PRE_CRITIC_REVIEWED" or not (
+                isinstance(pre_critic, dict) and pre_critic.get("approved") is True
+            ):
+                return {
+                    "error": (
+                        "严格 Pre-Lock 门禁拦截：必须依次完成 flow_analyze_impact -> "
+                        "flow_preflight_test -> flow_pre_critic 并通过 Step 3 审查后再锁定 "
+                        f"(当前状态: {run['status']})"
+                    )
+                }
+            if (
+                spec.require_tdd_red
+                and os.environ.get("ADK_SKIP_TDD_RED", "0") != "1"
+                and not (isinstance(red, dict) and red.get("test_sha256"))
+            ):
+                return {
+                    "error": "严格 Pre-Lock 门禁拦截：require_tdd_red=True 时缺少 flow_preflight_test 红灯 SHA-256 证据。"
+                }
 
         # 1. Mutation Verification Gate: Objective verification of test effectiveness.
         # Only valid when baseline already implements the target logic (require_tdd_red=False);
@@ -590,30 +667,9 @@ class FlowService:
                 )
             }
 
-        # Traverse PRE_CRITIC_REVIEWED before locking when coming from design/test stages
-        # (or when an explicit pre_critic_report was supplied from SPEC_DRAFTING).
-        cur_status = run["status"]
-        if cur_status == "SPEC_DRAFTING" and spec.pre_critic_report is not None:
-            if store.transition_run(
-                run_id,
-                expected_statuses=("SPEC_DRAFTING",),
-                new_status="SPEC_DESIGNED",
-                enforce_matrix=True,
-            ):
-                cur_status = "SPEC_DESIGNED"
-
-        if cur_status in ("SPEC_DESIGNED", "TEST_GENERATED"):
-            if store.transition_run(
-                run_id,
-                expected_statuses=("SPEC_DESIGNED", "TEST_GENERATED"),
-                new_status="PRE_CRITIC_REVIEWED",
-                enforce_matrix=True,
-            ):
-                cur_status = "PRE_CRITIC_REVIEWED"
-
         ok = store.transition_run(
             run_id,
-            expected_statuses=(cur_status,),
+            expected_statuses=PRE_LOCK_STATUSES,
             new_status="SPEC_LOCKED",
             enforce_matrix=True,
             spec_json=spec.model_dump_json(),
@@ -672,6 +728,8 @@ class FlowService:
 
         if run_id:
             run = store.get_run(run_id)
+            if run and run["status"] in PRE_LOCK_STATUSES:
+                store.merge_prelock_data(run_id, impact_analysis=result)
             if run and run["status"] == "SPEC_DRAFTING":
                 moved = store.transition_run(
                     run_id,
@@ -721,136 +779,90 @@ class FlowService:
     def flow_preflight_test(
         self, test_path: str, test_code: str, run_id: str | None = None
     ) -> dict[str, Any]:
-        """Pre-flight test runner on baseline repository to verify TDD Red validity."""
-        root, _, _ = self._resolve_context(run_id=run_id)
-        import ast
-        import subprocess
-        import sys
-        from adk_dev_flow.guard import is_path_under, is_protected_path, normalize_relative_path
-        from adk_dev_flow.workflow import _validate_tdd_red_outcome
-        from adk_dev_flow.worktree_utils import resolve_tool_command
-
-        raw_path = (test_path or "").strip()
-        if not raw_path or Path(raw_path).is_absolute():
-            return {
-                "ok": False,
-                "exit_code": 1,
-                "is_pure_semantic_failure": False,
-                "error": f"非法测试路径: `{test_path}`（必须为仓库内相对路径）",
-            }
-        rel_norm = normalize_relative_path(raw_path, root)
-        if not rel_norm:
-            return {
-                "ok": False,
-                "exit_code": 1,
-                "is_pure_semantic_failure": False,
-                "error": f"非法测试路径: `{test_path}`（禁止路径穿越或超出仓库根目录）",
-            }
-        if is_protected_path(rel_norm) or is_path_under(rel_norm, ".adk"):
-            return {
-                "ok": False,
-                "exit_code": 1,
-                "is_pure_semantic_failure": False,
-                "error": f"禁止在受保护路径或系统目录执行预检写入: {rel_norm}",
-            }
-
-        # 1. Syntax check
-        try:
-            ast.parse(test_code, filename=rel_norm)
-        except SyntaxError as exc:
-            return {
-                "ok": False,
-                "exit_code": 1,
-                "is_pure_semantic_failure": False,
-                "error": f"测试代码存在 Python 语法错误 (line {exc.lineno}): {exc.msg}",
-            }
-
-        target_file = (root / rel_norm).resolve()
+        """Pre-flight test runner on baseline repository (isolated worktree when HEAD exists)."""
+        root, store, _ = self._resolve_context(run_id=run_id)
+        target_file = (root / test_path.strip().replace("\\", "/")).resolve()
         file_lock = self._get_preflight_lock(target_file)
-        with file_lock:
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            old_content: bytes | None = None
-            if target_file.is_file():
-                try:
-                    old_content = target_file.read_bytes()
-                except Exception:
-                    old_content = None
+        evidence = run_isolated_tdd_red_preflight(
+            root,
+            test_path=test_path,
+            test_code=test_code,
+            file_lock=file_lock,
+        )
+        if evidence.get("ok") and run_id:
+            run = store.get_run(run_id)
+            if run and run["status"] in PRE_LOCK_STATUSES:
+                store.merge_prelock_data(run_id, red_evidence=evidence)
+            evidence.update(self._record_preflight_status(run_id))
+        return evidence
 
-            target_file.write_text(test_code, encoding="utf-8")
-            try:
-                cmd = resolve_tool_command(
-                    "pytest",
-                    ["-q", str(target_file)],
-                    worktree=root,
-                    repo_root=root,
-                    env_override=os.environ.get("ADK_TDD_RED_CMD") or os.environ.get("ADK_TEST_CMD"),
-                    placeholder_vars={"test_path": rel_norm},
+    async def flow_pre_critic(
+        self,
+        run_id: str,
+        spec: SpecContract,
+        requirement: str = "",
+    ) -> dict[str, Any]:
+        """Step 3 Pre-Lock AI Critic reviewing design_doc, impact, and test contract."""
+        _, store, _ = self._resolve_context(run_id=run_id)
+        run = store.get_run(run_id)
+        if not run:
+            return {"error": f"未知 run_id: {run_id}", "approved": False}
+        if run["status"] not in PRE_LOCK_STATUSES:
+            return {
+                "error": f"仅 Pre-Lock 阶段 {PRE_LOCK_STATUSES} 可执行 Step 3 审查（当前 {run['status']}）",
+                "approved": False,
+            }
+
+        prelock = store.get_prelock_data(run_id)
+        report = await run_pre_critic_review(
+            spec,
+            run_id=run_id,
+            requirement=requirement or spec.summary,
+            impact_analysis=prelock.get("impact_analysis") or spec.impact_analysis,
+            red_evidence=prelock.get("red_evidence") or spec.red_evidence,
+        )
+        store.merge_prelock_data(
+            run_id,
+            pre_critic_report=report,
+            design_doc=spec.design_doc,
+        )
+
+        if report.get("approved"):
+            if run["status"] == "SPEC_DRAFTING":
+                store.transition_run(
+                    run_id,
+                    expected_statuses=("SPEC_DRAFTING",),
+                    new_status="SPEC_DESIGNED",
+                    enforce_matrix=True,
                 )
-                if cmd is None:
-                    cmd = [sys.executable, "-m", "pytest", "-q", str(target_file)]
-
-                proc = subprocess.run(
-                    cmd,
-                    cwd=str(root),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=60,
-                    **no_window_kwargs(),
+            store.transition_run(
+                run_id,
+                expected_statuses=("SPEC_DESIGNED", "TEST_GENERATED", "PRE_CRITIC_REVIEWED"),
+                new_status="PRE_CRITIC_REVIEWED",
+                enforce_matrix=True,
+                last_error_log=f"[Critic] 🧐 Step 3 前置双审通过: {report.get('summary', '')[:200]}",
+            )
+        else:
+            if run["status"] == "PRE_CRITIC_REVIEWED":
+                store.transition_run(
+                    run_id,
+                    expected_statuses=("PRE_CRITIC_REVIEWED",),
+                    new_status="TEST_GENERATED",
+                    enforce_matrix=True,
                 )
-                combined_out = f"{proc.stdout}\n{proc.stderr}"
-                try:
-                    _validate_tdd_red_outcome(
-                        returncode=proc.returncode,
-                        combined_output=combined_out,
-                        cmd=cmd,
-                        test_path=rel_norm,
-                    )
-                    evidence = {
-                        "ok": True,
-                        "exit_code": proc.returncode,
-                        "is_pure_semantic_failure": True,
-                        "assertion_error_summary": combined_out.strip()[-1000:],
-                        "command": " ".join(cmd),
-                    }
-                    if run_id:
-                        evidence.update(self._record_preflight_status(run_id))
-                    return evidence
-                except RuntimeError as err:
-                    return {
-                        "ok": False,
-                        "exit_code": proc.returncode,
-                        "is_pure_semantic_failure": False,
-                        "error": str(err),
-                        "output": combined_out[-1000:],
-                    }
-            except subprocess.TimeoutExpired:
-                return {
-                    "ok": False,
-                    "exit_code": -1,
-                    "is_pure_semantic_failure": False,
-                    "error": "测试执行超时 (>60s)",
-                }
-            except Exception as exc:
-                return {
-                    "ok": False,
-                    "exit_code": -1,
-                    "is_pure_semantic_failure": False,
-                    "error": f"测试执行失败: {exc}",
-                }
-            finally:
-                if old_content is not None:
-                    try:
-                        target_file.write_bytes(old_content)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        target_file.unlink(missing_ok=True)
-                    except Exception:
-                        pass
+            store.update_run(
+                run_id,
+                last_error_log=f"[Critic] ⚠️ Step 3 前置双审未通过: {'; '.join(report.get('blocking_issues') or [])[:500]}",
+            )
+        return {"run_id": run_id, "status": (store.get_run(run_id) or {}).get("status"), **report}
 
-    def flow_lock_spec_from_file(self, run_id: str, spec_file_path: str) -> dict[str, Any]:
+    def flow_lock_spec_from_file(
+        self,
+        run_id: str,
+        spec_file_path: str,
+        *,
+        strict_prelock: bool | None = None,
+    ) -> dict[str, Any]:
         root, _, _ = self._resolve_context(run_id=run_id)
         p = Path(spec_file_path)
         if not p.is_absolute():
@@ -861,7 +873,7 @@ class FlowService:
             spec = SpecContract.from_okf_markdown(p)
         except Exception as exc:
             return {"error": f"OKF 规约文件解析失败: {exc}"}
-        return self.flow_lock_spec(run_id=run_id, spec=spec)
+        return self.flow_lock_spec(run_id=run_id, spec=spec, strict_prelock=strict_prelock)
 
     async def flow_dispatch(self, run_id: str) -> dict[str, Any]:
         root, store, gl = self._resolve_context(run_id=run_id)
@@ -1566,8 +1578,17 @@ def create_mcp_server(
         )
 
     @mcp.tool()
+    async def flow_pre_critic(
+        run_id: str,
+        spec: SpecContract,
+        requirement: str = "",
+    ) -> dict[str, Any]:
+        """Step 3 前置 AI Critic：双审设计方案、影响面与验收测试完整性（防弱断言与投机作弊），不介入 Step 8 交付门禁。"""
+        return await service.flow_pre_critic(run_id=run_id, spec=spec, requirement=requirement)
+
+    @mcp.tool()
     async def flow_dispatch(run_id: str) -> dict[str, Any]:
-        """在后台启动 ADK 2.x Graph Workflow（建 Worktree、隔离编码、审计与验收自愈、Critic 审查、建 MR）。"""
+        """在后台启动 ADK 2.x Graph Workflow（建 Worktree、隔离编码、审计与验收自愈、AST 静态门禁、建 MR）。"""
         return await service.flow_dispatch(run_id=run_id)
 
     @mcp.tool()

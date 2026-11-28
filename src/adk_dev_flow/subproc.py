@@ -148,6 +148,42 @@ def no_window_kwargs() -> dict[str, int]:
     return {}
 
 
+def run_subprocess_sync(
+    cmd: list[str],
+    *,
+    cwd: Path | str | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout_sec: float = 60.0,
+) -> CommandResult:
+    """Synchronous subprocess helper with Windows console suppression."""
+    import subprocess as _sync_sp
+
+    try:
+        proc = _sync_sp.run(  # noqa: adk-ast
+            cmd,
+            cwd=str(cwd) if cwd is not None else None,
+            env=dict(env) if env is not None else None,
+            stdout=_sync_sp.PIPE,
+            stderr=_sync_sp.PIPE,
+            text=True,
+            timeout=timeout_sec,
+            **no_window_kwargs(),
+        )
+        return CommandResult(
+            returncode=proc.returncode,
+            stdout=proc.stdout or "",
+            stderr=proc.stderr or "",
+            timed_out=False,
+        )
+    except _sync_sp.TimeoutExpired:
+        return CommandResult(
+            returncode=-1,
+            stdout="",
+            stderr=f"Command timed out after {timeout_sec}s: {' '.join(cmd[:4])}",
+            timed_out=True,
+        )
+
+
 async def run_subprocess_safe(
     cmd: list[str],
     *,

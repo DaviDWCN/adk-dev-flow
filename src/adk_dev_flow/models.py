@@ -14,6 +14,7 @@ from adk_dev_flow.state_store import RunStatus, StateStore
 
 __all__ = [
     "AtomicTask",
+    "PreCriticReport",
     "ReviewVerdict",
     "RunStatus",
     "SpecContract",
@@ -302,6 +303,17 @@ class SpecContract(BaseModel):
             tasks=tasks,
             design_doc=design_doc,
         )
+
+
+class PreCriticReport(BaseModel):
+    """Structured Step 3 Pre-Lock Critic assessment of design and acceptance tests."""
+
+    approved: bool
+    consistency_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    requirement_coverage: list[str] = Field(default_factory=list)
+    anti_cheat_risk: str = ""
+    blocking_issues: list[str] = Field(default_factory=list)
+    summary: str
 
 
 class ReviewVerdict(BaseModel):

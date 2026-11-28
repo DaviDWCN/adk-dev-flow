@@ -68,7 +68,7 @@ def test_tax_weak():
             require_mutation_gate=True,
         )
 
-        lock_res = self.service.flow_lock_spec(run_id, spec)
+        lock_res = self.service.flow_lock_spec(run_id, spec, strict_prelock=False)
         self.assertIn("error", lock_res, "Must reject lock for weak test")
         self.assertIn("变异测试门禁未通过", lock_res["error"])
         self.assertIn("mutation_report", lock_res)
@@ -117,7 +117,7 @@ def test_non_resident_tax():
             require_mutation_gate=True,
         )
 
-        lock_res = self.service.flow_lock_spec(run_id, spec)
+        lock_res = self.service.flow_lock_spec(run_id, spec, strict_prelock=False)
         self.assertNotIn("error", lock_res, f"Strict test should lock successfully: {lock_res.get('error')}")
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
         self.assertIn("mutation_report", lock_res)

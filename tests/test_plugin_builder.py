@@ -131,7 +131,10 @@ class TestPluginBuilder(unittest.TestCase):
             self.assertTrue((fake_root / "plugin" / "adk-dev-flow" / "plugin.json").is_file())
 
     def test_sync_mcp_tool_schemas(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        import os
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=False):
             custom_dir = Path(tmp) / "custom_mcp"
             written = sync_mcp_tool_schemas(extra_dirs=[custom_dir])
             self.assertTrue(len(written) >= 15)

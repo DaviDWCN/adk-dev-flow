@@ -284,6 +284,15 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         except Exception:
             spec = {}
 
+    prelock: dict[str, Any] = {}
+    if run_data.get("prelock_json"):
+        try:
+            parsed_prelock = json.loads(run_data["prelock_json"])
+            if isinstance(parsed_prelock, dict):
+                prelock = parsed_prelock
+        except Exception:
+            prelock = {}
+
     review: dict[str, Any] | None = None
     if run_data.get("review_json"):
         try:
@@ -336,10 +345,10 @@ def _build_run_payload(run_data: dict[str, Any] | None, repo_name: str) -> dict[
         "require_tdd_red": spec.get("require_tdd_red", True),
         "require_mutation_gate": spec.get("require_mutation_gate", True),
         "mutation_report": spec.get("mutation_report"),
-        "design_doc": spec.get("design_doc", ""),
-        "red_evidence": spec.get("red_evidence"),
-        "pre_critic_report": spec.get("pre_critic_report"),
-        "impact_analysis": spec.get("impact_analysis"),
+        "design_doc": spec.get("design_doc") or prelock.get("design_doc", ""),
+        "red_evidence": spec.get("red_evidence") or prelock.get("red_evidence"),
+        "pre_critic_report": spec.get("pre_critic_report") or prelock.get("pre_critic_report"),
+        "impact_analysis": spec.get("impact_analysis") or prelock.get("impact_analysis"),
         "review": review,
     }
 

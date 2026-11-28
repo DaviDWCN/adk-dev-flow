@@ -21,9 +21,10 @@ flowchart TD
     Marker -->|"Edit/Write 拦截"| Guard["guard.py<br/>(adk-workflow-guard)"]
     DB -->|"Branch<->Run 检查"| Enforce["enforcement.py / enforce_flow.py<br/>(pre-commit / PreToolUse Bash)"]
 
-    User -->|"flow_analyze_impact"| CPG["CodeGraph (.adk/cache/cpg_cache.db)"]
-    User -->|"flow_preflight_test"| Preflight["主仓临时写入->pytest红灯->还原"]
-    User -->|"flow_lock_spec / from_file"| Lock{"SpecContract 校验 &<br/>require_tdd_red=false 时变异测试"}
+    User -->|"flow_analyze_impact"| CPG["CodeGraph (.adk/cache/cpg_cache.db) -> prelock_json"]
+    User -->|"flow_preflight_test"| Preflight["隔离临时Worktree->pytest红灯->SHA-256写入prelock_json"]
+    Preflight -->|"flow_pre_critic / build_prelock_workflow"| PreCritic["Step 3 AI Pre-Critic (审设计+影响面+测试) -> PRE_CRITIC_REVIEWED"]
+    PreCritic -->|"flow_lock_spec / from_file (校验prelock_json + sha256)"| Lock{"SpecContract 校验 &<br/>require_tdd_red=false 时变异测试"}
     Lock -->|"CAS -> SPEC_LOCKED + spec_json"| DB
 
     DB -->|"flow_dispatch / flow_resume"| Prep["prepare_worktree_node<br/>建分支/Worktree + 提交测试/Spec + 可选依赖/红灯"]
@@ -33,16 +34,14 @@ flowchart TD
     Rules[".adk/knowledge/rules/*.md"] -->|"按 paths/tags 路由"| Worker
     Worker -->|"ADK_WORKER_PROVIDER (CodeBuddy CLI / Mock)"| Sandbox["隔离 Worktree (.adk/worktrees/<run_id>)"]
 
-    Sandbox --> Verify["verify_python_node<br/>1.物理Git/Hash审计 2.zero_change 3.Lint/Pytest/回归"]
+    Sandbox --> Verify["verify_python_node<br/>1.物理Git/Hash审计 2.zero_change 3.Lint/Pytest/可选Post-Green变异"]
     Verify -->|"失败且未超限 -> REPAIRING"| DB
     Verify -->|"retry (attempt+1, last_error_log, err_sig)"| Worker
     Verify -->|"零改动 / 同指纹连错 / 超限 -> ESCALATED"| Escalate["escalate_node"]
-    Verify -->|"passed -> REVIEWING"| Publish["publish_mr_node"]
+    Verify -->|"passed -> REVIEWING"| Publish["publish_mr_node (Step 8 纯确定性门禁)"]
 
     Publish -->|"自动 git commit 工作区改动"| AST["audit_ast_diff + DFG 污点 + symbol_alignment"]
-    AST -->|"可选 (ADK_ENABLE_CRITIC=1 / ADK_CRITIC_MODEL)"| Critic["run_readonly_critic_review (locked_test_commit_sha..HEAD)"]
-    Critic --> HardVeto{"enforce_deterministic_verdict_guard<br/>verdict.approved ?"}
-    AST --> HardVeto
+    AST --> HardVeto{"enforce_deterministic_verdict_guard<br/>verdict.approved ?"}
     HardVeto -->|"写入本地 .adk/audit/review_<run_id>.md"| AuditMD[".adk/audit/review_<run_id>.md"]
     HardVeto -->|"False -> ESCALATED (不推远端/不蒸馏)"| DB
     HardVeto -->|"True -> 可选蒸馏(attempt>0) + push + MR/PR"| Forge["GitLab / GitHub Forge & head_sha -> MR_READY"]
@@ -56,7 +55,7 @@ flowchart TD
 
 | 存储/文件 | 写入方 | 读取方 | 承载核心字段与语义 |
 |---|---|---|---|
-| `.adk/workflow.db` (`runs`) | `StateStore` (`mcp_server.py`, `workflow.py`) | `mcp_server.py`, `dashboard.py`, `enforcement.py`, `okf.py` | 流水线唯一状态真源：`run_id`, `status`, `issue_iid`, `spec_json`, `branch`, `worktree_path`, `base_sha`, `head_sha`, `locked_test_sha256`, `locked_test_commit_sha`, `mr_iid`, `mr_url`, `attempt`, `last_error_sig`, `last_error_log`, `review_json`, `human_hint`, `evidence_type`, `updated_at`。 |
+| `.adk/workflow.db` (`runs`) | `StateStore` (`mcp_server.py`, `workflow.py`) | `mcp_server.py`, `dashboard.py`, `enforcement.py`, `okf.py` | 流水线唯一状态真源：`run_id`, `status`, `issue_iid`, `prelock_json`, `spec_json`, `branch`, `worktree_path`, `base_sha`, `head_sha`, `locked_test_sha256`, `locked_test_commit_sha`, `mr_iid`, `mr_url`, `attempt`, `last_error_sig`, `last_error_log`, `review_json`, `human_hint`, `evidence_type`, `updated_at`。 |
 | `.adk/workflow.db` (`attempt_logs`) | `verify_python_node`（每轮校验通过或失败时写入） | `execute_worker_node`（fallback 读取）, `flow_status`, `publish_mr_node`（提取真实错误用于知识蒸馏） | 逐轮物理日志：`attempt`, `err_sig`, `combined_err`, `worker_summary`, `changed_files`, `created_at`。 |
 | `.adk/active_run.json` | `StateStore._sync_active_marker`（每次建单或 `status` 变更自动同步） | `guard.py`, `flow_status`, `flow_unlock` | 活跃锁标记：`run_id`, `status`, `active_run_ids`, `active_runs`；无活跃状态时自动删除。 |
 | `.adk/specs/issue-{iid}.md` / `task-{id6}.md` | `prepare_worktree_node` 与 `publish_mr_node`（`save_and_commit_spec_in_worktree`）；`flow_adopt_finalize`（`AdoptedSpec`） | `flow_lock_spec_from_file`, `okf.py` | OKF `DevSpec` 或 `AdoptedSpec` 规约归档，提交在目标分支中。 |
@@ -73,14 +72,16 @@ flowchart TD
 1. **`flow_init` (`mcp_server.py`)**：
    - 在 `.adk/workflow.db` 写入 `status="SPEC_DRAFTING"`、`evidence_type="pipeline"`（此时 `branch=None`），同步 `.adk/active_run.json`。
    - 尽力安装 `.git/hooks/pre-commit`（L2 登记门禁）。
-2. **`flow_analyze_impact` & `flow_preflight_test` (`mcp_server.py`)**：
-   - `flow_analyze_impact` 通过 `CodeGraph(root)` 计算影响面/骨架；若 `run_id` 处于 `SPEC_DRAFTING`，以 CAS 推进至 `SPEC_DESIGNED`。
-   - `flow_preflight_test` 对 `test_path` 加路径锁后**临时写入主仓库**，通过 `resolve_tool_command("pytest", ...)` 执行真实红灯预检（`_validate_tdd_red_outcome`），`finally` 还原或删除测试文件；若传入 `run_id`，推进至 `TEST_GENERATED`。
-   - **重要边界**：上述两个工具只推进 `runs.status`，**不会自动将 `impact_analysis` 或 `red_evidence` 写入数据库**；只有调用方在 `flow_lock_spec` 中显式放入 `SpecContract`，看板（`dashboard.py`）和归档 Markdown 才会展示这些字段。
+2. **`flow_analyze_impact` & `flow_preflight_test` & `flow_pre_critic`（Pre-Lock 证据链与 ADK Pre-Lock 子图）**：
+   - `flow_analyze_impact` 通过 `CodeGraph(root)` 计算影响面/骨架，**自动合并写入 `runs.prelock_json`**；若 `run_id` 处于 `SPEC_DRAFTING`，以 CAS 推进至 `SPEC_DESIGNED`。
+   - `flow_preflight_test` 通过 `run_isolated_tdd_red_preflight` 在**隔离临时 Git Worktree**（仓库尚无 `HEAD` 提交时回退至加锁主仓）执行真实红灯预检，计算 `test_sha256` 并写入 `runs.prelock_json`，推进至 `TEST_GENERATED`。
+   - `flow_pre_critic`（Step 3）调用只读 `run_pre_critic_review`（`CodeBuddyLlm` + `PreCriticReport` Schema）审查设计、影响面与验收测试完整性，结果写入 `runs.prelock_json`；通过时 CAS 推进至 `PRE_CRITIC_REVIEWED`（`highlight_critic=True`），拒绝则拦截锁定。上述 3 步亦可通过 ADK `build_prelock_workflow` / `execute_prelock_workflow` 作为整段 ADK 状态机子图执行并停在 Step 4 HITL 前。
 3. **`flow_lock_spec` / `flow_lock_spec_from_file` (`mcp_server.py`, `models.py`)**：
+   - 自动将 `runs.prelock_json` 中的 `impact_analysis`、`red_evidence`、`pre_critic_report` 与 `design_doc` 合并入 `SpecContract`。
+   - **防篡改与严格 Pre-Lock 门禁**：若存在 `red_evidence`，强制校验锁定测试的 `acceptance_test_path` 与 `sha256(acceptance_test_code)` 完全匹配；`ADK_STRICT_PRELOCK=1`（默认）时拒绝跳过 `flow_analyze_impact -> flow_preflight_test -> flow_pre_critic` 的直跳锁定（内部测试可用 `strict_prelock=False`）。
    - `SpecContract` 静态校验：规范化路径、禁止 `..` 与受保护路径、`ast.parse` 语法检查、校验 `task.target_files` 均位于 `allowed_paths` 且不等于 `acceptance_test_path`。
-   - **变异测试门禁**：仅当 `require_mutation_gate=True`、未预先传入已通过的 `mutation_report` 且 `require_tdd_red=False` 时触发 `evaluate_test_against_mutants_sync`（使用 `ADK_PYTHON` 或当前解释器），击杀率 `< 85%` 直接拒绝锁定。
-   - **OKF 解析边界**：`flow_lock_spec_from_file` 调用 `SpecContract.from_okf_markdown()`，解析 YAML Frontmatter 与正文里的 `issue_iid`、`title`、`summary`、`target_branch`、`base_branch`、`branch`、`allowed_paths`、`acceptance_test_path`、`acceptance_test_code`、`require_tdd_red`、`require_mutation_gate`、`spike`、`extra_dependencies`、`tasks` 与 `design_doc`（优先读 `meta.design_doc`，否则提取正文 `## Architecture Design` 区块）；运行时证据字段（`impact_analysis`、`red_evidence`、`pre_critic_report`、`mutation_report`）仍需通过 `flow_lock_spec` 的结构化 `SpecContract` 传入。
+   - **变异测试门禁**：`require_tdd_red=False` 时在锁前对全目标 `.py` 校验击杀率 `>= 85%`；`require_tdd_red=True` 且开启 `ADK_POST_GREEN_MUTATION=1` 时则在 `verify_python_node` 绿灯后执行确定性变异检验。
+   - **OKF 解析边界**：`flow_lock_spec_from_file` 调用 `SpecContract.from_okf_markdown()`，解析 YAML Frontmatter 与正文里的 `issue_iid`、`title`、`summary`、`target_branch`、`base_branch`、`branch`、`allowed_paths`、`acceptance_test_path`、`acceptance_test_code`、`require_tdd_red`、`require_mutation_gate`、`spike`、`extra_dependencies`、`tasks` 与 `design_doc`（优先读 `meta.design_doc`，否则提取正文 `## Architecture Design` 区块）；前置证据字段由 `prelock_json` 自动合并。
    - CAS 推进至 `SPEC_LOCKED` 并将完整 `spec.model_dump_json()` 写入 `runs.spec_json`。
 
 ### 3.2 阶段 B：沙箱搭建与锁定基线（`prepare_worktree_node`）
@@ -126,7 +127,7 @@ flowchart TD
 
 1. 自动 `git add -A -- . :(exclude).adk/cache` 并提交尚未提交的沙箱改动，随后将 `status` 转入 `REVIEWING`。
 2. 对 `diff_base..HEAD`（`locked_test_commit_sha or base_sha`）中的所有变更 `.py` 文件逐个运行 `audit_ast_diff`（破坏性公共签名、语法错误、危险节点、函数/方法级 DFG 污点可达性）与 `audit_symbol_alignment`；内部异常严格 fail-closed 置 `ESCALATED`。
-3. 审查裁决优先级：若注入了 `node_input` 中的 `approved` 结果则先过 `enforce_deterministic_verdict_guard`；否则若存在 `ast_findings` 直接由 AST 硬门禁一票否决；否则若开启 `ADK_ENABLE_CRITIC=1` 或配置了 `ADK_CRITIC_MODEL`，调用 `run_readonly_critic_review`（读取 `diff_base..HEAD` 即 `locked_test_commit_sha..HEAD` Diff，按 `ADK_MAX_DIFF_CHARS` 分文件预算截断；CLI 异常时默认 `ADK_CRITIC_FAIL_CLOSED=0` 降级放行，设为 `1` 则阻断）。
+3. 审查裁决优先级（Step 8 纯确定性，不再调用 AI Critic）：若测试桩注入了 `node_input` 中的 `approved` 结果则先过 `enforce_deterministic_verdict_guard`；否则若存在 `ast_findings` 直接由 AST+DFG+Symbol 硬门禁一票否决；否则确定性签发 `approved=True`（AI Critic 已专职前移至 Step 3 `flow_pre_critic`）。
 4. 本地落盘并提交 `.adk/specs/` 与 `.adk/audit/review_{run_id}.md`。
 5. **发布前安全不变量**：在检查 `if not verdict.approved` 通过前，**绝不**执行 `save_distilled_knowledge`、**绝不**执行 `git push`、**绝不**创建 MR/PR，直接转入 `ESCALATED`。
 6. 仅当 `verdict.approved == True` 时：若 `attempt > 0` 则从 `attempt_logs` 提取已解决的真实失败日志蒸馏写入 `.adk/knowledge/rules/learned_{run_id[:8]}.md`；当 Forge 启用时推送分支并创建/更新 PR/MR 与评审评论；记录分支 `head_sha` 后 CAS 转入 `MR_READY`（供 `flow_close_issue` 做祖先合入校验）。
@@ -135,16 +136,15 @@ flowchart TD
 
 ## 4. 源码核查结果与已知残留边界（2026-11-28）
 
-以下 4 项问题已于 `2026-11-28` 完成 TDD 加固修复（见 `tests/test_data_flow_optimizations.py`）：
+以下核心优化已于 `2026-11-28` 完成 TDD 加固（见 [test_data_flow_optimizations.py](file:///d:/workspace/adk-dev-flow/tests/test_data_flow_optimizations.py) 与 [test_prelock_workflow_and_critic.py](file:///d:/workspace/adk-dev-flow/tests/test_prelock_workflow_and_critic.py)）：
 - `verify_python_node` 的 `zero_change` 检测已过滤 `_is_ephemeral_runtime_artifact`，不受 worktree 内 `.adk/cache/cpg_cache.db` 干扰；
 - `verify_python_node` 已优先将物理 `audit.touched_files` 回写至 `attempt_logs.changed_files` 与下一轮 `Repair Hint`；
 - `SpecContract.to_okf_markdown` / `from_okf_markdown` 与 `okf.DevSpecMeta` 已支持 `spike`、`require_mutation_gate` 与 `design_doc` 无损往返；
-- `publish_mr_node` 调用 `run_readonly_critic_review` 已切换为 `locked_test_commit_sha..HEAD`（即 `diff_base`）。
+- Pre-Lock 已实现 `runs.prelock_json` 证据持久化、隔离临时 Worktree 红灯预检、Step 3 `flow_pre_critic` 与 ADK 子图 `build_prelock_workflow`，`flow_lock_spec` 默认强制校验 Pre-Lock 流程与 `test_sha256`；
+- Step 8 (`publish_mr_node`) 已移除 AI Critic 随机阻塞并保持 100% 确定性（`lifecycle_highlight_critic` 仅在 Step 3 点亮），支持 `ADK_POST_GREEN_MUTATION=1` 在绿灯后对变动 `.py` 执行确定性变异校验。
 
 当前仍保留的边界：
-1. **`flow_analyze_impact` / `flow_preflight_test` 不自动写库证据字段**：`impact_analysis` 与 `red_evidence` 仅当调用方将其写入 `SpecContract` 传给 `flow_lock_spec` 时才会持久化至 `runs.spec_json`。
-2. **只读 Critic 默认降级策略**：默认 `ADK_CRITIC_FAIL_CLOSED=0` 在 CLI 异常时降级放行（`approved=True, confidence=0.7`）；生产强阻断需显式设为 `1`。
-3. **其它已核实小边界**：
+1. **已核实小边界**：
    - Resume 路径（`prepare_worktree_node` `else` 分支）会回填缺失的 `base_sha` 与 `locked_test_sha256`，但不会回填缺失的 `locked_test_commit_sha`。
    - `enforcement.py` / `enforce_flow.py` 拦截提示语写的参数名为 `flow_adopt(issue=..., branch=...)`，而 MCP 工具实际签名参数名为 `issue_iid`（`mcp_server.py:1521`）。
    - `ADK_PYTHON` 仅用于 `mutation.py` 变异沙箱，不作用于 `verify_python_node` 与 `flow_preflight_test`。

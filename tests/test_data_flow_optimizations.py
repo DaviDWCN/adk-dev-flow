@@ -99,7 +99,7 @@ class TestCoreDataFlowOptimizations(unittest.IsolatedAsyncioTestCase):
             require_mutation_gate=False,
             tasks=[AtomicTask(id="T1", title="Solve", description="Return 42", target_files=["src/mypkg/__init__.py"])],
         )
-        self.service.flow_lock_spec(run_id, spec)
+        self.service.flow_lock_spec(run_id, spec, strict_prelock=False)
 
         env = {
             "ADK_WORKER_PROVIDER": "codebuddy",
@@ -150,7 +150,7 @@ else:
             require_mutation_gate=False,
             tasks=[AtomicTask(id="T1", title="Solve", description="Return 42", target_files=["src/mypkg/__init__.py"])],
         )
-        self.service.flow_lock_spec(run_id, spec)
+        self.service.flow_lock_spec(run_id, spec, strict_prelock=False)
 
         env = {
             "ADK_WORKER_PROVIDER": "codebuddy",
@@ -211,7 +211,9 @@ else:
         self.assertTrue(report["valid"], report["errors"])
         self.assertEqual(report["warnings"], [], f"Unexpected OKF warnings: {report['warnings']}")
 
-        lock_res = self.service.flow_lock_spec_from_file(run_id, ".adk/specs/issue-42.md")
+        lock_res = self.service.flow_lock_spec_from_file(
+            run_id, ".adk/specs/issue-42.md", strict_prelock=False
+        )
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
 
         stored = SpecContract.model_validate_json(self.store.get_run(run_id)["spec_json"])
@@ -219,14 +221,14 @@ else:
         self.assertFalse(stored.require_mutation_gate)
         self.assertIn("Use deterministic Redis Lua script.", stored.design_doc or "")
 
-    async def test_publish_mr_critic_receives_worker_diff_base_not_setup_commits(self) -> None:
-        """publish_mr_node must pass locked_test_commit_sha (worker diff boundary) to read-only Critic."""
+    async def test_publish_mr_is_deterministic_without_calling_ai_critic(self) -> None:
+        """publish_mr_node uses locked_test_commit_sha..HEAD for deterministic AST gate and never invokes AI Critic."""
         run_id = "critic-base-01"
         self.store.create_run(run_id, issue_iid=12)
         spec = SpecContract(
             issue_iid=12,
-            title="Critic diff range",
-            summary="Critic must inspect diff since locked_test_commit_sha",
+            title="Deterministic Step 8",
+            summary="Step 8 must rely on AST/DFG gate since locked_test_commit_sha without calling AI Critic",
             allowed_paths=["src/mypkg/"],
             acceptance_test_path="tests/test_solve.py",
             acceptance_test_code="def test_solve():\n    assert True\n",
@@ -250,17 +252,18 @@ else:
         _git(wt, "commit", "-m", "feat: return 42")
         self.store.update_run(run_id, status="VERIFYING")
 
-        captured: dict[str, str] = {}
+        called = False
 
         async def spy_critic(*, spec, worktree, base_sha, ast_findings, run_id):
-            captured["base_sha"] = base_sha
-            return {"approved": True, "confidence": 1.0, "summary": "OK", "blocking_issues": []}
+            nonlocal called
+            called = True
+            return {"approved": False, "confidence": 1.0, "summary": "Should not run", "blocking_issues": ["Blocked"]}
 
         with (
-            patch.dict(os.environ, {"ADK_ENABLE_CRITIC": "1"}),
+            patch.dict(os.environ, {"ADK_ENABLE_CRITIC": "1", "ADK_CRITIC_FAIL_CLOSED": "1"}),
             patch("adk_dev_flow.workflow.run_readonly_critic_review", side_effect=spy_critic),
         ):
             res = await publish_node(prep_out)
 
+        self.assertFalse(called)
         self.assertEqual(res["status"], "MR_READY")
-        self.assertEqual(captured.get("base_sha"), prep_out["locked_test_commit_sha"])

@@ -198,10 +198,10 @@ class TestFlowServiceLifecycle(unittest.IsolatedAsyncioTestCase):
             fake_spec.allowed_paths = ["src"]
             fake_spec.model_dump_json.return_value = json.dumps({"title": "X"})
 
-            lock_res = svc.flow_lock_spec(run_id, fake_spec)
+            lock_res = svc.flow_lock_spec(run_id, fake_spec, strict_prelock=False)
             self.assertEqual(lock_res["status"], "SPEC_LOCKED")
             # Re-locking from SPEC_LOCKED must fail
-            self.assertIn("error", svc.flow_lock_spec(run_id, fake_spec))
+            self.assertIn("error", svc.flow_lock_spec(run_id, fake_spec, strict_prelock=False))
 
             # 3) flow_dispatch CAS prevents duplicate runs
             started = asyncio.Event()

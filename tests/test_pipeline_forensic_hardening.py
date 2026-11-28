@@ -216,7 +216,7 @@ else:
                 )
             ],
         )
-        lock1 = service.flow_lock_spec(run1, spec1)
+        lock1 = service.flow_lock_spec(run1, spec1, strict_prelock=False)
         self.assertEqual(lock1["status"], "SPEC_LOCKED")
 
         env_shim = {
@@ -288,7 +288,7 @@ else:
                 )
             ],
         )
-        service.flow_lock_spec(run2, spec2)
+        service.flow_lock_spec(run2, spec2, strict_prelock=False)
         mr_count_before = len(forge.mr_calls)
         env_veto = {**env_shim, "SHIM_MODE": "ast_veto"}
         with patch.dict(os.environ, env_veto, clear=False):
@@ -371,7 +371,7 @@ print(json.dumps({"changed_files": ["src/to_delete.py"], "summary": "deleted"}))
             require_mutation_gate=False,
             tasks=[AtomicTask(id="T1", title="Delete", description="Delete", target_files=["src/to_delete.py"])],
         )
-        service.flow_lock_spec(run_id, spec)
+        service.flow_lock_spec(run_id, spec, strict_prelock=False)
 
         env_del = {
             "ADK_WORKER_PROVIDER": "codebuddy",

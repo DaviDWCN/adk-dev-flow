@@ -295,7 +295,7 @@ def factory(base_val: int):
             ],
             require_mutation_gate=False,
         )
-        lock_res = service.flow_lock_spec("run-ast-1", spec)
+        lock_res = service.flow_lock_spec("run-ast-1", spec, strict_prelock=False)
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
         self.assertIn("ast_impact", lock_res)
         self.assertIn("src/pkg/consumer.py", lock_res["ast_impact"]["impacted_production_files"])

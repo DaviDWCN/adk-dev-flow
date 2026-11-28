@@ -87,7 +87,7 @@ def test_dummy():
             require_mutation_gate=False,
         )
 
-        lock_res = self.service.flow_lock_spec(run_id, spec)
+        lock_res = self.service.flow_lock_spec(run_id, spec, strict_prelock=False)
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
 
         # Simulate fault: create a half-baked worktree directory (corrupted, no .git file)

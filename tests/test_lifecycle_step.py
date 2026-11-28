@@ -57,14 +57,19 @@ class TestLifecycleStep(unittest.TestCase):
         self.assertEqual(payload["step"], 4)
         self.assertFalse(payload["highlight_critic"])
 
-    def test_reviewing_stays_on_step_six_and_lights_critic(self) -> None:
+    def test_reviewing_stays_on_step_six_without_ai_critic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = StateStore(Path(tmp))
             store.create_run("run-review")
             store.update_run("run-review", status="REVIEWING")
             payload = _build_run_payload(store.get_run("run-review"), "repo")
+            store.create_run("run-pre-critic")
+            store.update_run("run-pre-critic", status="PRE_CRITIC_REVIEWED")
+            pre_payload = _build_run_payload(store.get_run("run-pre-critic"), "repo")
         self.assertEqual(payload["step"], 6)
-        self.assertTrue(payload["highlight_critic"])
+        self.assertFalse(payload["highlight_critic"])
+        self.assertEqual(pre_payload["step"], 3)
+        self.assertTrue(pre_payload["highlight_critic"])
 
     def test_verifying_is_in_flight_and_recovered(self) -> None:
         self.assertIn("VERIFYING", ACTIVE_STATUSES)

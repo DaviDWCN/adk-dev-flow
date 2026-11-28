@@ -140,7 +140,7 @@ def test_process_order():
                 )
             ],
         )
-        lock_res = self.service.flow_lock_spec("run_interm_1", spec)
+        lock_res = self.service.flow_lock_spec("run_interm_1", spec, strict_prelock=False)
         self.assertNotIn("error", lock_res)
         self.assertEqual(lock_res["status"], "SPEC_LOCKED")
 

@@ -21,14 +21,14 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
 2. **架构设计与 AST 影响面推导（设计阶段）**：
    - 调用 `flow_analyze_impact(target_paths=[...], include_skeletons=True)` 自动推导目标文件的爆炸半径、关联生产文件、受影响测试集以及上游调用点（callers），提取目标文件类型骨架。
    - 梳理详细架构设计、接口契约变更（函数/Pydantic/类签名）、原子任务分解 `tasks` 与最小安全白名单 `allowed_paths`。
-3. **测试合成与基线真实红灯预检（测试阶段）**：
+3. **测试合成与隔离基线真实红灯预检（测试阶段）**：
    - 依据设计契约与 AST 影响面骨架，独立编写严密的 Pytest 验收测试用例。
-   - **基线客观红灯验证**：调用 `flow_preflight_test(test_path=..., test_code=..., run_id=...)` 在基线分支上预先执行该用例。
-   - 系统将客观证明该测试以纯净的业务断言（AssertionError）失败，坚决拦截空断言假测试（exit=0）与语法/Fixture假红灯。
-4. **前置双审与强制人工门禁（Critic & HITL Gate）**：
-   - 审查设计方案与测试用例的契约一致性，确保业务需求完全被有效断言覆盖且未越过 AST 边界。
-   - 向用户清晰展示方案全貌：**📐 设计方案 + 🧪 验收测试 + 🔴 真实红灯报错摘要 + 🧐 前置审查报告**。
-   - **未获确认前，严禁调用锁定工具。** 用户明确确认后调用 `flow_lock_spec` 或 `flow_lock_spec_from_file` 冻结规约与防篡改签名（注意：`flow_analyze_impact` 与 `flow_preflight_test` 只推进 `runs.status`，如需在看板展示 `design_doc`/`impact_analysis`/`red_evidence`/`pre_critic_report`，需在 `flow_lock_spec` 的 `SpecContract` 中一并传入）。
+   - **基线客观红灯验证**：调用 `flow_preflight_test(test_path=..., test_code=..., run_id=...)`，系统在隔离临时 Worktree（无提交时回退加锁主仓）预先执行该用例并记录 `test_sha256` 至 `prelock_json`，推进状态至 `TEST_GENERATED`。
+   - 系统客观证明该测试以纯净业务断言（AssertionError）失败，坚决拦截空断言假测试（exit=0）与语法/Fixture假红灯。
+4. **前置双审与强制人工门禁（Step 3 Pre-Critic & Step 4 HITL Gate）**：
+   - 调用 `flow_pre_critic(run_id=..., spec=...)`（或 `execute_prelock_workflow`）执行 Step 3 只读 AI Critic 审查：核验设计方案、影响面与验收测试完整性（防弱断言与常量硬编码偷渡），通过后推进状态至 `PRE_CRITIC_REVIEWED`。
+   - 向用户清晰展示方案全貌：**📐 设计方案 + 🧪 验收测试 + 🔴 真实红灯报错摘要 + 🧐 Step 3 Pre-Critic 审查报告**。
+   - **未获确认且未通过 Pre-Lock 门禁前，严禁调用锁定工具。** 用户明确确认后调用 `flow_lock_spec` 或 `flow_lock_spec_from_file` 冻结规约与防篡改签名（系统自动合并 `prelock_json` 证据并校验 `test_sha256` 未被篡改）。
 5. **派发后台隔离沙箱施工（工兵 Agent）**：
    - 锁定成功后调用 `flow_dispatch(run_id=...)`，系统拉起后台独立 Git Worktree。
    - 测试文件被物理 Hash 锁定（只读隔离区，严禁工兵修改测试），工兵仅在 `allowed_paths` 白名单内受控编码。
@@ -36,10 +36,10 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
 6. **确定性机器硬门禁与定向自愈循环**：
    - 自动执行三重机器硬检验：Worktree 物理审计（防篡改、防 `--assume-unchanged` / `--skip-worktree` 与越权，隔离 `.adk/cache/` 等运行时缓存并基于 `locked_test_commit_sha..HEAD` 审计变更与校验零改动立即熔断） ➔ Ruff 规范扫描（仅针对 `allowed_paths` 内现存目标） ➔ Pytest 验收测试（`PYTHONPATH` 优先指向隔离 worktree）。
    - 若校验失败，提取报错指纹并写入 `attempt_logs` 进入定向自愈（最多 3 轮，受 `ADK_MAX_RETRIES` 控制）；若连续两轮出现相同报错指纹或触发 `zero_change` 则自动熔断为 `ESCALATED`。
-7. **确定性 Step 8 门禁与交付保护（只读审查 & PR 缓冲）**：
-   - **AST + DFG 静态硬门禁一票否决**：基于 `locked_test_commit_sha..HEAD` 审计工兵实际 `.py` 变更，若检测到破坏向后兼容的公共签名变更、危险动态代码（eval/exec）或函数/方法作用域内 DFG 污点可达性违规，系统硬编码阻断批准，大模型无权推翻。
-   - **Critic 只读顾问**：启用 `ADK_ENABLE_CRITIC=1` 或设置 `ADK_CRITIC_MODEL` 时（默认关闭；CLI 异常默认降级放行，设 `ADK_CRITIC_FAIL_CLOSED=1` 则阻断），独立 Critic AI 以零写工具只读权限审查 `locked_test_commit_sha..HEAD` Git Diff 并生成 OKF Review 审计文档。
-   - **拦截前置与 PR/MR 安全交付**：被 AST 门禁或 Critic 否决的分支在本地写入 `.adk/audit/review_{run_id}.md` 并置为 `ESCALATED`，**绝不**推送远程分支或创建 MR/PR，也不蒸馏经验规则；仅在审查通过时才对 `attempt > 0` 轮次从 `attempt_logs` 蒸馏规则并推送分支生成 PR/MR。
+7. **确定性 Step 8 硬门禁与交付保护（零 AI 不确定性阻断）**：
+   - **AST + DFG + Symbol 静态硬门禁一票否决**：基于 `locked_test_commit_sha..HEAD` 审计工兵实际 `.py` 变更，若检测到破坏向后兼容的公共签名变更、危险动态代码（eval/exec）、函数/方法作用域内 DFG 污点可达性违规或缺失 `target_symbols`，系统硬编码阻断批准；该阶段不再调用 AI Critic（AI Critic 已专职前置至 Step 3）。
+   - **可选 Post-Green 确定性变异测试**：若开启 `ADK_POST_GREEN_MUTATION=1`，`require_tdd_red=True` 的任务在验收测试变绿后会以确定性 AST 变异击杀率校验测试是否真正约束了实现逻辑。
+   - **拦截前置与 PR/MR 安全交付**：被 AST 门禁否决的分支在本地写入 `.adk/audit/review_{run_id}.md` 并置为 `ESCALATED`，**绝不**推送远程分支或创建 MR/PR，也不蒸馏经验规则；仅在审查通过时才对 `attempt > 0` 轮次从 `attempt_logs` 蒸馏规则并推送分支生成 PR/MR。
 8. **追踪、实时动画看板监控与人工介入**：
    - 可调用 `flow_status(run_id=...)` 汇报当前阶段、重试轮次、Worktree 状态与错误摘要。
    - **像素工坊动态看板**：随时可调用 `flow_dashboard(run_id=...)` 在 IDE 侧边栏（Aux Pane）或对话内联打开 6 大卡通工位实时动画，或提示用户在终端运行 `adk-dev-flow-dashboard --open` 开启独立 Web 监控。
