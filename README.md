@@ -100,7 +100,7 @@ adk-dev-flow-init . --with-ci
 
 ## 3. 完整的 MCP 工具一览
 
-服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 21 个原子工具：
+服务注册于 Antigravity / CodeBuddy / Cursor 等 IDE，提供以下 22 个原子工具：
 
 | 工具名 | 类型 | 说明 |
 | :--- | :--- | :--- |
@@ -112,8 +112,9 @@ adk-dev-flow-init . --with-ci
 | `flow_lock_spec` | 异步 | 静态校验并锁定 Pydantic 结构化 Spec 契约与验收测试（包含 AST 影响面推导反馈；`require_tdd_red=False` 时对全部目标 `.py` 文件执行变异测试门禁；后台线程池运行，不阻塞事件循环） |
 | `flow_lock_spec_from_file` | 异步 | **直接读取 OKF Markdown 文件**（`.adk/specs/*.md`）并锁定规约（后台线程池运行） |
 | `flow_analyze_impact` | 异步 | **使用 AST 代码图谱静态分析目标代码影响面（爆炸半径）**，推导关联生产代码、调用方与受影响测试，可提取骨架与推进 `SPEC_DESIGNED` |
-| `flow_preflight_test` | 异步 | **在隔离临时 Worktree（无 HEAD 时回退加锁主仓）预检验收测试**，生成 SHA-256 红灯证据并自动落库（拦截假通过与路径越权，同路径串行加锁且不阻塞事件循环） |
-| `flow_pre_critic` | 异步 | **Step 3 前置 AI Critic 双审**：在签字锁定前只读审查设计、影响面与验收测试完整性（防弱断言与投机作弊），通过后推进至 `PRE_CRITIC_REVIEWED` |
+| `flow_preflight_test` | 异步 | **在隔离临时 Worktree（无 HEAD 时回退加锁主仓）预检验收测试**，支持 `extra_dependencies` 隔离安装依赖，生成 SHA-256 红灯证据并自动落库（拦截假通过与路径越权，同路径串行加锁且重跑后自动作废旧 Step 3 批文） |
+| `flow_pre_critic` | 异步 | **Step 3 前置 AI Critic 双审**：在签字锁定前只读审查设计、影响面与验收测试完整性（绑定 `test_sha256` 与 `spec_digest`），通过后推进至 `PRE_CRITIC_REVIEWED` |
+| `flow_pre_critic_from_file` | 异步 | **Step 3 前置 AI Critic（OKF 文件版）**：直接读取 `.adk/specs/*.md` 执行前置双审，与 `flow_lock_spec_from_file` 配套使用 |
 | `flow_dispatch` | 异步 | CAS 状态转移，后台拉起隔离 Worktree、执行工兵实现、TDD 校验与确定性 Step 8 AST/DFG 门禁 |
 | `flow_status` | 同步 | 实时查询执行阶段、重试轮次、报错日志及 GitLab / GitHub PR/MR 链接 |
 | `flow_dashboard` | 同步 | **打开像素工坊卡通工位动画看板**（支持 Antigravity 侧边栏/对话内嵌与实时渲染） |
@@ -314,7 +315,7 @@ uv run python scripts/benchmark_models.py
 
 ## 9. 🧩 Agent 插件化与自动化同步 (Antigravity Plugin)
 
-为了任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 21 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
+为了任何 Agent（如 Antigravity 主智能体、Subagent、Swarm Worker 或外部 Coding Agent）都能开箱即用调用本项目的 22 个 FastMCP 原子工具、AST 图谱分析以及确定的工程规约，项目支持标准插件化打包与**双轨自动同步**：
 
 ### 插件结构
 - `plugin.json`：定义插件元数据、版本号、提示词建议（Suggested Prompts）与 256x256 矢量徽标；CodeBuddy 要求的清单同时写入 `.codebuddy-plugin/plugin.json`。

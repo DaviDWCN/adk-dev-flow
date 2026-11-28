@@ -329,6 +329,18 @@ class StateStore:
         self.update_run(run_id, prelock_json=json.dumps(merged, ensure_ascii=False))
         return merged
 
+    def clear_prelock_keys(self, run_id: str, *keys: str) -> dict[str, Any]:
+        """Remove specified keys from runs.prelock_json and return updated dict."""
+        merged = self.get_prelock_data(run_id)
+        changed = False
+        for k in keys:
+            if k in merged:
+                merged.pop(k, None)
+                changed = True
+        if changed:
+            self.update_run(run_id, prelock_json=json.dumps(merged, ensure_ascii=False))
+        return merged
+
     def log_attempt(
         self,
         run_id: str,

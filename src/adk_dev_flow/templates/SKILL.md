@@ -23,10 +23,10 @@ description: 当用户说“用标准流程/确定性流程开发”、“按流
    - 梳理详细架构设计、接口契约变更（函数/Pydantic/类签名）、原子任务分解 `tasks` 与最小安全白名单 `allowed_paths`。
 3. **测试合成与隔离基线真实红灯预检（测试阶段）**：
    - 依据设计契约与 AST 影响面骨架，独立编写严密的 Pytest 验收测试用例。
-   - **基线客观红灯验证**：调用 `flow_preflight_test(test_path=..., test_code=..., run_id=...)`，系统在隔离临时 Worktree（无提交时回退加锁主仓）预先执行该用例并记录 `test_sha256` 至 `prelock_json`，推进状态至 `TEST_GENERATED`。
+   - **基线客观红灯验证**：调用 `flow_preflight_test(test_path=..., test_code=..., run_id=..., extra_dependencies=...)`，系统在隔离临时 Worktree（无提交时回退加锁主仓；支持安装 `extra_dependencies`）预先执行该用例并记录 `test_sha256` 至 `prelock_json`，作废旧的 `pre_critic_report` 并推进/重置状态至 `TEST_GENERATED`。
    - 系统客观证明该测试以纯净业务断言（AssertionError）失败，坚决拦截空断言假测试（exit=0）与语法/Fixture假红灯。
 4. **前置双审与强制人工门禁（Step 3 Pre-Critic & Step 4 HITL Gate）**：
-   - 调用 `flow_pre_critic(run_id=..., spec=...)`（或 `execute_prelock_workflow`）执行 Step 3 只读 AI Critic 审查：核验设计方案、影响面与验收测试完整性（防弱断言与常量硬编码偷渡），通过后推进状态至 `PRE_CRITIC_REVIEWED`。
+   - 调用 `flow_pre_critic(run_id=..., spec=...)` 或 `flow_pre_critic_from_file(run_id=..., spec_file_path=...)`（或 `execute_prelock_workflow`）执行 Step 3 只读 AI Critic 审查：核验设计方案、影响面与验收测试完整性（防弱断言与常量硬编码偷渡），绑定 `test_sha256` 与 `spec_digest` 后推进状态至 `PRE_CRITIC_REVIEWED`。
    - 向用户清晰展示方案全貌：**📐 设计方案 + 🧪 验收测试 + 🔴 真实红灯报错摘要 + 🧐 Step 3 Pre-Critic 审查报告**。
    - **未获确认且未通过 Pre-Lock 门禁前，严禁调用锁定工具。** 用户明确确认后调用 `flow_lock_spec` 或 `flow_lock_spec_from_file` 冻结规约与防篡改签名（系统自动合并 `prelock_json` 证据并校验 `test_sha256` 未被篡改）。
 5. **派发后台隔离沙箱施工（工兵 Agent）**：

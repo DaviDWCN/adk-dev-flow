@@ -62,7 +62,7 @@ class TestFixesP1Part1(unittest.TestCase):
         self.assertIn("影响面", desc)
         self.assertIn("src/auth", desc)
         self.assertIn("pyjwt", desc)
-        self.assertIn("独立 Critic", desc)
+        self.assertIn("Step 8 确定性静态门禁", desc)
 
 
 if __name__ == "__main__":

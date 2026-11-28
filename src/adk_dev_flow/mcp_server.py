@@ -20,11 +20,12 @@ from adk_dev_flow.models import ReviewVerdict, SpecContract
 from adk_dev_flow.state_store import ACTIVE_STATUSES, PRE_LOCK_STATUSES, StateStore, is_valid_transition
 from adk_dev_flow.subproc import no_window_kwargs, run_subprocess_safe
 from adk_dev_flow.workflow import (
+    compute_spec_prelock_digest,
     execute_workflow_run,
     run_isolated_tdd_red_preflight,
     run_pre_critic_review,
 )
-from adk_dev_flow.worktree_utils import compute_sha256_bytes
+from adk_dev_flow.worktree_utils import compute_sha256_bytes, matches_test_code_sha256
 
 
 def parse_epic_into_subtasks(epic_text: str, default_labels: list[str] | None = None) -> list[dict[str, Any]]:
@@ -555,8 +556,9 @@ class FlowService:
         if isinstance(red, dict) and red.get("test_sha256"):
             expected_sha = str(red["test_sha256"])
             expected_path = str(red.get("test_path") or spec.acceptance_test_path)
-            actual_sha = compute_sha256_bytes(spec.acceptance_test_code.encode("utf-8"))
-            if expected_path != spec.acceptance_test_path or actual_sha != expected_sha:
+            if expected_path != spec.acceptance_test_path or not matches_test_code_sha256(
+                spec.acceptance_test_code, expected_sha
+            ):
                 return {
                     "error": (
                         f"Pre-Lock 防篡改拦截：待锁定验收测试 `{spec.acceptance_test_path}` 与已验证红灯记录"
@@ -570,6 +572,25 @@ class FlowService:
             return {
                 "error": f"Step 3 Pre-Critic 审查未通过，拒绝锁定 Spec: {'; '.join(str(x) for x in issues[:5])}"
             }
+        if isinstance(pre_critic, dict) and pre_critic.get("approved") is True:
+            expected_pc_test_sha = pre_critic.get("test_sha256")
+            if expected_pc_test_sha and not matches_test_code_sha256(
+                spec.acceptance_test_code, str(expected_pc_test_sha)
+            ):
+                return {
+                    "error": (
+                        "Step 3 Pre-Critic 审查已失效：待锁定验收测试与上次 Pre-Critic 审查不一致，"
+                        "请重新执行 flow_preflight_test 与 flow_pre_critic。"
+                    )
+                }
+            expected_spec_digest = pre_critic.get("spec_digest")
+            if expected_spec_digest and compute_spec_prelock_digest(spec) != expected_spec_digest:
+                return {
+                    "error": (
+                        "Step 3 Pre-Critic 审查已失效：Spec 设计或任务契约在审查后被修改，"
+                        "请重新执行 flow_pre_critic。"
+                    )
+                }
 
         if strict:
             if run["status"] != "PRE_CRITIC_REVIEWED" or not (
@@ -742,7 +763,7 @@ class FlowService:
         return result
 
     def _record_preflight_status(self, run_id: str) -> dict[str, Any]:
-        """Move a drafting run to TEST_GENERATED. Leave any later status untouched."""
+        """Move a Pre-Lock drafting or previously reviewed run to TEST_GENERATED."""
         _, store, _ = self._resolve_context(run_id=run_id)
         run = store.get_run(run_id)
         if not run:
@@ -752,7 +773,12 @@ class FlowService:
             }
         moved = store.transition_run(
             run_id,
-            expected_statuses=("SPEC_DRAFTING", "SPEC_DESIGNED", "TEST_GENERATED"),
+            expected_statuses=(
+                "SPEC_DRAFTING",
+                "SPEC_DESIGNED",
+                "TEST_GENERATED",
+                "PRE_CRITIC_REVIEWED",
+            ),
             new_status="TEST_GENERATED",
             enforce_matrix=True,
         )
@@ -763,7 +789,7 @@ class FlowService:
             "status": run["status"],
             "status_error": (
                 f"预检通过，但运行处于 {run['status']}，未改写状态。"
-                "TEST_GENERATED 只允许从起草或设计阶段进入。"
+                "TEST_GENERATED 只允许从 Pre-Lock 起草/设计/前置审查阶段进入。"
             ),
         }
 
@@ -777,7 +803,11 @@ class FlowService:
             return lock
 
     def flow_preflight_test(
-        self, test_path: str, test_code: str, run_id: str | None = None
+        self,
+        test_path: str,
+        test_code: str,
+        run_id: str | None = None,
+        extra_dependencies: list[str] | None = None,
     ) -> dict[str, Any]:
         """Pre-flight test runner on baseline repository (isolated worktree when HEAD exists)."""
         root, store, _ = self._resolve_context(run_id=run_id)
@@ -788,13 +818,28 @@ class FlowService:
             test_path=test_path,
             test_code=test_code,
             file_lock=file_lock,
+            extra_dependencies=extra_dependencies or (),
         )
         if evidence.get("ok") and run_id:
             run = store.get_run(run_id)
             if run and run["status"] in PRE_LOCK_STATUSES:
+                store.clear_prelock_keys(run_id, "pre_critic_report", "prelock_error")
                 store.merge_prelock_data(run_id, red_evidence=evidence)
             evidence.update(self._record_preflight_status(run_id))
         return evidence
+
+    def _load_spec_from_file(self, run_id: str, spec_file_path: str) -> tuple[SpecContract | None, str | None]:
+        """Resolve an OKF Markdown spec path relative to the project root and parse it."""
+        root, _, _ = self._resolve_context(run_id=run_id)
+        p = Path(spec_file_path)
+        if not p.is_absolute():
+            p = (root / p).resolve()
+        if not p.is_file():
+            return None, f"规约文件未找到: {spec_file_path} (resolved: {p})"
+        try:
+            return SpecContract.from_okf_markdown(p), None
+        except Exception as exc:
+            return None, f"OKF 规约文件解析失败: {exc}"
 
     async def flow_pre_critic(
         self,
@@ -828,6 +873,7 @@ class FlowService:
         )
 
         if report.get("approved"):
+            store.clear_prelock_keys(run_id, "prelock_error")
             if run["status"] == "SPEC_DRAFTING":
                 store.transition_run(
                     run_id,
@@ -843,6 +889,8 @@ class FlowService:
                 last_error_log=f"[Critic] 🧐 Step 3 前置双审通过: {report.get('summary', '')[:200]}",
             )
         else:
+            issues_str = "; ".join(report.get("blocking_issues") or [report.get("summary") or "未通过"])
+            store.merge_prelock_data(run_id, prelock_error=f"Step 3 Pre-Critic 未通过: {issues_str}")
             if run["status"] == "PRE_CRITIC_REVIEWED":
                 store.transition_run(
                     run_id,
@@ -852,9 +900,21 @@ class FlowService:
                 )
             store.update_run(
                 run_id,
-                last_error_log=f"[Critic] ⚠️ Step 3 前置双审未通过: {'; '.join(report.get('blocking_issues') or [])[:500]}",
+                last_error_log=f"[Critic] ⚠️ Step 3 前置双审未通过: {issues_str[:500]}",
             )
         return {"run_id": run_id, "status": (store.get_run(run_id) or {}).get("status"), **report}
+
+    async def flow_pre_critic_from_file(
+        self,
+        run_id: str,
+        spec_file_path: str,
+        requirement: str = "",
+    ) -> dict[str, Any]:
+        """Step 3 Pre-Lock AI Critic loading SpecContract from an OKF Markdown file."""
+        spec, err = self._load_spec_from_file(run_id, spec_file_path)
+        if spec is None:
+            return {"error": err or "规约解析失败", "approved": False}
+        return await self.flow_pre_critic(run_id=run_id, spec=spec, requirement=requirement)
 
     def flow_lock_spec_from_file(
         self,
@@ -863,16 +923,9 @@ class FlowService:
         *,
         strict_prelock: bool | None = None,
     ) -> dict[str, Any]:
-        root, _, _ = self._resolve_context(run_id=run_id)
-        p = Path(spec_file_path)
-        if not p.is_absolute():
-            p = (root / p).resolve()
-        if not p.is_file():
-            return {"error": f"规约文件未找到: {spec_file_path} (resolved: {p})"}
-        try:
-            spec = SpecContract.from_okf_markdown(p)
-        except Exception as exc:
-            return {"error": f"OKF 规约文件解析失败: {exc}"}
+        spec, err = self._load_spec_from_file(run_id, spec_file_path)
+        if spec is None:
+            return {"error": err or "规约解析失败"}
         return self.flow_lock_spec(run_id=run_id, spec=spec, strict_prelock=strict_prelock)
 
     async def flow_dispatch(self, run_id: str) -> dict[str, Any]:
@@ -1567,14 +1620,18 @@ def create_mcp_server(
 
     @mcp.tool()
     async def flow_preflight_test(
-        test_path: str, test_code: str, run_id: str | None = None
+        test_path: str,
+        test_code: str,
+        run_id: str | None = None,
+        extra_dependencies: list[str] | None = None,
     ) -> dict[str, Any]:
-        """在当前基线代码上预检执行验收测试，客观判定是否属于纯净有效的 TDD 红灯（排除空测试通过与语法/Fixture假红灯）。"""
+        """在当前基线代码上预检执行验收测试，客观判定是否属于纯净有效的 TDD 红灯（排除空测试通过与语法/Fixture假红灯），支持额外沙盒依赖安装。"""
         return await asyncio.to_thread(
             service.flow_preflight_test,
             test_path=test_path,
             test_code=test_code,
             run_id=run_id,
+            extra_dependencies=extra_dependencies,
         )
 
     @mcp.tool()
@@ -1585,6 +1642,19 @@ def create_mcp_server(
     ) -> dict[str, Any]:
         """Step 3 前置 AI Critic：双审设计方案、影响面与验收测试完整性（防弱断言与投机作弊），不介入 Step 8 交付门禁。"""
         return await service.flow_pre_critic(run_id=run_id, spec=spec, requirement=requirement)
+
+    @mcp.tool()
+    async def flow_pre_critic_from_file(
+        run_id: str,
+        spec_file_path: str,
+        requirement: str = "",
+    ) -> dict[str, Any]:
+        """Step 3 前置 AI Critic（从 OKF Markdown 规约文件读取 SpecContract），与 flow_lock_spec_from_file 配套使用。"""
+        return await service.flow_pre_critic_from_file(
+            run_id=run_id,
+            spec_file_path=spec_file_path,
+            requirement=requirement,
+        )
 
     @mcp.tool()
     async def flow_dispatch(run_id: str) -> dict[str, Any]:

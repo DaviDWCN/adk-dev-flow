@@ -38,6 +38,7 @@ from adk_dev_flow.worktree_utils import (
     resolve_tool_command,
     sanitize_worktree_state,
     sync_worktree_dependencies,
+    sync_worktree_dependencies_sync,
 )
 
 def get_max_diff_chars() -> int:
@@ -203,7 +204,11 @@ def _format_mr_description(
     lint_exit = verif.get("lint_exit", 0)
     audit_passed = verif.get("audit_passed", True)
 
-    status_label = "APPROVED (通过)" if verdict.approved else "CHANGES_REQUESTED (需要修改)"
+    verdict_label = (
+        "PASSED (物理测试、工作区审计与 AST/DFG 静态门禁通过)"
+        if verdict.approved
+        else "BLOCKED (Step 8 确定性门禁未通过)"
+    )
     audit_status = (
         "PASSED (无白名单外越权变更，未篡改锁定测试)"
         if audit_passed
@@ -222,8 +227,8 @@ def _format_mr_description(
     verif_lines.extend(
         [
             f"- **物理沙箱与 Worktree 审计**: `{audit_status}`",
-            f"- **独立 Critic 审查门禁**: `{status_label}` (置信度: `{verdict.confidence}`)",
-            f"- **Critic 审查摘要**: {verdict.summary}",
+            f"- **Step 8 确定性静态门禁**: `{verdict_label}`",
+            f"- **门禁摘要**: {verdict.summary}",
         ]
     )
     parts.append("## 验证执行记录 (Verification Performed)\n" + "\n".join(verif_lines))
@@ -376,6 +381,22 @@ def parse_pre_critic_report_dict(raw_output: Any) -> dict[str, Any]:
     ).model_dump()
 
 
+def compute_spec_prelock_digest(spec: SpecContract) -> str:
+    """Compute canonical SHA-256 digest binding Pre-Lock Step 3 Critic review to the spec contract."""
+    canonical = {
+        "title": spec.title,
+        "summary": spec.summary,
+        "design_doc": (spec.design_doc or "").strip(),
+        "allowed_paths": list(spec.allowed_paths),
+        "acceptance_test_path": spec.acceptance_test_path,
+        "acceptance_test_code": spec.acceptance_test_code.replace("\r\n", "\n").strip(),
+        "require_tdd_red": spec.require_tdd_red,
+        "extra_dependencies": list(spec.extra_dependencies),
+        "tasks": [t.model_dump() for t in spec.tasks],
+    }
+    return compute_sha256_bytes(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+
+
 async def run_pre_critic_review(
     spec: SpecContract,
     *,
@@ -385,13 +406,16 @@ async def run_pre_critic_review(
     red_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Step 3 Pre-Lock AI Critic: review design, impact alignment, and anti-cheat test strength."""
+    test_sha256 = compute_sha256_bytes(spec.acceptance_test_code.encode("utf-8"))
+    spec_digest = compute_spec_prelock_digest(spec)
+
     provider_type = os.environ.get("ADK_WORKER_PROVIDER", "").strip().lower()
     has_cli_override = bool(
         (os.environ.get("CODEBUDDY_BIN") or "").strip()
         or (os.environ.get("CODEBUDDY_BIN_ARGS") or "").strip()
     )
     if provider_type == "mock" and not has_cli_override:
-        return PreCriticReport(
+        out = PreCriticReport(
             approved=True,
             consistency_score=1.0,
             requirement_coverage=[f"{t.id}: {t.title}" for t in spec.tasks],
@@ -399,6 +423,9 @@ async def run_pre_critic_review(
             blocking_issues=[],
             summary=f"Step 3 Pre-Critic (Mock) 审查通过: {spec.title}",
         ).model_dump()
+        out["test_sha256"] = test_sha256
+        out["spec_digest"] = spec_digest
+        return out
 
     tasks_md = "\n".join(
         f"- [{t.id}] {t.title}: {t.description} (targets={t.target_files}, symbols={t.target_symbols})"
@@ -445,9 +472,9 @@ async def run_pre_critic_review(
                 last_text = "\n".join(
                     p.text for p in resp.content.parts if getattr(p, "text", None)
                 )
-        return parse_pre_critic_report_dict(last_text)
+        out = parse_pre_critic_report_dict(last_text)
     except Exception as exc:
-        return PreCriticReport(
+        out = PreCriticReport(
             approved=False,
             consistency_score=0.0,
             requirement_coverage=[],
@@ -455,6 +482,9 @@ async def run_pre_critic_review(
             blocking_issues=[f"[{run_id}] Step 3 Pre-Critic 执行失败: {exc}"],
             summary=f"Step 3 Pre-Critic 调用失败 (fail-closed): {exc}",
         ).model_dump()
+    out["test_sha256"] = test_sha256
+    out["spec_digest"] = spec_digest
+    return out
 
 
 def run_isolated_tdd_red_preflight(
@@ -464,6 +494,7 @@ def run_isolated_tdd_red_preflight(
     *,
     file_lock: Any = None,
     timeout_sec: float = 60.0,
+    extra_dependencies: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Run baseline TDD Red preflight in an isolated temporary Git worktree when HEAD exists.
 
@@ -528,6 +559,16 @@ def run_isolated_tdd_red_preflight(
         has_head = False
 
     def _exec_pytest(run_dir: Path, used_isolated_wt: bool) -> dict[str, Any]:
+        if extra_dependencies:
+            dep_ok, dep_msg = sync_worktree_dependencies_sync(run_dir, root, extra_dependencies)
+            if not dep_ok:
+                return {
+                    "ok": False,
+                    "exit_code": -1,
+                    "is_pure_semantic_failure": False,
+                    "error": f"预检安装增量依赖失败: {dep_msg}",
+                }
+
         target_file = (run_dir / rel_norm).resolve()
         target_file.parent.mkdir(parents=True, exist_ok=True)
         target_file.write_text(test_code, encoding="utf-8")
@@ -665,9 +706,9 @@ def run_isolated_tdd_red_preflight(
 
 
 def _format_critic_note(run_id: str, verdict: ReviewVerdict, attempt: int) -> str:
-    status_label = "APPROVED" if verdict.approved else "CHANGES_REQUESTED (Draft)"
+    status_label = "APPROVED" if verdict.approved else "BLOCKED (Step 8)"
     lines = [
-        f"### ADK Critic 独立审查报告 (`{run_id}`)",
+        f"### ADK Step 8 确定性门禁报告 (`{run_id}`)",
         f"- 结论: **{status_label}**",
         f"- 修复轮次: `{attempt}`",
         f"- 摘要: {verdict.summary}",
@@ -1127,21 +1168,31 @@ def build_dev_workflow(
                 if worktree.exists():
                     shutil.rmtree(worktree, ignore_errors=True)
                     await _git(["worktree", "prune"], repo_root)
-                res = await _git(
-                    ["worktree", "add", "-b", branch, str(worktree), "HEAD"],
+                branch_exists = await _git(
+                    ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
                     repo_root,
                 )
-                if res.returncode != 0:
-                    if worktree.exists():
-                        shutil.rmtree(worktree, ignore_errors=True)
-                        await _git(["worktree", "prune"], repo_root)
-                    # If branch already exists from a prior interrupted attempt, checkout existing branch
+                if branch_exists.returncode == 0:
+                    # Prior interrupted attempt left the branch around; attach existing branch cleanly.
                     res = await _git(
                         ["worktree", "add", str(worktree), branch],
                         repo_root,
                     )
+                else:
+                    res = await _git(
+                        ["worktree", "add", "-b", branch, str(worktree), "HEAD"],
+                        repo_root,
+                    )
                     if res.returncode != 0:
-                        raise RuntimeError(f"创建 Git Worktree 失败: {res.stderr.strip()}")
+                        if worktree.exists():
+                            shutil.rmtree(worktree, ignore_errors=True)
+                            await _git(["worktree", "prune"], repo_root)
+                        res = await _git(
+                            ["worktree", "add", str(worktree), branch],
+                            repo_root,
+                        )
+                if res.returncode != 0:
+                    raise RuntimeError(f"创建 Git Worktree 失败: {res.stderr.strip()}")
 
             # Record the exact base commit SHA BEFORE adding the locked acceptance test.
             base_res = await _git(["rev-parse", "HEAD"], worktree)
@@ -1194,6 +1245,26 @@ def build_dev_workflow(
                 test_file = worktree / spec.acceptance_test_path
                 if test_file.is_file():
                     locked_test_sha256 = compute_file_sha256(test_file)
+            if not locked_test_commit_sha:
+                for commit_prefix in (
+                    "docs(spec): append OKF specification",
+                    "test: lock acceptance test",
+                ):
+                    ltc_res = await _git(
+                        [
+                            "log",
+                            "-n",
+                            "1",
+                            "--format=%H",
+                            "--fixed-strings",
+                            f"--grep={commit_prefix}",
+                        ],
+                        worktree,
+                    )
+                    candidate = ltc_res.stdout.strip() if ltc_res.returncode == 0 else ""
+                    if candidate:
+                        locked_test_commit_sha = candidate
+                        break
 
         _transition_or_update(
             store,
@@ -1836,30 +1907,43 @@ def build_dev_workflow(
             pass
 
         audit_file_rel = f".adk/audit/review_{run_id}.md"
+        audit_file = worktree / ".adk" / "audit" / f"review_{run_id}.md"
+        audit_file.parent.mkdir(parents=True, exist_ok=True)
+        provenance = {
+            "base_sha": run.get("base_sha") or "",
+            "locked_test_commit_sha": run.get("locked_test_commit_sha") or "",
+            "attempt": attempt,
+            "generator": "adk-dev-flow:delivery",
+        }
+        audit_content = verdict.to_okf_markdown(
+            run_id=run_id,
+            provenance=provenance,
+            raw_report=_format_critic_note(run_id, verdict, attempt),
+        )
         try:
-            audit_file = worktree / ".adk" / "audit" / f"review_{run_id}.md"
-            audit_file.parent.mkdir(parents=True, exist_ok=True)
-            provenance = {
-                "base_sha": run.get("base_sha") or "",
-                "locked_test_commit_sha": run.get("locked_test_commit_sha") or "",
-                "attempt": attempt,
-                "generator": "adk-dev-flow:delivery",
-            }
-            audit_content = verdict.to_okf_markdown(
-                run_id=run_id,
-                provenance=provenance,
-                raw_report=_format_critic_note(run_id, verdict, attempt),
-            )
             audit_file.write_text(audit_content, encoding="utf-8")
+        except Exception as exc:
+            err_msg = f"写入 Step 8 审计文件失败 ({audit_file_rel}): {exc}"
+            store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
+            return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
+
+        head_probe = await _git(["rev-parse", "--verify", "--quiet", "HEAD"], worktree)
+        if head_probe.returncode == 0:
             add_res = await _git(["add", "-f", "--", audit_file_rel], worktree)
-            if add_res.returncode == 0:
-                await _git(
-                    ["commit", "-m", f"docs(audit): append OKF delivery record for {run_id}"],
-                    worktree,
-                )
-        except Exception:
-            # Audit file committing failure should not fail the overall pipeline
-            pass
+            if add_res.returncode != 0:
+                err_msg = f"git add Step 8 审计文件失败 ({audit_file_rel}): {add_res.stderr.strip()}"
+                store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
+                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
+            commit_res = await _git(
+                ["commit", "-m", f"docs(audit): append OKF delivery record for {run_id}"],
+                worktree,
+            )
+            if commit_res.returncode != 0 and "nothing to commit" not in (
+                commit_res.stdout + commit_res.stderr
+            ).lower():
+                err_msg = f"提交 Step 8 审计文件失败 ({audit_file_rel}): {commit_res.stderr.strip()}"
+                store.update_run(run_id, status="ESCALATED", last_error_log=err_msg)
+                return {"run_id": run_id, "status": "ESCALATED", "error": err_msg}
 
         # Formal Safety Invariant: Status MUST NOT become MR_READY unless verdict.approved is strictly True!
         # Check approval BEFORE distilling knowledge or pushing to remote so rejected branches never hit origin.
@@ -1909,6 +1993,12 @@ def build_dev_workflow(
         except Exception:
             pass
 
+        # Record branch tip before pushing so partial-success (push ok, MR API failed) preserves head_sha.
+        head_sha: str | None = None
+        head_res = await _git(["rev-parse", "HEAD"], worktree)
+        if head_res.returncode == 0:
+            head_sha = head_res.stdout.strip() or None
+
         if gl.enabled:
             push_res = await _git(["push", "-u", "origin", branch], worktree)
             if push_res.returncode != 0:
@@ -1921,14 +2011,30 @@ def build_dev_workflow(
                 verdict,
                 verification=verification_state.get("record"),
             )
-            mr = await asyncio.to_thread(
-                gl.create_or_update_mr,
-                source_branch=branch,
-                target_branch=spec.target_branch,
-                title=spec.title,
-                description=desc,
-                draft=False,
-            )
+            try:
+                mr = await asyncio.to_thread(
+                    gl.create_or_update_mr,
+                    source_branch=branch,
+                    target_branch=spec.target_branch,
+                    title=spec.title,
+                    description=desc,
+                    draft=False,
+                )
+            except Exception as mr_exc:
+                tip_short = head_sha[:12] if head_sha else "HEAD"
+                err_msg = f"远端分支 {branch} 已推送 (tip={tip_short})，但创建 PR/MR 失败: {mr_exc}"
+                store.update_run(
+                    run_id,
+                    status="ESCALATED",
+                    head_sha=head_sha,
+                    last_error_log=err_msg,
+                )
+                return {
+                    "run_id": run_id,
+                    "status": "ESCALATED",
+                    "head_sha": head_sha,
+                    "error": err_msg,
+                }
             mr_iid, mr_url = mr["iid"], mr["web_url"]
 
             try:
@@ -1940,13 +2046,6 @@ def build_dev_workflow(
             except Exception:
                 # MR note failure should not invalidate an already-published MR.
                 pass
-
-        # Record the branch tip so flow_close_issue can verify the merge landed
-        # even after the worktree and branch are cleaned up (fail-closed close).
-        head_sha: str | None = None
-        head_res = await _git(["rev-parse", "HEAD"], worktree)
-        if head_res.returncode == 0:
-            head_sha = head_res.stdout.strip() or None
 
         _transition_or_update(
             store,
@@ -2099,11 +2198,13 @@ def build_prelock_workflow(
                 repo_root,
                 spec.acceptance_test_path,
                 spec.acceptance_test_code,
+                extra_dependencies=spec.extra_dependencies,
             )
             if not red_res.get("ok"):
                 err_msg = str(red_res.get("error") or "TDD 红灯预检失败")
                 node_input["error"] = err_msg
                 node_input["red_evidence"] = red_res
+                store.merge_prelock_data(run_id, red_evidence=red_res, prelock_error=err_msg)
                 store.update_run(run_id, last_error_log=f"[Tester] ❌ {err_msg[-1500:]}")
                 return Event(output=node_input, route="failed")
             red_evidence = red_res
@@ -2117,6 +2218,7 @@ def build_prelock_workflow(
                 "skipped_red": True,
             }
 
+        store.clear_prelock_keys(run_id, "pre_critic_report", "prelock_error")
         store.merge_prelock_data(run_id, red_evidence=red_evidence)
         _transition_or_update(
             store,
@@ -2139,6 +2241,7 @@ def build_prelock_workflow(
         )
         store.merge_prelock_data(run_id, pre_critic_report=pre_critic)
         if pre_critic.get("approved"):
+            store.clear_prelock_keys(run_id, "prelock_error")
             _transition_or_update(
                 store,
                 run_id,
@@ -2153,6 +2256,15 @@ def build_prelock_workflow(
             }
 
         issues_str = "; ".join(pre_critic.get("blocking_issues") or [pre_critic.get("summary", "")])
+        store.merge_prelock_data(run_id, prelock_error=f"Step 3 Pre-Critic 未通过: {issues_str}")
+        run_now = store.get_run(run_id)
+        if run_now and run_now.get("status") == "PRE_CRITIC_REVIEWED":
+            _transition_or_update(
+                store,
+                run_id,
+                expected_statuses=("PRE_CRITIC_REVIEWED",),
+                new_status="TEST_GENERATED",
+            )
         store.update_run(
             run_id,
             last_error_log=f"[Critic] ⚠️ Step 3 前置双审未通过: {issues_str[:1000]}",
@@ -2165,11 +2277,13 @@ def build_prelock_workflow(
         }
 
     async def prelock_failed_node(node_input: dict[str, Any]) -> dict[str, Any]:
+        err_msg = str(node_input.get("error") or "Pre-Lock 预检失败")
+        store.merge_prelock_data(run_id, prelock_error=err_msg)
         run_now = store.get_run(run_id)
         return {
             "run_id": run_id,
             "status": (run_now or {}).get("status", "SPEC_DESIGNED"),
-            "error": str(node_input.get("error") or "Pre-Lock 预检失败"),
+            "error": err_msg,
         }
 
     return Workflow(
@@ -2199,6 +2313,7 @@ async def execute_prelock_workflow(
     if not run:
         return {"error": f"未知 run_id: {run_id}"}
 
+    store.clear_prelock_keys(run_id, "prelock_error")
     wf = build_prelock_workflow(repo_root, store, run_id=run_id)
     session_service = InMemorySessionService()
     session_id = f"prelock-{run_id}-{uuid_suffix()}"
@@ -2218,13 +2333,16 @@ async def execute_prelock_workflow(
 
     final_run = store.get_run(run_id) or {}
     prelock = store.get_prelock_data(run_id)
-    return {
+    result: dict[str, Any] = {
         "run_id": run_id,
         "status": final_run.get("status"),
         "impact_analysis": prelock.get("impact_analysis"),
         "red_evidence": prelock.get("red_evidence"),
         "pre_critic_report": prelock.get("pre_critic_report"),
     }
+    if prelock.get("prelock_error"):
+        result["error"] = prelock["prelock_error"]
+    return result
 
 
 def uuid_suffix() -> str:

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from adk_dev_flow.guard import is_path_under, is_protected_path, strip_dot_slash
-from adk_dev_flow.subproc import run_subprocess_safe
+from adk_dev_flow.subproc import run_subprocess_safe, run_subprocess_sync
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _DURATION_RE = re.compile(r"\bin\s+\d+(?:\.\d+)?s\b")
@@ -42,6 +42,17 @@ def get_preferred_python_interpreter() -> str:
 
 def compute_sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def matches_test_code_sha256(test_code: str, expected_sha256: str) -> bool:
+    """Compare test_code against expected SHA-256, tolerating OKF Markdown EOF newline trimming."""
+    normalized = test_code.replace("\r\n", "\n").strip()
+    candidates = (
+        test_code.encode("utf-8"),
+        normalized.encode("utf-8"),
+        f"{normalized}\n".encode("utf-8"),
+    )
+    return any(compute_sha256_bytes(candidate) == expected_sha256 for candidate in candidates)
 
 
 def compute_file_sha256(path: Path) -> str:
@@ -233,12 +244,12 @@ def resolve_tool_command(
     return [tool_name, *default_args]
 
 
-async def sync_worktree_dependencies(
+def sync_worktree_dependencies_sync(
     worktree: Path,
     repo_root: Path,
     extra_deps: Sequence[str] = (),
 ) -> tuple[bool, str]:
-    """Sync dependencies for the worktree environment when extra_dependencies are specified."""
+    """Synchronously install extra_dependencies into the target worktree or repo venv."""
     if not extra_deps:
         return True, ""
 
@@ -248,7 +259,7 @@ async def sync_worktree_dependencies(
         venv_dir = worktree / ".venv" if (worktree / ".venv").is_dir() else repo_root / ".venv"
         if venv_dir.is_dir():
             cmd.extend(["--python", str(venv_dir)])
-        res = await run_subprocess_safe(cmd, cwd=worktree, timeout_sec=120.0)
+        res = run_subprocess_sync(cmd, cwd=worktree, timeout_sec=120.0)
         if res.returncode == 0:
             return True, f"uv pip install 成功安装增量依赖: {list(extra_deps)}"
         return False, f"uv pip install 失败 (exit={res.returncode}): {res.stderr}"
@@ -256,12 +267,23 @@ async def sync_worktree_dependencies(
     python_bin = _find_venv_bin(worktree, "python") or _find_venv_bin(repo_root, "python")
     if python_bin:
         cmd = [str(python_bin), "-m", "pip", "install", *extra_deps]
-        res = await run_subprocess_safe(cmd, cwd=worktree, timeout_sec=120.0)
+        res = run_subprocess_sync(cmd, cwd=worktree, timeout_sec=120.0)
         if res.returncode == 0:
             return True, f"pip install 成功安装增量依赖: {list(extra_deps)}"
         return False, f"pip install 失败 (exit={res.returncode}): {res.stderr}"
 
     return True, "未检测到虚拟环境或 uv，跳过依赖同步"
+
+
+async def sync_worktree_dependencies(
+    worktree: Path,
+    repo_root: Path,
+    extra_deps: Sequence[str] = (),
+) -> tuple[bool, str]:
+    """Sync dependencies for the worktree environment when extra_dependencies are specified."""
+    import asyncio
+
+    return await asyncio.to_thread(sync_worktree_dependencies_sync, worktree, repo_root, extra_deps)
 
 
 @dataclass
